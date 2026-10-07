@@ -181,7 +181,7 @@ def test_run_input_falls_back_to_sniff(tmp_path):
         name = "sniffable"
         kinds = {"audio"}
         def match(self, url): return False
-        def sniff(self, url): return "sniff.example/feed" in url
+        def sniff(self, url): return "sniff.example" in url
         def resolve(self, q):
             return ItemRef(platform="sniffable", item_id="F1", url=q, sub_id="")
         def list_items(self, ref): return [ref]
@@ -196,7 +196,7 @@ def test_run_input_falls_back_to_sniff(tmp_path):
     reg.register(SniffAdapter)
     try:
         out = str(tmp_path / "out")
-        res = run_input("https://sniff.example/feed", RunOptions(out_root=out))
+        res = run_input("https://sniff.example/audio/123", RunOptions(out_root=out))
         assert isinstance(res, tuple) and res[0] == "ok"
     finally:
         reg.reset()
