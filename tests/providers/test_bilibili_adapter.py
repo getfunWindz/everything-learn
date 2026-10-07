@@ -88,5 +88,6 @@ def test_fetch_content_maps_subtitle_result():
 def test_fetch_media_url():
     a = _adapter()
     item = a.list_items(a.resolve("BV1GJ411x7h7"))[0]
-    assert a.fetch_media_url(item) == "http://audio/stream"
-    assert a.fetch_media_url(item, lowest=True) == "http://video/low"
+    assert a.fetch_media_url(item) == "http://audio/stream"                       # 默认音频（Whisper）
+    assert a.fetch_media_url(item, media="video") == "http://video/high"          # 画面流（复检抽帧）
+    assert a.fetch_media_url(item, media="video", lowest=True) == "http://video/low"

@@ -4,6 +4,7 @@ import requests
 
 from core.adapter import SearchNeeded
 from core.models import ContentResult, ItemMeta, ItemRef
+from core.registry import register
 
 BASE = "https://api.bilibili.com"
 HEADERS = {
@@ -444,13 +445,21 @@ def resolve_input(text: str) -> VideoSpec:
 
 # ---------------- 适配器（SourceAdapter 实现） ----------------
 
+@register
 class BilibiliAdapter:
     name = "bilibili"
     kinds = {"video"}
 
     def __init__(self, client=None):
-        self.client = client or ApiClient()
+        self._client = client
         self.lang = None          # 字幕语言（流水线按 CLI 参数注入）
+
+    @property
+    def client(self):
+        """惰性创建 ApiClient（import/注册时不联网）"""
+        if self._client is None:
+            self._client = ApiClient()
+        return self._client
 
     def match(self, url: str) -> bool:
         if not url:
@@ -501,8 +510,8 @@ class BilibiliAdapter:
             segments=[{"start": l.start, "end": l.end, "text": l.content} for l in res.lines],
             reason=res.reason)
 
-    def fetch_media_url(self, ref, lowest: bool = False):
-        """lowest=True → 画面流（复检抽帧）；否则 → 音频流（Whisper）"""
-        if lowest:
-            return self.client.get_video_url(ref.item_id, ref.extra["cid"], lowest=True)
+    def fetch_media_url(self, ref, media: str = "audio", lowest: bool = False):
+        """media=video → 画面流（复检抽帧，lowest 省带宽）；audio → 音频流（Whisper）"""
+        if media == "video":
+            return self.client.get_video_url(ref.item_id, ref.extra["cid"], lowest=lowest)
         return self.client.get_audio_url(ref.item_id, ref.extra["cid"])

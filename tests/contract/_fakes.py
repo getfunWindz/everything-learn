@@ -20,5 +20,5 @@ class FakeAdapter:
     def fetch_content(self, ref):
         return None
 
-    def fetch_media_url(self, ref, lowest=False):
+    def fetch_media_url(self, ref, media="audio", lowest=False):
         return None

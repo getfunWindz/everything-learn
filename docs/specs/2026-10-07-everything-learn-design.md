@@ -51,7 +51,7 @@ class SourceAdapter(Protocol):
     def list_items(self, ref: ItemRef) -> list[ItemRef]: ...  # 多P/列表展开（单项返回 [ref]）
     def fetch_meta(self, ref: ItemRef) -> ItemMeta: ...  # 标题/作者/时长/日期/统计
     def fetch_content(self, ref: ItemRef) -> ContentResult: ...  # timeline / document（含分级状态）
-    def fetch_media_url(self, ref: ItemRef, lowest: bool = False) -> str | None  # 音视频直链（无则 None）
+    def fetch_media_url(self, ref: ItemRef, media: str = "audio", lowest: bool = False) -> str | None  # 音/视频直链（无则 None）
 ```
 
 ### 3.3 目录骨架
