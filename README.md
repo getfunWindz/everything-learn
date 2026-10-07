@@ -56,7 +56,7 @@ python -m pytest tests/ -q    # 289 passed（全部 mock 网络，离线可跑�
 | 播客（RSS/Apple） | timeline（音频） | ✅ 可用 |
 | 知乎 | document（图文） | ✅ 可用（需 cookie；`scripts/cookie_export.py zhihu` 一键导出） |
 | TED | timeline（视频） | ✅ 可用（官网官方字幕，多语含简中） |
-| Medium | document（图文） | 🚧 M5 |
+| Medium | document（图文） | 🟡 实现完成（浏览器辅助 + feed）；CF 高风控，冒烟待冷却 |
 | 抖音 | timeline（视频） | 🚧 M7（尽调 ✅：访客 cookie + yt-dlp） |
 | 微博 / 公众号 / X / 小红书 | — | 🚧 M6+（逐个尽调） |
 | 名单外平台 | — | 自进化流程现场接入 |
