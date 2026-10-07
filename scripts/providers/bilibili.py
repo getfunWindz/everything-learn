@@ -5,6 +5,7 @@ import requests
 from core.adapter import SearchNeeded
 from core.models import ContentResult, ItemMeta, ItemRef
 from core.registry import register
+from core.throttle import ThrottledSession
 
 BASE = "https://api.bilibili.com"
 HEADERS = {
@@ -126,7 +127,7 @@ def load_cookie(client) -> bool:
 class ApiClient:
     def __init__(self, session: requests.Session = None, timeout: int = 15, warm: bool = True,
                  max_retries: int = 4, retry_base_delay: float = 1.5):
-        self.session = session or requests.Session()
+        self.session = session or ThrottledSession("bilibili")
         self.session.headers.update(HEADERS)
         self.timeout = timeout
         self.max_retries = max(0, int(max_retries))

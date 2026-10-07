@@ -236,9 +236,11 @@ class YouTubeAdapter:
     def _download(self, url: str) -> str:
         """字幕文件下载：429/5xx 有界退避重试（YouTube timedtext 限流时自动重试）"""
         import requests
+        from core import throttle
         from core.retry import retry_with_backoff
 
         def _once():
+            throttle.wait("youtube")   # 反爬缓速（基座）
             r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=60)
             if r.status_code in (429, 500, 502, 503, 504):
                 raise RuntimeError(f"HTTP {r.status_code}")

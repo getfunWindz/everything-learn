@@ -106,3 +106,11 @@ def test_cookie_export_spec_declared():
     assert COOKIE_EXPORT["file"] == ".bili_cookie"
     assert COOKIE_EXPORT["required"] == ["SESSDATA"]
     assert COOKIE_EXPORT["url"].startswith("https://") and COOKIE_EXPORT["read_url"].startswith("https://")
+
+
+def test_client_session_is_throttled():
+    """B站默认会话带缓速（反爬基座）"""
+    from providers.bilibili import ApiClient
+    from core.throttle import ThrottledSession
+    c = ApiClient(warm=False)
+    assert isinstance(c.session, ThrottledSession) and c.session.platform == "bilibili"

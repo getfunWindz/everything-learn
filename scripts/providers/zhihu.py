@@ -16,6 +16,7 @@ from core.htmlblocks import html_to_blocks
 from core.models import ContentResult, ItemMeta, ItemRef
 from core.registry import register
 from core.retry import retry_with_backoff
+from core.throttle import ThrottledSession
 
 _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
        "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
@@ -107,7 +108,7 @@ class ZhihuAdapter:
     @property
     def session(self) -> requests.Session:
         if self._session is None:
-            self._session = requests.Session()
+            self._session = ThrottledSession("zhihu")
             self._session.headers.update({"User-Agent": _ua(), "Accept-Language": "zh-CN,zh;q=0.9"})
             load_cookie(self._session)
         return self._session

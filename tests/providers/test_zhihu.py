@@ -147,3 +147,10 @@ def test_cookie_export_spec_declared():
     assert COOKIE_EXPORT["required"] == ["z_c0"] and "__zse_ck" in COOKIE_EXPORT["ready"]
     assert COOKIE_EXPORT["url"].startswith("https://")
     assert COOKIE_EXPORT["probe_url"].startswith("https://")  # 知乎需要内容页触发风控脚本
+
+
+def test_session_is_throttled():
+    """知乎默认会话带缓速（反爬基座）"""
+    from core.throttle import ThrottledSession
+    a = ZhihuAdapter()
+    assert isinstance(a.session, ThrottledSession) and a.session.platform == "zhihu"

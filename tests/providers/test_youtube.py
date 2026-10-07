@@ -180,3 +180,22 @@ def test_download_retries_on_429(monkeypatch):
     monkeypatch.setattr(req_mod, "get", fake_get)
     assert YouTubeAdapter()._download("http://x/sub") == "ok"
     assert calls["n"] == 3
+
+
+def test_download_waits_throttle(monkeypatch):
+    """字幕下载前按 youtube 缓速（反爬基座）"""
+    import requests as req_mod
+    from core import throttle as throttle_mod
+    waits, order = [], []
+    monkeypatch.setattr(throttle_mod, "wait", lambda p: waits.append(p))
+
+    class R:
+        status_code, encoding, text = 200, "utf-8", "ok"
+        def raise_for_status(self): pass
+
+    def fake_get(url, headers=None, timeout=None):
+        order.append("get")
+        return R()
+    monkeypatch.setattr(req_mod, "get", fake_get)
+    assert YouTubeAdapter()._download("http://x/sub") == "ok"
+    assert waits == ["youtube"] and order == ["get"]
