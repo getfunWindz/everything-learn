@@ -13,7 +13,7 @@ class FakeAdapter:
     name = "fake"
     kinds = {"video"}
 
-    def __init__(self, n_items=1, status="ok", kind="timeline", label=""):
+    def __init__(self, n_items=1, status="ok", kind="timeline", label="", images=()):
         self.status, self.kind = status, kind
         self.n_items = n_items
         self.media_audio = "http://media/audio"
@@ -22,7 +22,7 @@ class FakeAdapter:
         if kind == "document":
             self.content = ContentResult(kind="document", status=status,
                                          blocks=[{"heading": "引言", "text": "正文"}],
-                                         label=label)
+                                         images=list(images), label=label)
         else:
             self.content = ContentResult(kind="timeline", status=status,
                                          segments=[{"start": 0.0, "end": 1.0, "text": "你好"}],
@@ -136,12 +136,28 @@ def test_process_item_no_whisper(tmp_path):
     assert status == "no_subtitle"
 
 
-def test_process_item_document_flow_not_ready(tmp_path):
-    """document 形态在 M0 未实现 → 明确 failed（不崩溃、不产坏骨架）"""
+def test_process_item_document_flow_ok(tmp_path):
+    """document 形态（M3）：正文 → 章节式骨架落盘 + 缓存 kind=document"""
     out = str(tmp_path / "out")
     status, src, n, out_dir, err = process_item(FakeAdapter(kind="document"), _ref(), out,
                                                 RunOptions(out_root=out), single=True)
-    assert status == "failed" and "未实现" in err
+    assert (status, src, n, err) == ("ok", "document", 1, "")
+    tpl = open(os.path.join(out_dir, "report_template.md"), encoding="utf-8").read()
+    assert "知识地图" in tpl
+    cached = cache_mod.get_cached("fake", "X1", "1")
+    assert cached["kind"] == "document"
+
+
+def test_process_item_document_downloads_images(tmp_path, monkeypatch):
+    """document 正文图片 → assets/ 且记录到 content_info.assets"""
+    import core.images as images_mod
+    monkeypatch.setattr(images_mod, "download_images",
+                        lambda urls, out_dir, **k: ["assets/img_01.jpg"])
+    out = str(tmp_path / "out")
+    a = FakeAdapter(kind="document", images=["https://pic1.zhimg.com/a.jpg"])
+    status, src, n, out_dir, err = process_item(a, _ref(), out, RunOptions(out_root=out), single=True)
+    info = json.load(open(os.path.join(out_dir, "content_info.json"), encoding="utf-8"))
+    assert status == "ok" and info["assets"] == ["assets/img_01.jpg"]
 
 
 def test_run_input_single(tmp_path):

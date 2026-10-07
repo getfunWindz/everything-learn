@@ -61,5 +61,6 @@ class ContentResult:
     status: str                     # ok / suspect / invalid / empty
     segments: list = field(default_factory=list)   # timeline：dict {start,end,text}
     blocks: list = field(default_factory=list)     # document：dict {heading,text}
+    images: list = field(default_factory=list)     # document：正文图片 URL（流水线下载到 assets/）
     reason: str = ""
     label: str = ""                 # 内容来源标注（如 “字幕(自动)”），透传到 content_info.source

@@ -14,7 +14,7 @@ from datetime import datetime
 
 from core import pagespec
 import report
-from core import artifacts, cache, config
+from core import artifacts, cache, config, images
 from core.models import DocumentContent, TimelineContent
 
 _LOGGER = logging.getLogger("el")
@@ -130,11 +130,18 @@ def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False)
             out_dir = _item_out_dir(meta, ref, out_root, single, opts)
             if payload.get("kind", "timeline") not in report.SUPPORTED_KINDS:
                 return "failed", "cache", 0, "", f"内容形态 {payload.get('kind')} 的报告骨架尚未实现"
-            info = artifacts.build_info(meta, ref, kind=payload.get("kind", "timeline"),
-                                        source="cache", page_count=opts.page_count)
-            content = (DocumentContent(blocks=payload.get("items") or [])
+            content = (DocumentContent(blocks=payload.get("items") or [],
+                                        images=payload.get("images") or [])
                        if payload.get("kind") == "document"
                        else TimelineContent(segments=payload.get("items") or []))
+            assets = []
+            if getattr(content, "images", None):
+                try:
+                    assets = images.download_images(content.images, out_dir)
+                except Exception as e:
+                    print(f"  P{label} 图片下载失败（不影响正文）：{str(e)[:80]}", file=sys.stderr)
+            info = artifacts.build_info(meta, ref, kind=payload.get("kind", "timeline"),
+                                        source="cache", page_count=opts.page_count, assets=assets)
             artifacts.write_item_artifacts(out_dir, info, content)
             return "ok", "cache", len(payload.get("items") or []), out_dir, ""
     # 2) 取内容（字幕/正文）
@@ -153,12 +160,18 @@ def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False)
             print(f"  P{label} 正文不可用（{res.reason or res.status}）", file=sys.stderr)
             return "failed", src, 0, "", res.reason or "正文提取为空"
         out_dir = _item_out_dir(meta, ref, out_root, single, opts)
+        assets = []
+        if res.images:
+            try:
+                assets = images.download_images(res.images, out_dir)
+            except Exception as e:
+                print(f"  P{label} 图片下载失败（不影响正文）：{str(e)[:80]}", file=sys.stderr)
         info = artifacts.build_info(meta, ref, kind="document", source=src,
-                                    page_count=opts.page_count)
-        artifacts.write_item_artifacts(out_dir, info, DocumentContent(blocks=res.blocks))
+                                    page_count=opts.page_count, assets=assets)
+        artifacts.write_item_artifacts(out_dir, info, DocumentContent(blocks=res.blocks, images=res.images))
         if not opts.no_cache:
             cache.set_cached(ref.platform, ref.item_id, ref.sub_id,
-                             {"kind": "document", "items": res.blocks})
+                             {"kind": "document", "items": res.blocks, "images": res.images})
         return "ok", src, len(res.blocks), out_dir, ""
     # 3) timeline：分级 + 归属复检
     lines = list(res.segments) if res.status in ("ok", "suspect") else []

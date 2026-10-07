@@ -7,7 +7,7 @@ import report
 
 
 def build_info(meta, ref, kind: str, source: str, page_count: int = 1,
-               tool: str = "everything-learn v0.1") -> dict:
+               tool: str = "everything-learn v0.1", assets=None) -> dict:
     """组装 content_info.json 的字段（meta: ItemMeta；ref: ItemRef）"""
     return {
         "platform": ref.platform,
@@ -25,6 +25,7 @@ def build_info(meta, ref, kind: str, source: str, page_count: int = 1,
         "page_count": page_count,
         "source": source,
         "stats": dict(meta.stats or {}),
+        "assets": list(assets or []),
         "fetched_at": datetime.now().isoformat(timespec="seconds"),
         "tool": tool,
     }
