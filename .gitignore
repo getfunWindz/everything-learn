@@ -8,3 +8,4 @@ cache/
 *.tmp
 .obsidian/
 .zhihu_cookie
+.browser_profile_*
