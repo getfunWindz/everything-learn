@@ -87,6 +87,10 @@ def test_question_list_items(monkeypatch):
     assert answers and all(i.extra["kind"] == "answer" for i in answers)
     assert [i.sub_id for i in answers] == [str(n) for n in range(1, len(answers) + 1)]
     assert all(i.extra.get("question_title") == "PMP应该如何备考？" for i in answers)
+    # 合集归属 = 提问者（不是首个答主，更不能是 untitled）
+    meta = a.fetch_meta(answers[0])
+    assert meta.author == "半夏微凉" and meta.title == "PMP应该如何备考？"
+    assert meta.page_part.startswith("回答：")
 
 
 def test_standalone_answer_fetch_content(monkeypatch):
@@ -99,6 +103,7 @@ def test_standalone_answer_fetch_content(monkeypatch):
     res = a.fetch_content(ref)
     assert res.kind == "document" and res.blocks
     meta = a.fetch_meta(ref)
+    assert meta.title == "PMP应该如何备考？"  # 单条链接也要回填问题标题（避免 untitled）
     assert meta.page_part.startswith("回答：") and meta.author
 
 

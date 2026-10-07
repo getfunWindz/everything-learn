@@ -160,6 +160,19 @@ def test_process_item_document_downloads_images(tmp_path, monkeypatch):
     assert status == "ok" and info["assets"] == ["assets/img_01.jpg"]
 
 
+def test_run_input_meta_failure_becomes_pipeline_error(tmp_path):
+    """适配器 fetch_meta 失败（如 cookie 失效）→ PipelineError（可读，非裸 ValueError）"""
+    class BadMeta(FakeAdapter):
+        def fetch_meta(self, ref):
+            raise RuntimeError("cookie 失效")
+    out = str(tmp_path / "out")
+    try:
+        run_input("http://fake/v/1", RunOptions(out_root=out), adapter=BadMeta())
+        assert False
+    except PipelineError as e:
+        assert "cookie 失效" in str(e)
+
+
 def test_run_input_single(tmp_path):
     out = str(tmp_path / "out")
     res = run_input("http://fake/v/1", RunOptions(out_root=out), adapter=FakeAdapter())

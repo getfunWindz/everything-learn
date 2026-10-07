@@ -158,7 +158,8 @@ class ZhihuAdapter:
                                  url=f"https://www.zhihu.com/question/{qid}/answer/{aid}",
                                  sub_id=str(i), title=author or f"回答{i}",
                                  extra={"kind": "answer", "question_id": qid, "answer_id": aid,
-                                        "question_title": q.get("title") or ref.title}))
+                                        "question_title": q.get("title") or ref.title,
+                                        "question_author": (q.get("author") or {}).get("name", "")}))
         return items or [ref]
 
     def fetch_meta(self, ref) -> ItemMeta:
@@ -166,7 +167,8 @@ class ZhihuAdapter:
         if kind == "question":
             ent = self._entities(ref.url)
             q = (ent.get("questions") or {}).get(ref.extra["question_id"]) or {}
-            return ItemMeta(title=q.get("title") or ref.title, url=ref.url,
+            return ItemMeta(title=q.get("title") or ref.title,
+                            author=(q.get("author") or {}).get("name") or "知乎问答", url=ref.url,
                             desc=(q.get("detail") or "")[:200],
                             page=ref.sub_id or "1", page_part="", extra={"kind": "question"})
         ent = self._entities(ref.url)
@@ -180,10 +182,16 @@ class ZhihuAdapter:
                             page=ref.sub_id or "1", page_part="")
         aid = ref.extra.get("answer_id", "")
         obj = (ent.get("answers") or {}).get(aid) or {}
-        ans_author = (obj.get("author") or {}).get("name", "")
-        qtitle = ref.extra.get("question_title")
-        # 问题展开的回答：合集以问题命名 → 作者留空；单条回答链接：作者=答主
-        return ItemMeta(title=qtitle or ref.title, author="" if qtitle else ans_author, url=ref.url,
+        ans_author = (obj.get("author") or {}).get("name", "") or "知乎问答"
+        q = (ent.get("questions") or {}).get(ref.extra.get("question_id")) or {}
+        # 标题统一用问题级标题（列表来源用 extra，单条链接从实体回填，避免 untitled）
+        title = ref.extra.get("question_title") or q.get("title") or ref.title
+        if ref.extra.get("question_title"):
+            # 问题展开的回答：合集归属提问者
+            author = ref.extra.get("question_author") or (q.get("author") or {}).get("name") or "知乎问答"
+        else:
+            author = ans_author
+        return ItemMeta(title=title, author=author, url=ref.url,
                         published=_ts(obj.get("createdTime")), desc="",
                         stats={"voteup": obj.get("voteupCount")},
                         page=ref.sub_id or "1", page_part=f"回答：{ans_author}")

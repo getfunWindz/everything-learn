@@ -372,7 +372,12 @@ def run_input(input_str: str, opts: RunOptions, adapter=None, client=None):
             if not refs:
                 print("续跑：全部 P 均已完成，无需处理", file=sys.stderr)
                 return {"kind": "skip", "pages": []}
-    root_meta = a.fetch_meta(refs[0])
+    try:
+        root_meta = a.fetch_meta(refs[0])
+    except PipelineError:
+        raise
+    except Exception as e:
+        raise PipelineError(f"获取元信息失败：{str(e)[:120]}")
     if len(refs) == 1 and not opts.pages and not opts.all_:
         return process_item(a, refs[0], os.path.abspath(opts.out_root), opts, single=True)
     return run_batch(a, refs, root_meta, opts)
