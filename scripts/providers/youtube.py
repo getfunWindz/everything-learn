@@ -262,11 +262,18 @@ class YouTubeAdapter:
         return None, ""
 
     def _download(self, url: str) -> str:
+        """字幕文件下载：429/5xx 有界退避重试（YouTube timedtext 限流时自动重试）"""
         import requests
-        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=60)
-        r.raise_for_status()
-        r.encoding = "utf-8"
-        return r.text
+        from core.retry import retry_with_backoff
+
+        def _once():
+            r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=60)
+            if r.status_code in (429, 500, 502, 503, 504):
+                raise RuntimeError(f"HTTP {r.status_code}")
+            r.raise_for_status()
+            r.encoding = "utf-8"
+            return r.text
+        return retry_with_backoff(_once, attempts=3, base_delay=2.0)
 
     # ---------------- 媒体直链（音频 Whisper / 视频抽帧） ----------------
 
