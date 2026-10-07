@@ -1,0 +1,45 @@
+{
+ "props": {
+  "pageProps": {
+   "videoData": {
+    "id": "2458",
+    "title": "Inside the mind of a master procrastinator",
+    "slug": "tim_urban_inside_the_mind_of_a_master_procrastinator",
+    "duration": 834,
+    "presenterDisplayName": "Tim Urban",
+    "publishedAt": "2016-03-15T18:36:59Z",
+    "description": "Tim Urban knows that procrastination doesn't make sense, but he's never been able to shake his habit of waiting until the last minute to get things done. In this hilarious and insightful talk, Urban takes us on a journey through YouTube binges, Wikipedia rabbit holes and bouts of staring out the window -- and encourages us to think harder about what we're really procrastinating on, before we run out of time.",
+    "hlsUrl": "https://hls.ted.com/project_masters/2597/manifest.m3u8?intro_master_id=9294",
+    "canonicalUrl": "https://www.ted.com/talks/tim_urban_inside_the_mind_of_a_master_procrastinator",
+    "viewedCount": 79116765,
+    "recordedOn": "2016-02-16",
+    "videoContext": "TED2016",
+    "videoPlayerData": {
+     "resources": {
+      "__typename": "VideoPlayerResources",
+      "hls": {
+       "__typename": "VideoPlayerHls",
+       "adUrl": "",
+       "maiTargeting": {
+        "id": 125968,
+        "talk": "tim_urban_inside_the_mind_of_a_master_procrastinator",
+        "tag": "brain,comedy,decision-making,entertainment,humor,Internet,productivity,time,visualizations,work,writing,goals",
+        "year": "2016",
+        "event": "TED2016"
+       },
+       "metadata": "https://hls.ted.com/project_masters/2597/metadata.json?intro_master_id=9294&preview",
+       "stream": "https://hls.ted.com/project_masters/2597/manifest.m3u8?intro_master_id=9294&preview"
+      },
+      "h264": [
+       {
+        "__typename": "VideoPlayerH264",
+        "bitrate": 1200,
+        "file": "https://py.tedcdn.com/consus/projects/00/25/85/002/products/2016-tim-urban-002-fallback-55735968f97a8eee68f728b8c2110631-1200k.mp4"
+       }
+      ]
+     }
+    }
+   }
+  }
+ }
+}
