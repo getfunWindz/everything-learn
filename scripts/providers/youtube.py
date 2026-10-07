@@ -9,6 +9,7 @@ import re
 from core.adapter import SearchNeeded  # noqa: F401  （名称搜索暂不支持，见计划"风险"）
 from core.models import ContentResult, ItemMeta, ItemRef  # noqa: F401
 from core.registry import register
+from core.subtitles import _norm_text, parse_vtt  # noqa: F401  （parse_vtt 供适配器与测试引用）
 
 _VID = re.compile(r"^[0-9A-Za-z_-]{11}$")
 _URL_RE = re.compile(r"(youtube\.com/(watch\?|shorts/|playlist)|youtu\.be/)", re.I)
@@ -34,11 +35,7 @@ def _load_ytdlp():
     return _yt_dlp_module
 
 
-# ---------------- 字幕解析（json3 / vtt） ----------------
-
-def _norm_text(s: str) -> str:
-    return re.sub(r"\s+", " ", s or "").strip()
-
+# ---------------- 字幕解析（json3；vtt/srt 在 core.subtitles） ----------------
 
 def _overlap_len(prev: str, cur: str) -> int:
     """prev 的后缀 == cur 的前缀 的最长长度（≥2 字符才算滚动重复）"""
@@ -72,31 +69,6 @@ def parse_json3(text: str) -> list:
         start = float(ev.get("tStartMs") or 0) / 1000.0
         dur = max(float(ev.get("dDurationMs") or 0) / 1000.0, 0.5)
         out.append({"start": round(start, 2), "end": round(start + dur, 2), "text": new})
-    return out
-
-
-_VTT_TS = re.compile(r"(\d{1,2}):(\d{2}):(\d{2})[.,](\d{3})\s*-->\s*(\d{1,2}):(\d{2}):(\d{2})[.,](\d{3})")
-
-
-def parse_vtt(text: str) -> list:
-    """解析 WebVTT 字幕"""
-    lines = (text or "").splitlines()
-    out, i = [], 0
-    while i < len(lines):
-        m = _VTT_TS.search(lines[i])
-        if not m:
-            i += 1
-            continue
-        s = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + int(m.group(3)) + int(m.group(4)) / 1000
-        e = int(m.group(5)) * 3600 + int(m.group(6)) * 60 + int(m.group(7)) + int(m.group(8)) / 1000
-        i += 1
-        buf = []
-        while i < len(lines) and lines[i].strip():
-            buf.append(re.sub(r"<[^>]+>", "", lines[i]).strip())
-            i += 1
-        t = _norm_text(" ".join(buf))
-        if t:
-            out.append({"start": round(s, 2), "end": round(e, 2), "text": t})
     return out
 
 
