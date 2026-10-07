@@ -83,8 +83,8 @@ def _vad_plan(vad, duration_sec, vad_long_sec: float = VAD_LONG_SEC_DEFAULT) -> 
         return [False]
     return [True, False]
 
-def download_audio(url: str, dest: str) -> str:
-    r = requests.get(url, headers=HEADERS, stream=True, timeout=60)
+def download_audio(url: str, dest: str, headers: dict = None) -> str:
+    r = requests.get(url, headers=headers or HEADERS, stream=True, timeout=60)
     r.raise_for_status()
     with open(dest, "wb") as f:
         for chunk in r.iter_content(chunk_size=1 << 20):
@@ -135,10 +135,12 @@ def _transcribe_with(WhisperModel, model_size: str, device: str, audio_path: str
 
 def transcribe_url(url: str, model_size: str = "medium", progress_callback=None,
                    vad=None, duration_sec: float = None,
-                   vad_long_sec: float = VAD_LONG_SEC_DEFAULT) -> list:
-    """平台无关入口：下载媒体直链（临时目录）+ 转写；vad/duration 透传（长视频默认禁 VAD）"""
+                   vad_long_sec: float = VAD_LONG_SEC_DEFAULT, headers: dict = None) -> list:
+    """平台无关入口：下载媒体直链（临时目录）+ 转写；vad/duration 透传（长视频默认禁 VAD）
+
+    headers：媒体 CDN 可能要求平台特定 UA/Referer（扣音等）；默认用内置 HEADERS（B 站向）。"""
     with tempfile.TemporaryDirectory() as td:
-        audio_path = download_audio(url, os.path.join(td, "audio.m4s"))
+        audio_path = download_audio(url, os.path.join(td, "audio.m4s"), headers=headers)
         return transcribe(audio_path, model_size=model_size, progress_callback=progress_callback,
                           vad=vad, duration_sec=duration_sec, vad_long_sec=vad_long_sec)
 

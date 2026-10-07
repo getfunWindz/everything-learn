@@ -75,6 +75,17 @@ def _want_subtitle_check(cfg_vision: dict, status: str) -> bool:
     return status == "suspect"
 
 
+def _media_headers(adapter):
+    """适配器可选钩子：媒体 CDN 所需请求头（如抖音拒绝裸 UA/bilibili Referer）；无则 None"""
+    fn = getattr(adapter, "media_headers", None)
+    if callable(fn):
+        try:
+            return fn()
+        except Exception:
+            return None
+    return None
+
+
 def _vision_verify_subtitle(adapter, ref, cfg_vision: dict, lines: list):
     """字幕归属复检：最低码率画面流 → 首/中/尾 3 帧 → 多模态判定。
     返回 True=一致（采信）/ False=不一致（强制 Whisper）/ None=未执行"""
@@ -88,7 +99,7 @@ def _vision_verify_subtitle(adapter, ref, cfg_vision: dict, lines: list):
         return None
     with tempfile.TemporaryDirectory() as td:
         vp = os.path.join(td, "video.m4s")
-        tr.download_audio(url, vp)  # 通用流式下载（任意二进制）
+        tr.download_audio(url, vp, headers=_media_headers(adapter))  # 通用流式下载（任意二进制）
         return vision.check_subtitle_match(cfg_vision, vp, lines, ref.duration)
 
 
@@ -104,7 +115,7 @@ def _vision_check(adapter, ref, cfg_vision: dict, lines: list):
     print("复检：下载视频画面流，抽帧核对转写遗漏……", file=sys.stderr)
     with tempfile.TemporaryDirectory() as td:
         vp = os.path.join(td, "video.m4s")
-        tr.download_audio(url, vp)
+        tr.download_audio(url, vp, headers=_media_headers(adapter))
         result = vision.check_transcript(cfg_vision, vp, lines or [], ref.duration,
                                          max_frames=cfg_vision.get("max_frames", 30),
                                          max_rounds=cfg_vision.get("max_rounds", 2))
@@ -211,7 +222,8 @@ def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False)
                 model_size=opts.model or cfg.get("whisper_model") or "medium",
                 progress_callback=_progress_printer(),
                 vad=vad_mode, duration_sec=ref.duration,
-                vad_long_sec=cfg.get("vad_long_sec", 1800))
+                vad_long_sec=cfg.get("vad_long_sec", 1800),
+                headers=_media_headers(adapter))
             print("", file=sys.stderr)
             src = "whisper"
         except transcriber.WhisperNotInstalled:

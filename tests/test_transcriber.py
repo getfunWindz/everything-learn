@@ -99,7 +99,7 @@ def test_transcribe_video_flow(tmp_path, monkeypatch):
         def __init__(self): self.url_called = None
         def get_audio_url(self, bvid, cid): self.url_called = (bvid, cid); return "http://audio"
     client = FakeClient()
-    monkeypatch.setattr(transcriber, "download_audio", lambda url, dest: dest)
+    monkeypatch.setattr(transcriber, "download_audio", lambda url, dest, headers=None: dest)
     monkeypatch.setattr(transcriber, "transcribe",
                         lambda path, model_size="medium", progress_callback=None, **kw: [{"start": 0.0, "end": 1.0, "text": "hi"}])
     out = transcriber.transcribe_video(client, "BV1GJ411x7h7", 1001)
@@ -111,7 +111,7 @@ def test_transcribe_url_flow(monkeypatch):
     """平台无关入口：给媒体直链 → 下载 → 转写"""
     calls = {}
     monkeypatch.setattr(transcriber, "download_audio",
-                        lambda url, dest: calls.setdefault("url", url) or dest)
+                        lambda url, dest, headers=None: calls.setdefault("url", url) or dest)
     monkeypatch.setattr(transcriber, "transcribe",
                         lambda path, model_size="medium", **kw: [{"start": 0.0, "end": 1.0, "text": "hi"}])
     out = transcriber.transcribe_url("http://media/audio.m4s", model_size="small", duration_sec=10)
@@ -156,3 +156,23 @@ def test_transcribe_vad_manual_on(monkeypatch):
 def test_default_model_is_medium():
     import inspect
     assert inspect.signature(transcriber.transcribe).parameters["model_size"].default == "medium"
+
+
+def test_download_audio_headers_passthrough(tmp_path, monkeypatch):
+    """媒体 CDN 平台化请求头：显式 headers 生效；缺省用内置 HEADERS（B站向）"""
+    import transcriber
+    seen = {}
+
+    class R:
+        def raise_for_status(self): pass
+        def iter_content(self, chunk_size=None): yield b"x"
+
+    def fake_get(url, headers=None, stream=None, timeout=None):
+        seen["headers"] = headers
+        return R()
+    monkeypatch.setattr(transcriber.requests, "get", fake_get)
+    dest = str(tmp_path / "a.bin")
+    transcriber.download_audio("http://x/1", dest, headers={"X": "1"})
+    assert seen["headers"] == {"X": "1"}
+    transcriber.download_audio("http://x/1", dest)
+    assert seen["headers"] is transcriber.HEADERS

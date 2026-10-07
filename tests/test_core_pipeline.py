@@ -242,3 +242,17 @@ def test_run_input_list_items_failure_becomes_pipeline_error(tmp_path):
         assert False
     except PipelineError as e:
         assert "feed 不可达" in str(e)
+
+
+def test_media_headers_hook():
+    from core.pipeline import _media_headers
+
+    class A:
+        def media_headers(self): return {"X": "1"}
+
+    class B:
+        def media_headers(self): raise RuntimeError("boom")
+
+    assert _media_headers(A()) == {"X": "1"}
+    assert _media_headers(object()) is None
+    assert _media_headers(B()) is None
