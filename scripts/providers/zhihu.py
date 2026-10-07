@@ -131,6 +131,9 @@ class ZhihuAdapter:
     def _get(self, url: str) -> str:
         def do():
             r = self.session.get(url, timeout=30, headers={"Referer": "https://www.zhihu.com/"})
+            if r.status_code in (403, 429) and "40362" in r.text:
+                raise ZhihuError("知乎风控限流（40362）：请求过于频繁或被临时限制，请稍后重试"
+                                 "（通常几十分钟内恢复；不必重新导出 cookie）")
             if r.status_code == 403 and "zh-zse-ck" in r.text:
                 raise ZhihuError("知乎风控挑战：cookie 缺失/失效，请重新导出 scripts/.zhihu_cookie"
                                  "（可用 python scripts/cookie_export.py zhihu 一键导出）")

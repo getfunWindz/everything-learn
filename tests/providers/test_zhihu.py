@@ -117,3 +117,24 @@ def test_fetch_content_failure_is_readable(monkeypatch):
     ref = ZhihuAdapter().resolve("https://zhuanlan.zhihu.com/p/62628781")
     res = ZhihuAdapter(session=object()).fetch_content(ref)
     assert res.status == "empty" and "cookie" in res.reason
+
+
+class _FakeResp:
+    def __init__(self, status, text):
+        self.status_code, self.text = status, text
+    def raise_for_status(self):
+        pass
+
+
+class _FakeSession:
+    headers = {}
+    def __init__(self, resp): self.resp = resp
+    def get(self, url, **kw): return self.resp
+
+
+def test_rate_limited_40362_is_readable():
+    """40362 风控限流 → 可读 reason（不当作解析失败）"""
+    resp = _FakeResp(403, '{"error":{"message":"您当前请求存在异常，暂时限制本次访问","code":40362}}')
+    ref = ZhihuAdapter().resolve("https://zhuanlan.zhihu.com/p/62628781")
+    res = ZhihuAdapter(session=_FakeSession(resp)).fetch_content(ref)
+    assert res.status == "empty" and "限流" in res.reason
