@@ -4,12 +4,13 @@
 
 - 📄 设计文档（spec）：[docs/specs/2026-10-07-everything-learn-design.md](docs/specs/2026-10-07-everything-learn-design.md)
 - 🧩 适配器规范（自进化）：[docs/ADAPTER_SPEC.md](docs/ADAPTER_SPEC.md) · [开发指南](docs/ADAPTER_TEMPLATE.md)
-- 🚧 状态：**M0 开发完成** —— 核心架构迁移 + B 站适配器可用；YouTube（M1）→ 播客（M2）→ 知乎（M3）→ 更多按里程碑接入
+- 🚧 状态：**M0 + M1 完成** —— B 站与 YouTube 可用；播客（M2）→ 知乎（M3）→ 更多按里程碑接入
 - 🧬 上游项目：[bilibili-learn](https://github.com/getfunWindz/bilibili-learn)（轻量版，只做 B 站，保持原样）
 
 ## 当前能力（M0）
 
 - **B 站**：链接 / BV号 / av号 / 名称搜索 / 收藏夹 → 字幕分级校验（ok/suspect/invalid）→ 多模态 3 帧归属复检 → Whisper 兜底（默认 medium、长视频默认禁 VAD）→ 中文学习报告骨架
+- **YouTube**：链接 / youtu.be / shorts / 播放列表 / 裸视频 ID → 人工字幕优先（含中文翻译轨）→ 自动字幕滚动去重清洗（标注「字幕(自动)」）→ 音轨 Whisper 兜底 → 同规格报告
 - **架构**：`core/`（内容契约、注册表、配置、缓存、重试、流水线、产物）+ `providers/`（平台适配器）；B 站为参考实现
 - **产物三件套**：`content_info.json` / `content.txt` / `report_template.md`
 - **批量**：多 P / 合集逐项处理、失败不中断、`--resume` 断点续跑、请求限流与重试
@@ -33,7 +34,7 @@ python scripts/el.py export "<报告目录>" --format html
 ## 测试
 
 ```bash
-python -m pytest tests/ -q    # 199 passed（全部 mock 网络，离线可跑）
+python -m pytest tests/ -q    # 219 passed（全部 mock 网络，离线可跑）
 ```
 
 ## 平台规划
@@ -41,7 +42,7 @@ python -m pytest tests/ -q    # 199 passed（全部 mock 网络，离线可跑�
 | 平台 | 形态 | 状态 |
 |---|---|---|
 | bilibili | timeline（视频） | ✅ 可用 |
-| YouTube | timeline（视频） | 🚧 M1 |
+| YouTube | timeline（视频） | ✅ 可用 |
 | 播客 | timeline（音频） | 🚧 M2 |
 | 知乎 | document（图文） | 🚧 M3 |
 | TED / Medium / 公众号 / X / 微博 / 小红书… | — | 自进化流程现场接入 |

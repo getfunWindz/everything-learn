@@ -95,6 +95,19 @@ def check_vision() -> dict:
             "subtitle_check": v.get("subtitle_check", "auto")}
 
 
+def check_ytdlp() -> dict:
+    """yt-dlp（YouTube 适配器依赖，可选）"""
+    try:
+        import yt_dlp
+        if yt_dlp is None:
+            raise ImportError("yt_dlp")
+        return {"installed": True, "version": getattr(yt_dlp.version, "__version__", "unknown"),
+                "hint": "OK（YouTube 适配器可用；如遇提取失败先升级：pip install -U yt-dlp）"}
+    except ImportError:
+        return {"installed": False, "version": "",
+                "hint": "未安装：pip install yt-dlp（YouTube 适配器需要）"}
+
+
 def _ensure_utf8_stdout() -> None:
     """Windows GBK 控制台无法编码 emoji（✅/❌/👁️）→ stdout 重配置为 utf-8（失败则忽略）"""
     try:
@@ -121,7 +134,7 @@ def main(argv=None) -> int:
     _ensure_utf8_stdout()
     from providers import bilibili  # noqa: F401  确保适配器可导入（cookie 检查用）
     args = sys.argv[1:] if argv is None else argv
-    print("=== bilibili-learn 环境自检 ===")
+    print("=== everything-learn 环境自检 ===")
     # cookie
     ok = check_cookie()
     print(f"{'✅' if ok else '❌'} cookie 登录态：{'有效' if ok else '无效/未配置（检查 scripts/.bili_cookie 或环境变量 BILI_COOKIE）'}")
@@ -145,6 +158,10 @@ def main(argv=None) -> int:
     if vi["enabled"]:
         print(f"👁️ vision：已启用；字幕复检模式={vi['subtitle_check']}"
               f"（可选 auto/always/off，以你的选择为准）")
+    # yt-dlp（YouTube 适配器）
+    y = check_ytdlp()
+    print(f"{'✅' if y['installed'] else '⚠️'} yt-dlp："
+          f"{'v' + y['version'] if y['installed'] else '未安装'}（{y['hint']}）")
     # 输出目录
     o = check_out_dir()
     print(f"{'✅' if o['ok'] else '❌'} 输出目录：{o['path']}")

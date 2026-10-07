@@ -15,7 +15,7 @@ description: 将多平台学习内容（视频/音频/图文）总结为中文�
 | 平台 | 形态 | 状态 |
 |---|---|---|
 | bilibili | `timeline`（视频） | ✅ 可用 |
-| YouTube | `timeline`（视频） | 🚧 M1 规划中 |
+| YouTube | `timeline`（视频） | ✅ 可用（人工字幕优先，自动字幕滚动清洗后标注「字幕(自动)」） |
 | 播客（RSS / 小宇宙等） | `timeline`（音频） | 🚧 M2 规划中 |
 | 知乎 | `document`（图文） | 🚧 M3 规划中 |
 | TED / Medium / 公众号 / X / 微博 / 小红书… | — | 走「自进化」流程（见 §3） |
@@ -40,6 +40,7 @@ description: 将多平台学习内容（视频/音频/图文）总结为中文�
 python scripts/el.py run <链接/名称> [--page N | --pages "1-10" | --all] --out <根目录>
 ```
 - **timeline 源**（B站/YouTube/播客）：平台字幕/自动字幕优先 → 分级校验（`ok/suspect/invalid`）→ 可疑走多模态 3 帧归属复检（一致采信 / 不一致强制 Whisper）→ 音轨 Whisper 兜底（GPU 自适应，长视频默认禁 VAD）；
+  - **YouTube 细节**：人工字幕优先（含中文翻译轨）；自动字幕为滚动式，已做重复清洗并标注「字幕(自动)」；媒体直链带时效（调用时即取）
 - **document 源**（知乎等，M3 起）：正文提取 + 图片入 `assets/`；
 - 产物三件套：`content_info.json`（元信息+来源标记）/ `content.txt`（timeline 带时间戳 / document 保持 Markdown 结构）/ `report_template.md`（按形态的报告骨架）；
 - 批量：失败不中断，汇总增量写入，`--resume` 断点续跑；
@@ -91,4 +92,5 @@ python scripts/el.py run <链接/名称> [--page N | --pages "1-10" | --all] --o
 ## 注意事项
 - 本文件不写死任何本机路径；一切以用户配置的 `out_dir` 为准。
 - 平台接口偶发错乱（如 B 站字幕错位）：防线分级 + 归属复检 + Whisper 兜底会自动处理，不要绕过。
+- **YouTube 提取失败**（反爬更新/限流）先升级依赖：`pip install -U yt-dlp`（`el.py doctor` 会显示当前版本）；字幕接口 429 已内置退避重试。
 - 搜索接口偶发风控：失败时提示用户改用链接。
