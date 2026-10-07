@@ -24,6 +24,7 @@ class ItemMeta:
     desc: str = ""
     stats: dict = field(default_factory=dict)
     page: str = ""
+    page_part: str = ""
     extra: dict = field(default_factory=dict)
 
 
