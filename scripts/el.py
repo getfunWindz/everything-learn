@@ -338,6 +338,14 @@ def main(argv=None):
     ex.add_argument("--format", choices=["html", "docx"], default="html")
     ex.add_argument("--out", default=None, help="输出文件路径（默认在报告目录）")
     ex.set_defaults(func=cmd_export)
+    def _cmd_cookie(args):
+        import cookie_export
+        sys.exit(cookie_export.export(args.platform, args.browser, args.timeout))
+    ck = sub.add_parser("cookie", help="一键导出平台 cookie（Playwright + 系统浏览器）")
+    ck.add_argument("platform", help="平台标识（如 zhihu/bilibili）")
+    ck.add_argument("--browser", default="msedge", choices=["msedge", "chrome"])
+    ck.add_argument("--timeout", type=int, default=300, help="等待登录秒数（默认 300）")
+    ck.set_defaults(func=_cmd_cookie)
     args = p.parse_args(argv)
     args.func(args)
 
