@@ -340,9 +340,15 @@ def main(argv=None):
     ex.set_defaults(func=cmd_export)
     def _cmd_cookie(args):
         import cookie_export
+        if getattr(args, "list", False):
+            sys.exit(cookie_export.main(["--list"]))
+        if not args.platform:
+            print("用法：el.py cookie <platform>（--list 查看可用平台）", file=sys.stderr)
+            sys.exit(2)
         sys.exit(cookie_export.export(args.platform, args.browser, args.timeout))
     ck = sub.add_parser("cookie", help="一键导出平台 cookie（Playwright + 系统浏览器）")
-    ck.add_argument("platform", help="平台标识（如 zhihu/bilibili）")
+    ck.add_argument("platform", nargs="?", help="平台标识（如 zhihu/bilibili）")
+    ck.add_argument("--list", action="store_true", help="列出已声明导出的平台")
     ck.add_argument("--browser", default="msedge", choices=["msedge", "chrome"])
     ck.add_argument("--timeout", type=int, default=300, help="等待登录秒数（默认 300）")
     ck.set_defaults(func=_cmd_cookie)

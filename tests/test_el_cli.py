@@ -611,3 +611,14 @@ def test_cookie_command_delegates(tmp_path, monkeypatch):
     except SystemExit as e:
         assert e.code == 0
     assert calls == {"platform": "zhihu", "browser": "msedge", "timeout": 12}
+
+
+def test_cookie_command_list(capsys):
+    """el.py cookie --list → 列出 provider 声明的平台（标配可查）"""
+    try:
+        el.main(["cookie", "--list"])
+        assert False
+    except SystemExit as e:
+        assert e.code == 0
+    out = capsys.readouterr().out
+    assert "zhihu" in out and "bilibili" in out

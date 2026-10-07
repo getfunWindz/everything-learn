@@ -158,13 +158,13 @@ def export(platform: str, browser: str = "msedge", timeout: int = 300) -> int:
         return 4
 
 
-def main():
+def main(argv=None):
     ap = argparse.ArgumentParser(description="cookie 一键导出（Playwright + 系统浏览器）")
     ap.add_argument("platform", nargs="?", help="平台标识（如 zhihu/bilibili）")
     ap.add_argument("--list", action="store_true", help="列出已声明 cookie 导出的平台")
     ap.add_argument("--browser", default="msedge", choices=["msedge", "chrome"])
     ap.add_argument("--timeout", type=int, default=300, help="等待登录秒数（默认 300）")
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
     if args.list:
         for name, spec in sorted(load_platforms().items()):
             print(f"{name:>10} | {spec['file']:>16} | {spec['url']}")
