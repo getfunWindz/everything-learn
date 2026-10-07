@@ -16,7 +16,7 @@ description: 将多平台学习内容（视频/音频/图文）总结为中文�
 |---|---|---|
 | bilibili | `timeline`（视频） | ✅ 可用 |
 | YouTube | `timeline`（视频） | ✅ 可用（人工字幕优先，自动字幕滚动清洗后标注「字幕(自动)」） |
-| 播客（RSS / 小宇宙等） | `timeline`（音频） | 🚧 M2 规划中 |
+| 播客（RSS / Apple Podcasts） | `timeline`（音频） | ✅ 可用（有转写稿直接解析，否则 Whisper；小宇宙暂不支持） |
 | 知乎 | `document`（图文） | 🚧 M3 规划中 |
 | TED / Medium / 公众号 / X / 微博 / 小红书… | — | 走「自进化」流程（见 §3） |
 
@@ -41,6 +41,7 @@ python scripts/el.py run <链接/名称> [--page N | --pages "1-10" | --all] --o
 ```
 - **timeline 源**（B站/YouTube/播客）：平台字幕/自动字幕优先 → 分级校验（`ok/suspect/invalid`）→ 可疑走多模态 3 帧归属复检（一致采信 / 不一致强制 Whisper）→ 音轨 Whisper 兜底（GPU 自适应，长视频默认禁 VAD）；
   - **YouTube 细节**：人工字幕优先（含中文翻译轨）；自动字幕为滚动式，已做重复清洗并标注「字幕(自动)」；媒体直链带时效（调用时即取）
+  - **播客细节**：RSS/Apple Podcasts 链接（Apple 经 iTunes 查找换成 feed）；有 `podcast:transcript` 直接解析，否则音频 Whisper；无画面信息（多模态复检自动跳过）
 - **document 源**（知乎等，M3 起）：正文提取 + 图片入 `assets/`；
 - 产物三件套：`content_info.json`（元信息+来源标记）/ `content.txt`（timeline 带时间戳 / document 保持 Markdown 结构）/ `report_template.md`（按形态的报告骨架）；
 - 批量：失败不中断，汇总增量写入，`--resume` 断点续跑；
