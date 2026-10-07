@@ -358,7 +358,12 @@ def run_input(input_str: str, opts: RunOptions, adapter=None, client=None):
     if getattr(a, "lang", None) is None:
         a.lang = opts.lang
     ref = a.resolve(input_str)            # SearchNeeded 向外抛
-    refs = a.list_items(ref)
+    try:
+        refs = a.list_items(ref)
+    except PipelineError:
+        raise
+    except Exception as e:
+        raise PipelineError(f"获取条目列表失败：{str(e)[:120]}")
     if not refs:
         raise PipelineError("没有可处理的条目")
     opts.page_count = len(refs)

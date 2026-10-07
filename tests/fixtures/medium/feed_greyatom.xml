@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>GreyAtom - Medium</title>
+    <link>https://medium.com/greyatom</link>
+    <description>Test feed fixture</description>
+    <item>
+      <title>Test Article One</title>
+      <link>https://medium.com/greyatom/test-article-one-abcdef123456</link>
+      <guid>https://medium.com/greyatom/test-article-one-abcdef123456</guid>
+      <pubDate>Wed, 01 Oct 2025 12:00:00 GMT</pubDate>
+      <dc:creator><![CDATA[Alice Author]]></dc:creator>
+      <content:encoded><![CDATA[<h1>Test Article One</h1><p>First paragraph for testing.</p><h2>Section A</h2><p>More text under section A with enough length to grade ok.</p><figure><img src="https://miro.medium.com/v2/resize:fit:1400/1*abc.png" /></figure>]]></content:encoded>
+    </item>
+    <item>
+      <title>Test Article Two</title>
+      <link>https://medium.com/greyatom/test-article-two-654321fedcba</link>
+      <guid>https://medium.com/greyatom/test-article-two-654321fedcba</guid>
+      <pubDate>Thu, 02 Oct 2025 08:30:00 GMT</pubDate>
+      <dc:creator><![CDATA[Bob Writer]]></dc:creator>
+      <content:encoded><![CDATA[<h1>Test Article Two</h1><p>Another paragraph for the second test item.</p>]]></content:encoded>
+    </item>
+  </channel>
+</rss>

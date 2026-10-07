@@ -56,3 +56,11 @@ def test_throttled_session_waits_before_request(monkeypatch):
     s = ThrottledSession("zhihu")
     assert s.request("GET", "https://x/1") == "OK"
     assert calls == ["zhihu"] and sent == ["https://x/1"]
+
+
+def test_medium_default_is_conservative(monkeypatch):
+    """Medium（Cloudflare 高风控）默认间隔显著大于普通平台"""
+    from core import config as cfg
+    monkeypatch.setattr(cfg, "load_config", lambda: {})
+    iv, jit = throttle._interval("medium")
+    assert iv >= 8.0 and jit > 0

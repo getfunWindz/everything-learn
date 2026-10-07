@@ -229,3 +229,16 @@ def test_run_input_falls_back_to_sniff(tmp_path):
         assert isinstance(res, tuple) and res[0] == "ok"
     finally:
         reg.reset()
+
+
+def test_run_input_list_items_failure_becomes_pipeline_error(tmp_path):
+    """适配器 list_items 失败（如 feed 不可达/CF 拦截）→ PipelineError（可读）"""
+    class BadList(FakeAdapter):
+        def list_items(self, ref):
+            raise RuntimeError("feed 不可达（HTTP 403）")
+    out = str(tmp_path / "out")
+    try:
+        run_input("http://fake/v/1", RunOptions(out_root=out), adapter=BadList())
+        assert False
+    except PipelineError as e:
+        assert "feed 不可达" in str(e)

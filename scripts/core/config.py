@@ -13,6 +13,7 @@ DEFAULT_CONFIG = {
     "api_retry_base": 1.5,      # 退避基数（秒）
     "rate_limits": {            # 反爬缓速：每平台请求最小间隔（秒）+ 抖动；0=关闭；风险高的调大
         "zhihu": {"min_interval": 4.0, "jitter": 1.5},
+        "medium": {"min_interval": 10.0, "jitter": 2.0},
         "bilibili": {"min_interval": 1.5, "jitter": 0.5},
         "youtube": {"min_interval": 1.5, "jitter": 0.5}
     },
