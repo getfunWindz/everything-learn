@@ -23,6 +23,11 @@ def test_content_result_status():
     assert r.status == "suspect" and r.reason == "零命中"
 
 
+def test_content_result_label_default_and_custom():
+    assert ContentResult(kind="timeline", status="ok").label == ""
+    assert ContentResult(kind="timeline", status="ok", label="字幕(自动)").label == "字幕(自动)"
+
+
 def test_item_meta_fields():
     m = ItemMeta(title="标题", author="UP", duration=100, stats={"view": 1})
     assert m.title == "标题" and m.stats["view"] == 1

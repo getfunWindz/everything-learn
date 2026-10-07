@@ -13,7 +13,7 @@ class FakeAdapter:
     name = "fake"
     kinds = {"video"}
 
-    def __init__(self, n_items=1, status="ok", kind="timeline"):
+    def __init__(self, n_items=1, status="ok", kind="timeline", label=""):
         self.status, self.kind = status, kind
         self.n_items = n_items
         self.media_audio = "http://media/audio"
@@ -21,11 +21,12 @@ class FakeAdapter:
         self.media_calls = []
         if kind == "document":
             self.content = ContentResult(kind="document", status=status,
-                                         blocks=[{"heading": "引言", "text": "正文"}])
+                                         blocks=[{"heading": "引言", "text": "正文"}],
+                                         label=label)
         else:
             self.content = ContentResult(kind="timeline", status=status,
                                          segments=[{"start": 0.0, "end": 1.0, "text": "你好"}],
-                                         reason="零命中")
+                                         reason="零命中", label=label)
 
     def match(self, url):
         return True
@@ -85,6 +86,14 @@ def test_process_item_cache_hit(tmp_path):
                                                 RunOptions(out_root=out), single=True)
     assert (status, src, n) == ("ok", "cache", 1)
     assert "缓存" in open(os.path.join(out_dir, "content.txt"), encoding="utf-8").read()
+
+
+def test_process_item_uses_adapter_label(tmp_path):
+    """适配器 label 透传到 source（如 字幕(自动)）"""
+    out = str(tmp_path / "out")
+    status, src, n, out_dir, err = process_item(FakeAdapter(label="字幕(自动)"), _ref(), out,
+                                                RunOptions(out_root=out), single=True)
+    assert (status, src) == ("ok", "字幕(自动)")
 
 
 def test_process_item_suspect_without_vision_forces_whisper(tmp_path, monkeypatch):
