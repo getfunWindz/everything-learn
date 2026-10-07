@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" xmlns:podcast="https://podcastindex.org/namespace/1.0">
+  <channel>
+    <title>测试播客</title>
+    <itunes:author>测试主播</itunes:author>
+    <description>一个用于测试的播客</description>
+    <item>
+      <title>Episode One</title>
+      <guid>ep-1</guid>
+      <pubDate>Mon, 06 Oct 2026 10:00:00 GMT</pubDate>
+      <itunes:duration>5:21:57</itunes:duration>
+      <link>https://pod.example/ep1</link>
+      <enclosure url="https://media.example/ep1.m4a" length="1" type="audio/mp4"/>
+      <podcast:transcript url="https://media.example/ep1.vtt" type="text/vtt"/>
+    </item>
+    <item>
+      <title>Episode Two</title>
+      <guid>ep-2</guid>
+      <pubDate>Sun, 05 Oct 2026 10:00:00 GMT</pubDate>
+      <itunes:duration>4:40</itunes:duration>
+      <link>https://pod.example/ep2</link>
+      <enclosure url="https://media.example/ep2.mp3" length="1" type="audio/mpeg"/>
+    </item>
+    <item>
+      <title>Episode Three</title>
+      <guid>ep-3</guid>
+      <pubDate>Sat, 04 Oct 2026 10:00:00 GMT</pubDate>
+      <itunes:duration>280</itunes:duration>
+      <link>https://pod.example/ep3</link>
+      <enclosure url="https://media.example/ep3.m4a" length="1" type="audio/mp4"/>
+    </item>
+  </channel>
+</rss>
