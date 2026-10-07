@@ -95,14 +95,15 @@ def _get_wbi_keys(session, timeout: int) -> tuple:
     return img_key, sub_key
 
 
+_COOKIE_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".bili_cookie")
+
+
 def load_cookie(client) -> bool:
     """从环境变量 BILI_COOKIE 或 scripts/.bili_cookie 注入登录 cookie；有则 True"""
     raw = os.environ.get("BILI_COOKIE", "") or ""
-    if not raw:
-        p = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".bili_cookie")
-        if os.path.exists(p):
-            with open(p, encoding="utf-8") as f:
-                raw = f.read().strip()
+    if not raw and os.path.exists(_COOKIE_FILE):
+        with open(_COOKIE_FILE, encoding="utf-8") as f:
+            raw = f.read().strip()
     if not raw:
         return False
     for part in raw.split(";"):

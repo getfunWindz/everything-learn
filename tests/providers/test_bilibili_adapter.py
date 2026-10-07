@@ -41,6 +41,13 @@ def test_contract_passes():
     assert run_contract(_adapter()) == []
 
 
+def test_cookie_file_points_to_scripts_dir():
+    """cookie 文件固定在 scripts/.bili_cookie（provider 搬到子目录后不能指向 providers/）"""
+    from providers import bilibili
+    assert os.path.basename(os.path.dirname(bilibili._COOKIE_FILE)) == "scripts"
+    assert os.path.basename(bilibili._COOKIE_FILE) == ".bili_cookie"
+
+
 def test_match():
     a = _adapter()
     assert a.match("https://www.bilibili.com/video/BV1GJ411x7h7") is True
