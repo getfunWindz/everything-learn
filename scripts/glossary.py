@@ -178,7 +178,7 @@ def main(argv=None):
     """CLI：
     glossary.py list              列出术语库
     glossary.py add <术语> <解释>  自动沉淀单个术语（已有则保留原解释）
-    glossary.py check <报告.md> <subtitle.txt>   注释/覆盖校验（R11/B3）
+    glossary.py check <报告.md> <content.txt>   注释/覆盖校验（R11/B3）
     glossary.py alias <错误> <标准>        登记勘误映射（标准为空→uncertain）
     glossary.py aliases                    列出勘误映射
     glossary.py clean <文件> [--out <dst>] 按勘误映射替换，输出 corrected 稿 + 存疑清单
@@ -188,7 +188,7 @@ def main(argv=None):
     args = sys.argv[1:] if argv is None else argv
     if not args:
         print(__doc__)
-        print("用法：list | add <术语> <解释> | check <报告.md> <subtitle.txt> | alias <错误> <标准> | aliases | clean <文件> [--out <dst>] | absorb <wiki目录> [--dry]")
+        print("用法：list | add <术语> <解释> | check <报告.md> <content.txt> | alias <错误> <标准> | aliases | clean <文件> [--out <dst>] | absorb <wiki目录> [--dry]")
         return 1
     cmd = args[0]
     if cmd == "list":

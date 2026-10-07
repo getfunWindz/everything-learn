@@ -1,7 +1,7 @@
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 import pytest
-from pagespec import parse_pages
+from core.pagespec import parse_pages
 
 def test_single_page():
     assert parse_pages("3") == [3]

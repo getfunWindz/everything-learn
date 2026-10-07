@@ -105,7 +105,7 @@ def make_snapshot(items: list, out_dir: str = "") -> str:
 
 def cmd_favs_scan(args, client=None) -> None:
     """bili favs-scan <fav_id> [--filter kw1,kw2] [--priority] [--out 目录] [--snapshot]"""
-    from api_client import ApiClient
+    from providers.bilibili import ApiClient
     client = client or ApiClient()
     folders = client.get_fav_folders()
     fav = args.fav

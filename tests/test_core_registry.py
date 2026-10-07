@@ -51,3 +51,10 @@ def test_default_falls_back_to_bilibili():
         def fetch_media_url(self, ref, media="audio", lowest=False): return None
     registry.register(Bili)
     assert registry.default().name == "bilibili"
+
+
+def test_load_providers_self_heals_after_reset():
+    """注册表被 reset 后重新 load_providers 仍能恢复（不依赖 import 副作用）"""
+    registry.reset()
+    registry.load_providers()
+    assert registry.get("bilibili") is not None

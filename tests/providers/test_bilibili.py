@@ -310,7 +310,7 @@ def test_get_html_body_retried(monkeypatch):
     assert sess.calls == 2
 
 def test_config_retry_defaults(tmp_path, monkeypatch):
-    import config as cfg
+    from core import config as cfg
     monkeypatch.setattr(cfg, "CONFIG_PATH", str(tmp_path / "none.json"))
     c = cfg.load_config()
     assert c["api_retries"] == 4 and c["api_retry_base"] == 1.5  # D4：默认 4 次

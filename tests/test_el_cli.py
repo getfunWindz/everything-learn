@@ -1,7 +1,8 @@
 import sys, os, json, argparse
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 import pytest
-import bili
+import el
+from core import pipeline
 
 VIEW = {"code": 0, "data": {
     "bvid": "BV1GJ411x7h7", "aid": 170001, "title": "测试视频",
@@ -17,19 +18,23 @@ class FakeClient:
         self.search_out = []
     def get_video_info(self, bvid="", aid=0):
         assert bvid or aid
-        from api_client import VideoInfo
+        from providers.bilibili import VideoInfo
         return VideoInfo(VIEW["data"])
     def get_subtitle_text(self, bvid, cid, duration=None, lang=None, title="", desc=""):
         if self.lines is None:
             return []
-        from api_client import SubtitleLine
+        from providers.bilibili import SubtitleLine
         return [SubtitleLine(l["start"], l["end"], l["text"]) for l in self.lines]
     def fetch_subtitle(self, bvid, cid, duration=None, lang=None, title="", desc=""):
-        from api_client import SubtitleResult, SubtitleLine
+        from providers.bilibili import SubtitleResult, SubtitleLine
         if self.lines is None:
             return SubtitleResult([], "empty", "无字幕")
         return SubtitleResult(
             [SubtitleLine(l["start"], l["end"], l["text"]) for l in self.lines], "ok", "")
+    def get_audio_url(self, bvid, cid):
+        return "http://fake/audio"
+    def get_video_url(self, bvid, cid, lowest=False):
+        return "http://fake/video"
     def search(self, keyword, limit=5):
         return self.search_out
 
@@ -45,14 +50,14 @@ def report_dir(out):
 def test_run_with_subtitle(tmp_path):
     out = tmp_path / "out"
     client = FakeClient()
-    bili.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
+    el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
                                     no_whisper=False, pick=1), client=client)
     rd = report_dir(out)
     files = sorted(os.listdir(rd))
-    assert "subtitle.txt" in files and "video_info.json" in files and "report_template.md" in files
-    info = json.load(open(os.path.join(rd, "video_info.json"), encoding="utf-8"))
-    assert info["title"] == "测试视频" and info["page"] == 1 and info["subtitle_source"] == "字幕"
-    sub = open(os.path.join(rd, "subtitle.txt"), encoding="utf-8").read()
+    assert "content.txt" in files and "content_info.json" in files and "report_template.md" in files
+    info = json.load(open(os.path.join(rd, "content_info.json"), encoding="utf-8"))
+    assert info["title"] == "测试视频" and info["page"] == "1" and info["source"] == "字幕"
+    sub = open(os.path.join(rd, "content.txt"), encoding="utf-8").read()
     assert "大家好" in sub
     tpl = open(os.path.join(rd, "report_template.md"), encoding="utf-8").read()
     assert "## 知识详解" in tpl and "测试视频" in tpl
@@ -62,7 +67,7 @@ def test_run_no_subtitle_no_whisper_flag(tmp_path):
     out = tmp_path / "out"
     client = FakeClient(lines=None)
     with pytest.raises(SystemExit) as e:
-        bili.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
+        el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
                                         no_whisper=True, pick=1), client=client)
     assert e.value.code == 3
 
@@ -70,11 +75,11 @@ def test_run_whisper_not_installed_guidance(tmp_path, monkeypatch):
     import transcriber
     def boom(*a, **k):
         raise transcriber.WhisperNotInstalled("未安装 faster-whisper，请执行: pip install faster-whisper")
-    monkeypatch.setattr(transcriber, "transcribe_video", boom)
+    monkeypatch.setattr(transcriber, "transcribe_url", boom)
     out = tmp_path / "out"
     client = FakeClient(lines=None)
     with pytest.raises(SystemExit) as e:
-        bili.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
+        el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
                                         no_whisper=False, pick=1), client=client)
     assert e.value.code == 5
 
@@ -82,14 +87,14 @@ def test_run_keyword_search_pick(tmp_path):
     out = tmp_path / "out"
     client = FakeClient()
     client.search_out = [{"bvid": "BV1GJ411x7h7", "title": "测试视频", "author": "测试UP", "duration": "5:00"}]
-    bili.cmd_run(argparse.Namespace(input="随便一个关键词", page=1, out=str(out),
+    el.cmd_run(argparse.Namespace(input="随便一个关键词", page=1, out=str(out),
                                     no_whisper=False, pick=1), client=client)
     rd = report_dir(out)
-    info = json.load(open(os.path.join(rd, "video_info.json"), encoding="utf-8"))
-    assert info["bvid"] == "BV1GJ411x7h7"
+    info = json.load(open(os.path.join(rd, "content_info.json"), encoding="utf-8"))
+    assert info["item_id"] == "BV1GJ411x7h7"
 
 def test_resolve_cmd(capsys):
-    bili.cmd_resolve(argparse.Namespace(input="https://www.bilibili.com/video/BV1GJ411x7h7/?p=2"))
+    el.cmd_resolve(argparse.Namespace(input="https://www.biliel.com/video/BV1GJ411x7h7/?p=2"))
     out = json.loads(capsys.readouterr().out)
     assert out["bvid"] == "BV1GJ411x7h7" and out["page"] == 2
 
@@ -108,21 +113,25 @@ class MultiPageClient:
         self.lines_map = lines_map
         self.view = view
     def get_video_info(self, bvid="", aid=0):
-        from api_client import VideoInfo
+        from providers.bilibili import VideoInfo
         return VideoInfo(self.view["data"])
     def get_subtitle_text(self, bvid, cid, duration=None, lang=None, title="", desc=""):
-        from api_client import SubtitleLine
+        from providers.bilibili import SubtitleLine
         raw = self.lines_map.get(cid)
         if raw is None:
             return []
         return [SubtitleLine(l["start"], l["end"], l["text"]) for l in raw]
     def fetch_subtitle(self, bvid, cid, duration=None, lang=None, title="", desc=""):
-        from api_client import SubtitleResult, SubtitleLine
+        from providers.bilibili import SubtitleResult, SubtitleLine
         raw = self.lines_map.get(cid)
         if raw is None:
             return SubtitleResult([], "empty", "无字幕")
         return SubtitleResult(
             [SubtitleLine(l["start"], l["end"], l["text"]) for l in raw], "ok", "")
+    def get_audio_url(self, bvid, cid):
+        return "http://fake/audio"
+    def get_video_url(self, bvid, cid, lowest=False):
+        return "http://fake/video"
     def search(self, keyword, limit=5):
         return []
 
@@ -143,14 +152,14 @@ def test_batch_all_structure(tmp_path):
         1002: _mk_lines([f"第二课{i}" for i in range(12)]),
         1003: _mk_lines([f"第三课{i}" for i in range(12)]),
     })
-    bili.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=None, pages=None,
+    el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=None, pages=None,
                                     all_=True, out=str(out), no_whisper=False, pick=1),
                  client=client)
     sub = _batch_dir(out)
     for p in ("P01", "P02", "P03"):
         assert os.path.isdir(os.path.join(sub, p)), f"缺少 {p}"
-        assert os.path.exists(os.path.join(sub, p, "subtitle.txt"))
-    info = json.load(open(os.path.join(sub, "video_info.json"), encoding="utf-8"))
+        assert os.path.exists(os.path.join(sub, p, "content.txt"))
+    info = json.load(open(os.path.join(sub, "content_info.json"), encoding="utf-8"))
     assert info["page_count"] == 3
     assert [r["status"] for r in info["pages"]] == ["ok", "ok", "ok"]
     assert info["pages"][0]["line_count"] == 12
@@ -162,11 +171,11 @@ def test_batch_partial_failure_continues(tmp_path):
         1002: None,   # 无字幕且 --no-whisper → no_subtitle
         1003: _mk_lines([f"第三课{i}" for i in range(12)]),
     })
-    bili.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=None, pages=None,
+    el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=None, pages=None,
                                     all_=True, out=str(out), no_whisper=True, pick=1),
                  client=client)
     sub = _batch_dir(out)
-    info = json.load(open(os.path.join(sub, "video_info.json"), encoding="utf-8"))
+    info = json.load(open(os.path.join(sub, "content_info.json"), encoding="utf-8"))
     assert [r["status"] for r in info["pages"]] == ["ok", "no_subtitle", "ok"]
 
 def test_batch_pages_range(tmp_path):
@@ -176,7 +185,7 @@ def test_batch_pages_range(tmp_path):
         1002: _mk_lines([f"第二课{i}" for i in range(12)]),
         1003: _mk_lines([f"第三课{i}" for i in range(12)]),
     })
-    bili.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=None, pages="2-3",
+    el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=None, pages="2-3",
                                     all_=False, out=str(out), no_whisper=False, pick=1),
                  client=client)
     sub = _batch_dir(out)
@@ -190,11 +199,11 @@ def test_batch_failure_records_error(tmp_path):
         1001: None,
         1002: _mk_lines([f"第二课{i}" for i in range(12)]),
     })
-    bili.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=None, pages="1-2",
+    el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=None, pages="1-2",
                                     all_=False, out=str(out), no_whisper=True, pick=1),
                  client=client)
     sub = _batch_dir(out)
-    info = json.load(open(os.path.join(sub, "video_info.json"), encoding="utf-8"))
+    info = json.load(open(os.path.join(sub, "content_info.json"), encoding="utf-8"))
     p1 = info["pages"][0]
     assert p1["status"] == "no_subtitle"
     assert "error" in p1 and p1["error"]  # 失败原因非空
@@ -204,28 +213,27 @@ def test_resume_skips_done_pages(tmp_path):
     # 上次已成功 P1，这次只处理 P2、P3
     base = os.path.join(str(out), "测试UP", "2026-08-20_测试合集_合集")
     os.makedirs(base, exist_ok=True)
-    json.dump({"title": "测试合集", "bvid": "BV1GJ411x7h7",
+    json.dump({"title": "测试合集", "platform": "bilibili", "item_id": "BV1GJ411x7h7",
                "pages": [{"page": 1, "status": "ok"}, {"page": 2, "status": "failed"}]},
-              open(os.path.join(base, "video_info.json"), "w", encoding="utf-8"))
+              open(os.path.join(base, "content_info.json"), "w", encoding="utf-8"))
     processed = []
     client = MultiPageClient({
         1001: _mk_lines([f"第一课{i}" for i in range(12)]),
         1002: _mk_lines([f"第二课{i}" for i in range(12)]),
         1003: _mk_lines([f"第三课{i}" for i in range(12)]),
     })
-    orig = bili._process_page
-    def spy(client_, info_, page_, root_, nw_, single_=False, lang=None, model_size=None,
-            no_cache=False, no_vision_check=False, vad=None):
-        processed.append(page_)
-        return orig(client_, info_, page_, root_, nw_, single_, lang, model_size, no_cache, no_vision_check, vad)
-    bili._process_page = spy
+    orig = pipeline.process_item
+    def spy(adapter, ref, root_, opts, single=False):
+        processed.append(ref.sub_id)
+        return orig(adapter, ref, root_, opts, single=single)
+    pipeline.process_item = spy
     try:
-        bili.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=None, pages=None,
+        el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=None, pages=None,
                                         all_=True, out=str(out), no_whisper=False,
                                         pick=1, resume=True), client=client)
     finally:
-        bili._process_page = orig
-    assert processed == [2, 3]  # P1 已 ok 被跳过；P2 failed 重试
+        pipeline.process_item = orig
+    assert processed == ["2", "3"]  # P1 已 ok 被跳过；P2 failed 重试
 
 def test_batch_shows_progress_and_eta(tmp_path, capsys):
     out = tmp_path / "out"
@@ -234,7 +242,7 @@ def test_batch_shows_progress_and_eta(tmp_path, capsys):
         1002: _mk_lines([f"第二课{i}" for i in range(12)]),
         1003: _mk_lines([f"第三课{i}" for i in range(12)]),
     })
-    bili.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=None, pages=None,
+    el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=None, pages=None,
                                     all_=True, out=str(out), no_whisper=False,
                                     pick=1, resume=False), client=client)
     out_text = capsys.readouterr().out
@@ -246,7 +254,7 @@ def test_batch_generates_report_skeleton(tmp_path):
         1001: _mk_lines([f"第一课{i}" for i in range(12)]),
         1002: _mk_lines([f"第二课{i}" for i in range(12)]),
     })
-    bili.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=None, pages=None,
+    el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=None, pages=None,
                                     all_=True, out=str(out), no_whisper=False,
                                     pick=1, resume=False), client=client)
     sub = _batch_dir(out)
@@ -257,11 +265,11 @@ def test_batch_generates_report_skeleton(tmp_path):
 def test_report_command_regenerates_single(tmp_path):
     out = tmp_path / "out"
     client = FakeClient()
-    bili.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
+    el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
                                     no_whisper=False, pick=1), client=client)
     single = report_dir(out)
     os.remove(os.path.join(single, "report_template.md"))  # 模拟模板丢失
-    bili.cmd_report(argparse.Namespace(target=single))
+    el.cmd_report(argparse.Namespace(target=single))
     assert os.path.exists(os.path.join(single, "report_template.md"))
 
 def test_report_command_handles_batch_dir(tmp_path):
@@ -270,11 +278,11 @@ def test_report_command_handles_batch_dir(tmp_path):
         1001: _mk_lines([f"第一课{i}" for i in range(12)]),
         1002: _mk_lines([f"第二课{i}" for i in range(12)]),
     })
-    bili.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=None, pages=None,
+    el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=None, pages=None,
                                     all_=True, out=str(out), no_whisper=False,
                                     pick=1, resume=False), client=client)
     sub = _batch_dir(out)
-    bili.cmd_report(argparse.Namespace(target=sub))
+    el.cmd_report(argparse.Namespace(target=sub))
     tpl = open(os.path.join(sub, "report_template.md"), encoding="utf-8").read()
     assert "## P1" in tpl
 
@@ -282,13 +290,13 @@ def test_run_log_file_created(tmp_path):
     import logging
     out = tmp_path / "out"
     client = FakeClient()
-    bili.setup_logging(str(tmp_path / "logs"))
+    el.setup_logging(str(tmp_path / "logs"))
     try:
-        bili.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
+        el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
                                         no_whisper=False, pick=1), client=client)
     finally:
         logging.shutdown()
-    logfile = tmp_path / "logs" / "bili.log"
+    logfile = tmp_path / "logs" / "el.log"
     assert logfile.exists()
     content = open(logfile, encoding="utf-8").read()
     assert "BV1GJ411x7h7" in content
@@ -301,75 +309,74 @@ def test_batch_writes_progress_incrementally(tmp_path):
         1002: _mk_lines([f"第二课{i}" for i in range(12)]),
         1003: _mk_lines([f"第三课{i}" for i in range(12)]),
     })
-    orig = bili._process_page
+    orig = pipeline.process_item
     calls = {"n": 0}
-    def boom(client_, info_, page_, root_, nw_, single_=False, lang=None, model_size=None,
-             no_cache=False, no_vision_check=False, vad=None):
+    def boom(adapter, ref, root_, opts, single=False):
         calls["n"] += 1
         if calls["n"] == 2:
             raise KeyboardInterrupt()  # 模拟中断
-        return orig(client_, info_, page_, root_, nw_, single_, lang, model_size, no_cache, no_vision_check, vad)
-    bili._process_page = boom
+        return orig(adapter, ref, root_, opts, single=single)
+    pipeline.process_item = boom
     try:
         with pytest.raises(KeyboardInterrupt):
-            bili.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=None, pages=None,
+            el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=None, pages=None,
                                             all_=True, out=str(out), no_whisper=False,
                                             pick=1, resume=False), client=client)
     finally:
-        bili._process_page = orig
+        el._process_page = orig
     sub = _batch_dir(out)
-    info = json.load(open(os.path.join(sub, "video_info.json"), encoding="utf-8"))
+    info = json.load(open(os.path.join(sub, "content_info.json"), encoding="utf-8"))
     assert [r["status"] for r in info["pages"]] == ["ok"]  # P1 已记录，P2 中断
 
 def test_config_out_dir_used_when_no_out_arg(tmp_path, monkeypatch):
-    import config as cfg
+    from core import config as cfg
     p = tmp_path / "config.json"
     p.write_text(json.dumps({"out_dir": str(tmp_path / "cfg_out")}), encoding="utf-8")
     monkeypatch.setattr(cfg, "CONFIG_PATH", str(p))
     client = FakeClient()
-    bili.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=None,
+    el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=None,
                                     no_whisper=False, pick=1), client=client)
     rd = report_dir(tmp_path / "cfg_out")
-    assert os.path.exists(os.path.join(rd, "subtitle.txt"))
+    assert os.path.exists(os.path.join(rd, "content.txt"))
 
 def test_output_archived_by_owner(tmp_path):
     """B3：输出按 UP 主归档为 <out>/<UP主>/<日期>_<标题>/"""
     out = tmp_path / "out"
     client = FakeClient()
-    bili.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
+    el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
                                     no_whisper=False, pick=1), client=client)
     up_dir = out / "测试UP"
     assert up_dir.is_dir()
     sub = [d for d in os.listdir(up_dir) if os.path.isdir(os.path.join(up_dir, d))][0]
-    assert os.path.exists(up_dir / sub / "subtitle.txt")
+    assert os.path.exists(up_dir / sub / "content.txt")
 
 def test_export_command(tmp_path):
     out = tmp_path / "out"
     client = FakeClient()
-    bili.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
+    el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
                                     no_whisper=False, pick=1), client=client)
     rd = report_dir(out)
-    bili.cmd_export(argparse.Namespace(target=rd, format="html", out=None))
+    el.cmd_export(argparse.Namespace(target=rd, format="html", out=None))
     assert os.path.exists(os.path.join(rd, "report_template.html"))
-    bili.cmd_export(argparse.Namespace(target=rd, format="docx", out=None))
+    el.cmd_export(argparse.Namespace(target=rd, format="docx", out=None))
     assert os.path.exists(os.path.join(rd, "report_template.docx"))
 
 def test_model_param_priority_over_config(tmp_path, monkeypatch):
     """--model CLI 参数优先于 config.whisper_model"""
-    import config as cfg
+    from core import config as cfg
     p = tmp_path / "config.json"
     p.write_text(json.dumps({"whisper_model": "medium"}), encoding="utf-8")
     monkeypatch.setattr(cfg, "CONFIG_PATH", str(p))
     import transcriber
     seen = []
-    orig = transcriber.transcribe_video
-    def spy(client, bvid, cid, model_size="medium", progress_callback=None, **kw):
+    # transcribe_url 是平台无关入口（原 transcribe_video 已薄封装）
+    def spy(url, model_size="medium", progress_callback=None, **kw):
         seen.append(model_size)
         return [{"start": 0.0, "end": 1.0, "text": "x"}]
-    monkeypatch.setattr(transcriber, "transcribe_video", spy)
+    monkeypatch.setattr(transcriber, "transcribe_url", spy)
     out = tmp_path / "out"
     client = FakeClient(lines=None)  # 无字幕 → 走 whisper
-    bili.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
+    el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
                                     no_whisper=False, pick=1, lang=None,
                                     model="small"), client=client)
     assert seen == ["small"]  # CLI 覆盖 config 的 medium
@@ -378,7 +385,7 @@ def test_invalid_pages_graceful(tmp_path, capsys):
     """非法页码范围应友好报错退出，而非 Traceback 崩溃"""
     client = MultiPageClient({})
     with pytest.raises(SystemExit) as e:
-        bili.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=None, pages="5-2",
+        el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=None, pages="5-2",
                                         all_=False, out=str(tmp_path / "o"), no_whisper=True,
                                         pick=1, resume=False, lang=None, model=None),
                      client=client)
@@ -388,40 +395,40 @@ def test_invalid_pages_graceful(tmp_path, capsys):
 
 def test_run_vision_check_supplements(tmp_path, monkeypatch):
     """复检固定路径：字幕有内容 + 复检发现遗漏 → 补充并入 + source 标记"""
-    monkeypatch.setattr(bili, "_vision_check",
-                        lambda client, bvid, cid, cfg, lines, duration:
+    monkeypatch.setattr(pipeline, "_vision_check",
+                        lambda adapter, ref, cfg, lines:
                             [{"start": 6.0, "end": 8.0, "text": "白板公式补充"}])
-    monkeypatch.setattr(bili.config, "load_config",
+    monkeypatch.setattr(el.config, "load_config",
                         lambda: {"vision": {"enabled": True, "api_key": "k"}})
     out = tmp_path / "out"
     client = FakeClient()
-    bili.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
+    el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
                                     no_whisper=False, pick=1, lang=None, model=None),
                  client=client)
     rd = report_dir(out)
-    info = json.load(open(os.path.join(rd, "video_info.json"), encoding="utf-8"))
-    assert info["subtitle_source"] == "字幕+vision补充"
-    sub = open(os.path.join(rd, "subtitle.txt"), encoding="utf-8").read()
+    info = json.load(open(os.path.join(rd, "content_info.json"), encoding="utf-8"))
+    assert info["source"] == "字幕+vision补充"
+    sub = open(os.path.join(rd, "content.txt"), encoding="utf-8").read()
     assert "白板公式补充" in sub
 
 def test_run_vision_check_empty_transcript(tmp_path, monkeypatch):
     """无转写 + 复检产出 → source=vision（纯视觉素材）"""
     import transcriber as tr_mod
-    monkeypatch.setattr(tr_mod, "transcribe_video", lambda *a, **k: [])
-    monkeypatch.setattr(bili, "_vision_check",
-                        lambda client, bvid, cid, cfg, lines, duration:
+    monkeypatch.setattr(tr_mod, "transcribe_url", lambda *a, **k: [])
+    monkeypatch.setattr(pipeline, "_vision_check",
+                        lambda adapter, ref, cfg, lines:
                             [{"start": 0.0, "end": 5.0, "text": "画面内容"}])
-    monkeypatch.setattr(bili.config, "load_config",
+    monkeypatch.setattr(el.config, "load_config",
                         lambda: {"vision": {"enabled": True, "api_key": "k"}})
     out = tmp_path / "out"
     client = FakeClient(lines=None)
-    bili.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
+    el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
                                     no_whisper=False, pick=1, lang=None, model=None),
                  client=client)
     rd = report_dir(out)
-    info = json.load(open(os.path.join(rd, "video_info.json"), encoding="utf-8"))
-    assert info["subtitle_source"] == "vision"
-    sub = open(os.path.join(rd, "subtitle.txt"), encoding="utf-8").read()
+    info = json.load(open(os.path.join(rd, "content_info.json"), encoding="utf-8"))
+    assert info["source"] == "vision"
+    sub = open(os.path.join(rd, "content.txt"), encoding="utf-8").read()
     assert "画面内容" in sub
 
 def test_no_vision_check_flag(tmp_path, monkeypatch):
@@ -430,12 +437,12 @@ def test_no_vision_check_flag(tmp_path, monkeypatch):
     def spy_check(*a, **k):
         called["n"] += 1
         return []
-    monkeypatch.setattr(bili, "_vision_check", spy_check)
-    monkeypatch.setattr(bili.config, "load_config",
+    monkeypatch.setattr(pipeline, "_vision_check", spy_check)
+    monkeypatch.setattr(el.config, "load_config",
                         lambda: {"vision": {"enabled": True, "api_key": "k"}})
     out = tmp_path / "out"
     client = FakeClient()
-    bili.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
+    el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
                                     no_whisper=False, pick=1, lang=None, model=None,
                                     no_vision_check=True), client=client)
     assert called["n"] == 0
@@ -451,7 +458,7 @@ def test_frames_command_saves_jpegs(tmp_path, monkeypatch):
     class FC(FakeClient):
         def get_video_url(self, b, c): return "http://v"
     out = tmp_path / "frames"
-    bili.cmd_frames(argparse.Namespace(input="BV1GJ411x7h7", range="0-10",
+    el.cmd_frames(argparse.Namespace(input="BV1GJ411x7h7", range="0-10",
                                        out=str(out), fps=1, max=30),
                     client=FC())
     files = sorted(os.listdir(out))
@@ -460,23 +467,23 @@ def test_frames_command_saves_jpegs(tmp_path, monkeypatch):
 
 def test_page_and_pages_mutually_exclusive():
     with pytest.raises(SystemExit):
-        bili.main(["run", "BV1GJ411x7h7", "--page", "2", "--all"])
+        el.main(["run", "BV1GJ411x7h7", "--page", "2", "--all"])
 
 
 def test_vad_flags_mutually_exclusive():
     """--vad 与 --no-vad 互斥（argparse 拒绝同时传入）"""
     with pytest.raises(SystemExit):
-        bili.main(["run", "BV1GJ411x7h7", "--vad", "--no-vad"])
+        el.main(["run", "BV1GJ411x7h7", "--vad", "--no-vad"])
 
 
 def test_want_subtitle_check_modes():
     """字幕复检模式三态：auto=仅可疑 / always=恒查 / off=关闭（用户可自选）"""
     cfg_on = {"enabled": True, "api_key": "k"}
-    assert bili._want_subtitle_check(cfg_on, "suspect") is True    # auto：可疑时查
-    assert bili._want_subtitle_check(cfg_on, "ok") is False        # auto：可信不查
-    assert bili._want_subtitle_check({**cfg_on, "subtitle_check": "always"}, "ok") is True
-    assert bili._want_subtitle_check({**cfg_on, "subtitle_check": "off"}, "suspect") is False
-    assert bili._want_subtitle_check({"enabled": False}, "suspect") is False
+    assert pipeline._want_subtitle_check(cfg_on, "suspect") is True    # auto：可疑时查
+    assert pipeline._want_subtitle_check(cfg_on, "ok") is False        # auto：可信不查
+    assert pipeline._want_subtitle_check({**cfg_on, "subtitle_check": "always"}, "ok") is True
+    assert pipeline._want_subtitle_check({**cfg_on, "subtitle_check": "off"}, "suspect") is False
+    assert pipeline._want_subtitle_check({"enabled": False}, "suspect") is False
 
 
 # ---------- 字幕归属复检接线（可疑字幕 → 多模态裁决 → 强制 Whisper） ----------
@@ -484,51 +491,51 @@ def test_want_subtitle_check_modes():
 class SuspectClient(FakeClient):
     """返回可疑字幕的假客户端（用于复检接线测试）"""
     def fetch_subtitle(self, bvid, cid, duration=None, lang=None, title="", desc=""):
-        from api_client import SubtitleResult, SubtitleLine
+        from providers.bilibili import SubtitleResult, SubtitleLine
         return SubtitleResult(
             [SubtitleLine(l["start"], l["end"], l["text"]) for l in self.lines],
             "suspect", "标题关键词零命中")
 
 class InvalidClient(SuspectClient):
     def fetch_subtitle(self, bvid, cid, duration=None, lang=None, title="", desc=""):
-        from api_client import SubtitleResult
+        from providers.bilibili import SubtitleResult
         return SubtitleResult([], "invalid", "时长越界")
 
 
 def test_suspect_subtitle_rescued_by_vision(tmp_path, monkeypatch):
     """可疑字幕 + 多模态复检通过 → 采信字幕，不调用 Whisper"""
     import transcriber as tr_mod
-    monkeypatch.setattr(tr_mod, "transcribe_video",
+    monkeypatch.setattr(tr_mod, "transcribe_url",
                         lambda *a, **k: (_ for _ in ()).throw(AssertionError("不应调用 Whisper")))
-    monkeypatch.setattr(bili, "_vision_verify_subtitle", lambda *a, **k: True)
-    monkeypatch.setattr(bili, "_vision_check", lambda *a, **k: [])
-    monkeypatch.setattr(bili.config, "load_config",
+    monkeypatch.setattr(pipeline, "_vision_verify_subtitle", lambda *a, **k: True)
+    monkeypatch.setattr(pipeline, "_vision_check", lambda *a, **k: [])
+    monkeypatch.setattr(el.config, "load_config",
                         lambda: {"vision": {"enabled": True, "api_key": "k"}})
     out = tmp_path / "out"
-    bili.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
+    el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
                                     no_whisper=False, pick=1, lang=None, model=None),
                  client=SuspectClient())
     rd = report_dir(out)
-    info = json.load(open(os.path.join(rd, "video_info.json"), encoding="utf-8"))
-    assert info["subtitle_source"] == "字幕+vision复核"
+    info = json.load(open(os.path.join(rd, "content_info.json"), encoding="utf-8"))
+    assert info["source"] == "字幕+vision复核"
 
 
 def test_suspect_subtitle_mismatch_forces_whisper(tmp_path, monkeypatch):
     """复检判定不一致 → 强制 Whisper（错乱字幕场景）"""
     import transcriber as tr_mod
-    monkeypatch.setattr(tr_mod, "transcribe_video",
+    monkeypatch.setattr(tr_mod, "transcribe_url",
                         lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "whisper 转写"}])
-    monkeypatch.setattr(bili, "_vision_verify_subtitle", lambda *a, **k: False)
-    monkeypatch.setattr(bili, "_vision_check", lambda *a, **k: [])
-    monkeypatch.setattr(bili.config, "load_config",
+    monkeypatch.setattr(pipeline, "_vision_verify_subtitle", lambda *a, **k: False)
+    monkeypatch.setattr(pipeline, "_vision_check", lambda *a, **k: [])
+    monkeypatch.setattr(el.config, "load_config",
                         lambda: {"vision": {"enabled": True, "api_key": "k"}})
     out = tmp_path / "out"
-    bili.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
+    el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
                                     no_whisper=False, pick=1, lang=None, model=None),
                  client=SuspectClient())
     rd = report_dir(out)
-    info = json.load(open(os.path.join(rd, "video_info.json"), encoding="utf-8"))
-    assert info["subtitle_source"] == "whisper"
+    info = json.load(open(os.path.join(rd, "content_info.json"), encoding="utf-8"))
+    assert info["source"] == "whisper"
 
 
 def test_invalid_subtitle_skips_vision_check(tmp_path, monkeypatch):
@@ -538,14 +545,14 @@ def test_invalid_subtitle_skips_vision_check(tmp_path, monkeypatch):
         called["n"] += 1
         return True
     import transcriber
-    monkeypatch.setattr(transcriber, "transcribe_video",
+    monkeypatch.setattr(transcriber, "transcribe_url",
                         lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "w"}])
-    monkeypatch.setattr(bili, "_vision_verify_subtitle", spy)
-    monkeypatch.setattr(bili, "_vision_check", lambda *a, **k: [])
-    monkeypatch.setattr(bili.config, "load_config",
+    monkeypatch.setattr(pipeline, "_vision_verify_subtitle", spy)
+    monkeypatch.setattr(pipeline, "_vision_check", lambda *a, **k: [])
+    monkeypatch.setattr(el.config, "load_config",
                         lambda: {"vision": {"enabled": True, "api_key": "k"}})
     out = tmp_path / "out"
-    bili.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
+    el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
                                     no_whisper=False, pick=1, lang=None, model=None),
                  client=InvalidClient())
     assert called["n"] == 0
@@ -555,16 +562,16 @@ def test_invalid_subtitle_skips_vision_check(tmp_path, monkeypatch):
 
 def test_vad_flag_reaches_transcriber(tmp_path, monkeypatch):
     """--vad 手动开启：透传到 transcriber（长视频默认关闭）"""
-    import config as cfg
+    from core import config as cfg
     monkeypatch.setattr(cfg, "CONFIG_PATH", str(tmp_path / "none.json"))
     import transcriber as tr_mod
     seen = {}
-    def spy(client, bvid, cid, **kw):
+    def spy(url, **kw):
         seen.update(kw)
         return [{"start": 0.0, "end": 1.0, "text": "w"}]
-    monkeypatch.setattr(tr_mod, "transcribe_video", spy)
+    monkeypatch.setattr(tr_mod, "transcribe_url", spy)
     out = tmp_path / "out"
-    bili.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
+    el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
                                     no_whisper=False, pick=1, lang=None, model=None, vad=True),
                  client=FakeClient(lines=None))
     assert seen["vad"] is True
@@ -573,16 +580,16 @@ def test_vad_flag_reaches_transcriber(tmp_path, monkeypatch):
 
 def test_whisper_default_model_medium(tmp_path, monkeypatch):
     """无 --model 时用配置默认 medium（用户可降级/升级）"""
-    import config as cfg
+    from core import config as cfg
     monkeypatch.setattr(cfg, "CONFIG_PATH", str(tmp_path / "none.json"))
     import transcriber as tr_mod
     seen = {}
-    def spy(client, bvid, cid, **kw):
+    def spy(url, **kw):
         seen.update(kw)
         return [{"start": 0.0, "end": 1.0, "text": "w"}]
-    monkeypatch.setattr(tr_mod, "transcribe_video", spy)
+    monkeypatch.setattr(tr_mod, "transcribe_url", spy)
     out = tmp_path / "out"
-    bili.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
+    el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
                                     no_whisper=False, pick=1, lang=None, model=None),
                  client=FakeClient(lines=None))
     assert seen["model_size"] == "medium"
