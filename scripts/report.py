@@ -3,8 +3,8 @@
 
 VERSION = "0.1.0"
 
-# 已实现报告骨架的内容形态（M0 仅 timeline；document/collection 随里程碑加入）
-SUPPORTED_KINDS = {"timeline"}
+# 已实现报告骨架的内容形态（M0 timeline；M3 增补 document）
+SUPPORTED_KINDS = {"timeline", "document"}
 
 
 def render_template(info: dict) -> str:
@@ -94,10 +94,87 @@ def render_template(info: dict) -> str:
 """
 
 
+def render_document_template(info: dict) -> str:
+    return f"""# {info['title']}
+
+> 图文信息
+
+| 项目 | 内容 |
+|------|------|
+| 标题 | {info['title']} |
+| 作者 | {info['author']} |
+| 内容ID | {info['item_id']} |
+| 链接 | {info['url']} |
+| 发布日期 | {info['published']} |
+| 阅读/赞同/评论 | {info['stats'].get('view', 0)} / {info['stats'].get('voteup', 0)} / {info['stats'].get('comment', 0)} |
+| 内容来源 | {info['source']} |
+
+> 简介：{info['desc'] or '（无）'}
+
+## 一句话总结
+
+<!-- 用 1-3 句话概括文章核心内容 -->
+
+## 知识地图（章节树）
+
+<!-- 按原文章节列出全部知识点（编号），如：
+1. 引言：问题背景
+2. 核心方法 A（含子点 a/b/c）
+...（覆盖全文，不遗漏） -->
+
+## 知识详解
+
+<!-- 按原文章节切段，逐段展开：
+### 段1｜章节名
+
+#### 知识点1：知识点名称（见「小节标题」）
+- **定义**：官方/标准表述（正式定义或教科书式描述）
+- **通俗**：一句话人话解释（新手视角）
+- **细节**：2~4 条浓缩要点（只留知识本身，删除口水话/重复）
+- **例子**：文中的示例/数据（如有）
+- **延伸**：主流/高级知识点深入 2~4 条（概念 + 使用场景）；简单知识点 1 条或省略
+- **名词注释（R11，必填）**：本知识点中出现的、前置未提及的专业名词逐条注释，
+  先查 references/glossary.json 术语库（命中直接引用），未命中新写并
+  `python scripts/glossary.py add` 沉淀；交付前运行
+  `python scripts/glossary.py check <报告.md> <content.txt>` 校验到 0 遗漏
+
+（该章节内每个知识点都必须列出，不省略） -->
+
+## 关键概念 / 术语解释表
+
+| 概念 | 通俗解释 |
+|------|---------|
+|  |  |
+
+## 金句与重要观点
+
+## 原文摘录
+
+<!-- 从正文挑选 5~10 条有教学价值/启发性的原文，逐条附章节定位，如：
+- （见「小节标题」）“原文内容”
+-->
+
+## 学习路径与自测
+
+<!-- 学习收获（按知识点维度）+ 自测问题清单（每 3~5 个知识点出一道自测题，附参考答案位置提示） -->
+
+## 延伸阅读
+
+<!-- 文中推荐的相关资料/概念链接（如有） -->
+
+## 元信息
+
+- 生成时间：{info['fetched_at']}
+- 工具：{info['tool']}
+"""
+
+
 def render_template_for(kind: str, info: dict) -> str:
-    """按内容形态选择报告骨架（M0 仅 timeline；document/collection 在对应里程碑实现）"""
+    """按内容形态选择报告骨架（timeline/document；collection 未来里程碑实现）"""
     if kind == "timeline":
         return render_template(info)
+    if kind == "document":
+        return render_document_template(info)
     raise NotImplementedError(f"内容形态 {kind} 的报告骨架尚未实现（见 docs/specs 里程碑）")
 
 

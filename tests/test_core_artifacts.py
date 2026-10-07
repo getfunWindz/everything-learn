@@ -30,10 +30,22 @@ def test_write_item_artifacts_timeline(tmp_path):
     assert "## 知识详解" in tpl and "标题" in tpl
 
 
-def test_write_item_artifacts_document_not_implemented(tmp_path):
-    """document 骨架尚未实现（M3）→ 明确报错而非产出坏骨架"""
-    ref = ItemRef(platform="zhihu", item_id="q1", url="u")
-    meta = ItemMeta(title="问题", author="答主")
-    info = build_info(meta, ref, kind="document", source="document")
-    with pytest.raises(NotImplementedError):
-        write_item_artifacts(str(tmp_path), info, DocumentContent(blocks=[{"text": "x"}]))
+def test_write_item_artifacts_document(tmp_path):
+    """document 骨架已实现（M3）：章节式结构 + 无时间轴措辞"""
+    ref = ItemRef(platform="zhihu", item_id="article-1", url="u")
+    meta = ItemMeta(title="文章标题", author="答主")
+    info = build_info(meta, ref, kind="document", source="正文")
+    write_item_artifacts(str(tmp_path), info, DocumentContent(blocks=[{"heading": "引言", "text": "正文"}]))
+    tpl = (tmp_path / "report_template.md").read_text(encoding="utf-8")
+    assert "知识地图" in tpl and "延伸阅读" in tpl and "原文摘录" in tpl
+    assert "[00:00" not in tpl and "时间轴" not in tpl
+
+
+def test_render_document_template_sections():
+    from report import render_template_for
+    ref = ItemRef(platform="zhihu", item_id="a1", url="u")
+    meta = ItemMeta(title="文章", author="答主", published="2024-01-01")
+    info = build_info(meta, ref, kind="document", source="正文")
+    tpl = render_template_for("document", info)
+    for kw in ("一句话总结", "知识地图", "知识详解", "关键概念", "金句", "学习路径", "延伸阅读", "元信息"):
+        assert kw in tpl
