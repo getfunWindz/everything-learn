@@ -30,6 +30,21 @@ def match_url(url: str):
     return None
 
 
+def sniff_url(url: str):
+    """URL 路由兜底：match 全部未命中时，依次尝试适配器的可选 sniff(url)（仅 http/https）"""
+    if not (url or "").startswith(("http://", "https://")):
+        return None
+    for a in _ADAPTERS.values():
+        sniff = getattr(a, "sniff", None)
+        if callable(sniff):
+            try:
+                if sniff(url):
+                    return a
+            except Exception:
+                continue
+    return None
+
+
 def default():
     """无 URL 匹配时的兜底适配器（M0 = bilibili，供名称搜索用）"""
     return _ADAPTERS.get("bilibili")

@@ -13,6 +13,7 @@
 | 方法 | 签名 | 要求 |
 |---|---|---|
 | `match` | `match(url) -> bool` | 纯字符串判断、**不联网**；输入 URL 属本平台返回 True |
+| `sniff`（可选） | `sniff(url) -> bool` | 网络探测（如取 content-type/首段字节判断 XML）；**仅当所有适配器 match 均未命中且输入为 http(s) 时调用**；异常会被静默跳过 |
 | `resolve` | `resolve(q) -> ItemRef` | 链接/名称 → 稳定标识；无法直接定位时抛 `core.adapter.SearchNeeded`；优先本地解析（正则/ID 提取），需要网络时给出可读异常 |
 | `list_items` | `list_items(ref) -> list[ItemRef]` | 多P/播放列表展开；单项返回 `[ref]`；每个 ItemRef 带 `sub_id / title / duration` |
 | `fetch_meta` | `fetch_meta(ref) -> ItemMeta` | `title` 用**内容级标题**（用于目录命名），分集名放 `page_part`；`stats` 可空 |

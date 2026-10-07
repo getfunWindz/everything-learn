@@ -58,3 +58,36 @@ def test_load_providers_self_heals_after_reset():
     registry.reset()
     registry.load_providers()
     assert registry.get("bilibili") is not None
+
+
+def test_sniff_url_only_when_match_fails():
+    """URL 路由兜底：sniff 适配器接管无特征 URL（仅 http/https；异常静默跳过）"""
+    class Sniffer:
+        name = "sniffable"
+        kinds = {"audio"}
+        def match(self, url): return False
+        def sniff(self, url): return "mysite.example/feed" in url
+        def resolve(self, q): return None
+        def list_items(self, ref): return [ref]
+        def fetch_meta(self, ref): return None
+        def fetch_content(self, ref): return None
+        def fetch_media_url(self, ref, media="audio", lowest=False): return None
+    registry.register(Sniffer)
+    assert registry.sniff_url("https://mysite.example/feed") is not None
+    assert registry.sniff_url("mysite.example/feed") is None        # 非 http(s)
+    assert registry.sniff_url("https://other.example/x") is None    # sniff 返回 False
+
+
+def test_sniff_url_skips_exceptions():
+    class Boom:
+        name = "boom"
+        kinds = {"audio"}
+        def match(self, url): return False
+        def sniff(self, url): raise RuntimeError("network")
+        def resolve(self, q): return None
+        def list_items(self, ref): return [ref]
+        def fetch_meta(self, ref): return None
+        def fetch_content(self, ref): return None
+        def fetch_media_url(self, ref, media="audio", lowest=False): return None
+    registry.register(Boom)
+    assert registry.sniff_url("https://x.example/y") is None

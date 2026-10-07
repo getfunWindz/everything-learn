@@ -336,7 +336,7 @@ def run_input(input_str: str, opts: RunOptions, adapter=None, client=None):
     registry.load_providers()
     a = adapter or registry.match_url(input_str)
     if a is None:
-        a = registry.default()
+        a = registry.sniff_url(input_str) or registry.default()
     if a is None:
         raise PipelineError(f"没有适配器能处理该输入：{input_str}")
     if client is not None and a.name == "bilibili":
