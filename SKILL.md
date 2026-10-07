@@ -20,7 +20,8 @@ description: 将多平台学习内容（视频/音频/图文）总结为中文�
 | 知乎 | `document`（图文） | ✅ 可用（专栏文章/回答/问题首屏；cookie 可 `python scripts/el.py cookie zhihu` 一键导出） |
 | TED | `timeline`（视频） | ✅ 可用（官网官方字幕：多语含简中，zh-cn 优先；无字幕时 mp4→Whisper 兜底） |
 | Medium | `document`（图文） | 🟡 实现完成（双通道：浏览器辅助正文 + feed 解析）；Cloudflare 高风控，真实冒烟待冷却复跑 |
-| 微博 / 公众号 / X / 小红书 | `collection`/`document` | 🚧 M6+（逐个尽调后开工） |
+| 微博 | `document`（帖子） | ✅ 可用（单帖：正文/长文/图片/转发；用户时间线需 cookie：`el.py cookie weibo`） |
+| 公众号 / X / 小红书 | `collection`/`document` | 🚧 M8+（逐个尽调后开工） |
 | 抖音 | `timeline`（视频） | 🚧 M7（尽调 ✅：浏览器访客 cookie + yt-dlp，无需登录） |
 | 名单外平台 | — | 走「自进化」流程（见 §3） |
 
