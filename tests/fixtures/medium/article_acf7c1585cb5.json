@@ -1,0 +1,338 @@
+{
+ "payload": {
+  "value": {
+   "title": "A Quick Guide to Boosting in ML",
+   "creator": null,
+   "createdAt": 1521540869767,
+   "latestPublishedAt": 1521868496913,
+   "wordCount": null,
+   "content": {
+    "bodyModel": {
+     "paragraphs": [
+      {
+       "name": "911c",
+       "type": 3,
+       "text": "A Quick Guide to Boosting in ML",
+       "markups": []
+      },
+      {
+       "name": "7dcf",
+       "type": 1,
+       "text": "This post will guide you through an ensemble method known as Boosting. The main idea of boosting is to modify a weak learner to become better.",
+       "markups": []
+      },
+      {
+       "name": "a1f7",
+       "type": 3,
+       "text": "Keep Learning…",
+       "markups": []
+      },
+      {
+       "name": "3281",
+       "type": 1,
+       "text": "A road to success is incomplete without any failures in life. Each failure teaches you something new and makes you stronger at each phase. Each time you make a mistake, it’s important to learn from it and try not to repeat it again.",
+       "markups": []
+      },
+      {
+       "name": "f793",
+       "type": 4,
+       "text": "Source: Pinterest",
+       "markups": [
+        {
+         "type": 3,
+         "start": 8,
+         "end": 17,
+         "href": "https://in.pinterest.com/pin/390476230170306563/",
+         "title": "",
+         "rel": "",
+         "anchorType": 0
+        }
+       ],
+       "layout": 1,
+       "metadata": {
+        "id": "1*ppI8iFkgCWvJgOn4U9nJaA.png",
+        "originalWidth": 467,
+        "originalHeight": 388
+       }
+      },
+      {
+       "name": "eb64",
+       "type": 1,
+       "text": "Just as we sometimes develop life skills by learning from our mistakes, we can train our model to learn from the errors predicted and improvise the model’s prediction and overall performance. This is the most basic intuition of Boosting algorithm in Machine Learning.",
+       "markups": []
+      },
+      {
+       "name": "ea57",
+       "type": 3,
+       "text": "What is Boosting?",
+       "markups": []
+      },
+      {
+       "name": "822c",
+       "type": 1,
+       "text": "The term ‘Boosting’ refers to a family of algorithms which converts weak learner to strong learners. Boosting is an ensemble method for improving the model predictions of any given learning algorithm. The idea of boosting is to train weak learners sequentially, each trying to correct its predecessor.",
+       "markups": []
+      },
+      {
+       "name": "79d9",
+       "type": 4,
+       "text": "Source: Quantdare",
+       "markups": [
+        {
+         "type": 3,
+         "start": 8,
+         "end": 17,
+         "href": "https://quantdare.com/what-is-the-difference-between-bagging-and-boosting/",
+         "title": "",
+         "rel": "",
+         "anchorType": 0
+        }
+       ],
+       "layout": 1,
+       "metadata": {
+        "id": "0*qCcM7uCOqIw6npnJ.png",
+        "originalWidth": 800,
+        "originalHeight": 307
+       }
+      },
+      {
+       "name": "3cc2",
+       "type": 3,
+       "text": "Types of Boosting",
+       "markups": []
+      },
+      {
+       "name": "4261",
+       "type": 13,
+       "text": "AdaBoost (Adaptive Boosting)",
+       "markups": [
+        {
+         "type": 1,
+         "start": 10,
+         "end": 13
+        },
+        {
+         "type": 1,
+         "start": 19,
+         "end": 24
+        }
+       ]
+      },
+      {
+       "name": "404f",
+       "type": 1,
+       "text": "Adaboost combines multiple weak learners into a single strong learner. The weak learners in AdaBoost are decision trees with a single split, called decision stumps. When AdaBoost creates its first decision stump, all observations are weighted equally. To correct the previous error, the observations that were incorrectly classified now carry more weight than the observations that were correctly classified. AdaBoost algorithms can be used for both classification and regression problem.",
+       "markups": []
+      },
+      {
+       "name": "a9f3",
+       "type": 4,
+       "text": "",
+       "markups": [],
+       "layout": 1,
+       "metadata": {
+        "id": "1*m2UHkzWWJ0kfQyL5tBFNsQ.png",
+        "originalWidth": 544,
+        "originalHeight": 411,
+        "isFeatured": true
+       }
+      },
+      {
+       "name": "4f95",
+       "type": 1,
+       "text": "As we see above, the first decision stump(D1) is made separating the (+) blue region from the ( — ) red region. We notice that D1 has three incorrectly classified (+) in the red region. The incorrect classified (+) will now carry more weight than the other observations and fed to the second learner. The model will continue and adjust the error faced by the previous model until the most accurate predictor is built.",
+       "markups": []
+      },
+      {
+       "name": "2c99",
+       "type": 13,
+       "text": "Gradient Boosting",
+       "markups": []
+      },
+      {
+       "name": "c1eb",
+       "type": 1,
+       "text": "Just like AdaBoost, Gradient Boosting works by sequentially adding predictors to an ensemble, each one correcting its predecessor. However, instead of changing the weights for every incorrect classified observation at every iteration like AdaBoost, Gradient Boosting method tries to fit the new predictor to the residual errors made by the previous predictor.",
+       "markups": []
+      },
+      {
+       "name": "a5bd",
+       "type": 4,
+       "text": "Source: Quora",
+       "markups": [
+        {
+         "type": 3,
+         "start": 8,
+         "end": 13,
+         "href": "https://www.quora.com/How-would-you-explain-gradient-boosting-machine-learning-technique-in-no-more-than-300-words-to-non-science-major-college-students",
+         "title": "",
+         "rel": "",
+         "anchorType": 0
+        }
+       ],
+       "layout": 1,
+       "metadata": {
+        "id": "1*FQulhlORGZcoUByMORaLAA.png",
+        "originalWidth": 1275,
+        "originalHeight": 462
+       }
+      },
+      {
+       "name": "a9b6",
+       "type": 1,
+       "text": "GBM uses Gradient Descent to find the shortcomings in the previous learner’s predictions. GBM algorithm can be given by following steps.",
+       "markups": []
+      },
+      {
+       "name": "b287",
+       "type": 9,
+       "text": "Fit a model to the data, F1(x) = y",
+       "markups": []
+      },
+      {
+       "name": "ad32",
+       "type": 9,
+       "text": "Fit a model to the residuals, h1(x) = y−F1(x)",
+       "markups": []
+      },
+      {
+       "name": "12fd",
+       "type": 9,
+       "text": "Create a new model, F2(x) = F1(x) + h1(x)",
+       "markups": []
+      },
+      {
+       "name": "bdc1",
+       "type": 9,
+       "text": "By combining weak learner after weak learner, our final model is able to account for a lot of the error from the original model and reduces this error over time.",
+       "markups": []
+      },
+      {
+       "name": "a6fe",
+       "type": 13,
+       "text": "XGBoost",
+       "markups": []
+      },
+      {
+       "name": "5f4d",
+       "type": 4,
+       "text": "",
+       "markups": [],
+       "layout": 1,
+       "metadata": {
+        "id": "1*rdQRa22roNwqx6QZhYpkjw.png",
+        "originalWidth": 435,
+        "originalHeight": 134
+       }
+      },
+      {
+       "name": "83d1",
+       "type": 1,
+       "text": "XGBoost stands for eXtreme Gradient Boosting. XGBoost is an implementation of gradient boosted decision trees designed for speed and performance. Gradient boosting machines are generally very slow in implementation because of sequential model training. Hence, they are not very scalable. Thus, XGBoost is focused on computational speed and model performance. XGBoost provides:",
+       "markups": [
+        {
+         "type": 1,
+         "start": 20,
+         "end": 21
+        },
+        {
+         "type": 1,
+         "start": 27,
+         "end": 28
+        },
+        {
+         "type": 1,
+         "start": 36,
+         "end": 37
+        }
+       ]
+      },
+      {
+       "name": "e98b",
+       "type": 9,
+       "text": "Parallelization of tree construction using all of your CPU cores during training.",
+       "markups": [
+        {
+         "type": 1,
+         "start": 0,
+         "end": 15
+        }
+       ]
+      },
+      {
+       "name": "ae97",
+       "type": 9,
+       "text": "Distributed Computing for training very large models using a cluster of machines.",
+       "markups": [
+        {
+         "type": 1,
+         "start": 0,
+         "end": 21
+        }
+       ]
+      },
+      {
+       "name": "e22f",
+       "type": 9,
+       "text": "Out-of-Core Computing for very large datasets that don’t fit into memory.",
+       "markups": [
+        {
+         "type": 1,
+         "start": 0,
+         "end": 21
+        }
+       ]
+      },
+      {
+       "name": "4cfd",
+       "type": 9,
+       "text": "Cache Optimization of data structures and algorithm to make the best use of hardware.",
+       "markups": [
+        {
+         "type": 1,
+         "start": 0,
+         "end": 18
+        }
+       ]
+      },
+      {
+       "name": "b35b",
+       "type": 1,
+       "text": "If you wish to know more about XGBoost, follow this post.",
+       "markups": [
+        {
+         "type": 3,
+         "start": 52,
+         "end": 56,
+         "href": "https://machinelearningmastery.com/gentle-introduction-xgboost-applied-machine-learning/",
+         "title": "",
+         "rel": "",
+         "anchorType": 0
+        }
+       ]
+      },
+      {
+       "name": "ee5f",
+       "type": 1,
+       "text": "I hope you’ve got a basic idea of the working of boosting algorithm and different types of boosting algorithm in Machine Learning.",
+       "markups": []
+      },
+      {
+       "name": "c013",
+       "type": 1,
+       "text": "Thanks for reading! ❤",
+       "markups": []
+      },
+      {
+       "name": "acac",
+       "type": 1,
+       "text": "Follow for more updates!",
+       "markups": []
+      }
+     ]
+    }
+   }
+  },
+  "references": {}
+ }
+}
