@@ -12,7 +12,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 
-import pagespec
+from core import pagespec
 import report
 from core import artifacts, cache, config
 from core.models import DocumentContent, TimelineContent

@@ -1,4 +1,5 @@
 """适配器注册表：注册 / 查询 / URL 路由 / 自动发现"""
+import builtins
 import importlib
 import pkgutil
 
@@ -39,8 +40,16 @@ def reset():
 
 
 def load_providers(package: str = "providers"):
-    """自动发现 providers 包下所有适配器模块（下划线开头/模板跳过）"""
+    """发现 providers 包下所有适配器类并注册（下划线开头模块跳过）。
+    扫描注册而非依赖 import 副作用：注册表被 reset 后仍然自愈。"""
     pkg = importlib.import_module(package)
+    required = ("match", "resolve", "list_items", "fetch_meta", "fetch_content", "fetch_media_url")
     for m in pkgutil.iter_modules(pkg.__path__):
-        if not m.name.startswith("_"):
-            importlib.import_module(f"{package}.{m.name}")
+        if m.name.startswith("_"):
+            continue
+        mod = importlib.import_module(f"{package}.{m.name}")
+        for obj in vars(mod).values():
+            if (isinstance(obj, type) and getattr(obj, "name", None)
+                    and isinstance(getattr(obj, "kinds", None), set)
+                    and builtins.all(callable(getattr(obj, r, None)) for r in required)):
+                register(obj)

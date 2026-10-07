@@ -61,7 +61,7 @@ def render_template(info: dict) -> str:
   - teacher forcing：训练时用真实标签而非模型自身输出作为下一步输入
   - KV Cache：键值缓存，推理时缓存注意力 K/V 矩阵避免重复计算
   ```
-  交付前运行 `python scripts/glossary.py check <报告.md> <subtitle.txt>` 校验到无遗漏
+  交付前运行 `python scripts/glossary.py check <报告.md> <content.txt>` 校验到无遗漏
 
 #### 知识点2：...
 （该时间段内原作者讲到的每个知识点都必须列出，不省略）

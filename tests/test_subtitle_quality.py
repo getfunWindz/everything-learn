@@ -4,7 +4,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
-from api_client import ApiClient, SubtitleLine
+from providers.bilibili import ApiClient, SubtitleLine
 
 # ---------- 测试样本 ----------
 
@@ -96,7 +96,7 @@ def test_complete_with_single_page_duration():
     """末条超出单 P 时长 130% → 必须判不可信（10109s vs 615s 案例）"""
     lines = _lines(DRAMA_TEXTS * 60)
     # 末条约 600s < 615*0.6=369? 构造明确越界：手动造末条超长
-    from api_client import SubtitleLine as SL
+    from providers.bilibili import SubtitleLine as SL
     fake = [SL(0, 10109.0, "越界字幕")]
     assert not ApiClient._subtitle_complete(fake, 615), "越界字幕应判不可信"
     # 正常边界：末条 610s ∈ [615*0.6, 615*1.3] → 可信
@@ -112,7 +112,7 @@ def test_verdict_normal_ok():
     assert status == "ok" and reason == ""
 
 def test_verdict_overrun_invalid():
-    from api_client import SubtitleLine as SL
+    from providers.bilibili import SubtitleLine as SL
     lines = _lines(NORMAL_TEXTS) + [SL(0.0, 10109.0, "越界")]
     status, reason = ApiClient._subtitle_verdict(lines, TITLE_KV, "", 615)
     assert status == "invalid" and "越界" in reason
@@ -123,7 +123,7 @@ def test_verdict_keyword_zero_hit_suspect():
     assert status == "suspect" and "零命中" in reason
 
 def test_verdict_short_coverage_suspect():
-    from api_client import SubtitleLine as SL
+    from providers.bilibili import SubtitleLine as SL
     lines = [SL(i * 1.0, i * 1.0 + 0.9, f"第{i}句") for i in range(12)]  # 覆盖 12s
     status, reason = ApiClient._subtitle_verdict(lines, "", "", 900)
     assert status == "suspect" and "覆盖不足" in reason

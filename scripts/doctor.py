@@ -12,7 +12,7 @@ def check_cookie(client=None) -> bool:
     """cookie 有效性：nav 接口正常即有效；异常视为无效"""
     try:
         if client is None:
-            from api_client import ApiClient
+            from providers.bilibili import ApiClient
             client = ApiClient()
         return client.check_login()
     except Exception:
@@ -87,7 +87,7 @@ def check_models() -> dict:
 def check_vision() -> dict:
     """vision 配置状态与字幕复检模式（配置后告知用户可自选 auto/always/off）"""
     try:
-        import config
+        from core import config
         v = (config.load_config().get("vision") or {})
     except Exception:
         v = {}
@@ -119,7 +119,7 @@ def check_out_dir(path: str = "") -> dict:
 def main(argv=None) -> int:
     """CLI 入口。bili.py 子命令 doctor 调用本函数。"""
     _ensure_utf8_stdout()
-    import api_client  # noqa: F401  确保 api_client 可导入（cookie 检查用）
+    from providers import bilibili  # noqa: F401  确保适配器可导入（cookie 检查用）
     args = sys.argv[1:] if argv is None else argv
     print("=== bilibili-learn 环境自检 ===")
     # cookie

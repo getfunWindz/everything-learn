@@ -91,7 +91,7 @@ def test_doctor_main_runs():
 
 def test_check_vision_reports_mode(monkeypatch):
     """vision 已配置时报告字幕复检模式（配置后告知用户可自选 auto/always/off）"""
-    import config as cfg
+    from core import config as cfg
     monkeypatch.setattr(cfg, "load_config",
                         lambda: {"vision": {"enabled": True, "subtitle_check": "auto"}})
     v = doctor.check_vision()
@@ -99,7 +99,7 @@ def test_check_vision_reports_mode(monkeypatch):
 
 
 def test_check_vision_defaults_when_unconfigured(monkeypatch):
-    import config as cfg
+    from core import config as cfg
     monkeypatch.setattr(cfg, "load_config", lambda: {})
     v = doctor.check_vision()
     assert v["enabled"] is False and v["subtitle_check"] == "auto"
