@@ -112,3 +112,14 @@ def test_doctor_main_survives_gbk_console(monkeypatch):
     wrapper = io.TextIOWrapper(io.BytesIO(), encoding="gbk", errors="strict")
     monkeypatch.setattr(sys, "stdout", wrapper)
     assert doctor.main(["cookie"]) == 0
+
+
+def test_check_ytdlp_installed():
+    r = doctor.check_ytdlp()
+    assert r["installed"] is True and r["version"]
+
+
+def test_check_ytdlp_missing(monkeypatch):
+    monkeypatch.setitem(sys.modules, "yt_dlp", None)
+    r = doctor.check_ytdlp()
+    assert r["installed"] is False and "pip install" in r["hint"]
