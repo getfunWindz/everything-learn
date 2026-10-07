@@ -112,6 +112,24 @@ def _pick_caption_entry(entries) -> dict:
     return {}
 
 
+def pick_audio_url(formats) -> str:
+    """音频直链：优先 m4a（Whisper 兼容），再取其他音频流的最高码率"""
+    audios = [f for f in formats or [] if f.get("vcodec") == "none" and f.get("url")]
+    m4a = [f for f in audios if (f.get("ext") or "") == "m4a"]
+    pool = m4a or audios
+    pool = sorted(pool, key=lambda f: f.get("abr") or 0, reverse=True)
+    return pool[0]["url"] if pool else ""
+
+
+def pick_video_url(formats, lowest: bool = True) -> str:
+    """视频直链：仅取视频流（排除 storyboard mhtml 与含音轨的格式）"""
+    vids = [f for f in formats or []
+            if (f.get("acodec") in (None, "none")) and f.get("vcodec") not in (None, "none")
+            and (f.get("ext") or "") in ("mp4", "webm") and f.get("url")]
+    vids = sorted(vids, key=lambda f: f.get("height") or 0, reverse=not lowest)
+    return vids[0]["url"] if vids else ""
+
+
 @register
 class YouTubeAdapter:
     name = "youtube"
@@ -250,7 +268,27 @@ class YouTubeAdapter:
         r.encoding = "utf-8"
         return r.text
 
-    # ---------------- 媒体（Task 4 实现） ----------------
+    # ---------------- 媒体直链（音频 Whisper / 视频抽帧） ----------------
 
     def fetch_media_url(self, ref, media: str = "audio", lowest: bool = False):
-        raise NotImplementedError("YouTube 媒体直链将在 M1 Task 4 实现")
+        """直链带时效：单次运行内复用 info（避免重复提取），不跨 run 持久化"""
+        info = self._info(ref)
+        fmts = info.get("formats") or []
+        if media == "video":
+            url = pick_video_url(fmts, lowest=lowest)
+            if not url:  # 兜底：让 yt-dlp 直接选
+                sel = "worst" if lowest else "best"
+                try:
+                    info2 = self._extract(ref.url, format=f"{sel}[ext=mp4]/{sel}")
+                    url = info2.get("url") or ""
+                except Exception:
+                    url = ""
+            return url or None
+        url = pick_audio_url(fmts)
+        if not url:
+            try:
+                info2 = self._extract(ref.url, format="bestaudio[ext=m4a]/bestaudio")
+                url = info2.get("url") or ""
+            except Exception:
+                url = ""
+        return url or None
