@@ -138,3 +138,12 @@ def test_rate_limited_40362_is_readable():
     ref = ZhihuAdapter().resolve("https://zhuanlan.zhihu.com/p/62628781")
     res = ZhihuAdapter(session=_FakeSession(resp)).fetch_content(ref)
     assert res.status == "empty" and "限流" in res.reason
+
+
+def test_cookie_export_spec_declared():
+    """cookie 导出规格（标配）：el.py cookie zhihu 读取本声明"""
+    from providers.zhihu import COOKIE_EXPORT
+    assert COOKIE_EXPORT["file"] == ".zhihu_cookie"
+    assert COOKIE_EXPORT["required"] == ["z_c0"] and "__zse_ck" in COOKIE_EXPORT["ready"]
+    assert COOKIE_EXPORT["url"].startswith("https://")
+    assert COOKIE_EXPORT["probe_url"].startswith("https://")  # 知乎需要内容页触发风控脚本

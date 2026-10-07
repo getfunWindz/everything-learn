@@ -98,3 +98,11 @@ def test_fetch_media_url():
     assert a.fetch_media_url(item) == "http://audio/stream"                       # 默认音频（Whisper）
     assert a.fetch_media_url(item, media="video") == "http://video/high"          # 画面流（复检抽帧）
     assert a.fetch_media_url(item, media="video", lowest=True) == "http://video/low"
+
+
+def test_cookie_export_spec_declared():
+    """cookie 导出规格（标配）：el.py cookie bilibili 读取本声明"""
+    from providers.bilibili import COOKIE_EXPORT
+    assert COOKIE_EXPORT["file"] == ".bili_cookie"
+    assert COOKIE_EXPORT["required"] == ["SESSDATA"]
+    assert COOKIE_EXPORT["url"].startswith("https://") and COOKIE_EXPORT["read_url"].startswith("https://")

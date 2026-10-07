@@ -26,6 +26,17 @@ _INITIAL_RE = re.compile(r'<script id="js-initialData"[^>]*>(.*?)</script>', re.
 _COOKIE_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".zhihu_cookie")
 _ANSWER_LIMIT = 5  # SSR 首屏预载的回答条数
 
+# cookie 一键导出规格（scripts/cookie_export.py / el.py cookie zhihu 读取；见 ADAPTER_SPEC §4）
+COOKIE_EXPORT = {
+    "url": "https://www.zhihu.com/signin",          # 登录入口
+    "read_url": "https://www.zhihu.com",            # cookie 读取域
+    "probe_url": "https://zhuanlan.zhihu.com/p/62628781",  # 内容页：让浏览器自动过风控并生成 __zse_ck
+    "required": ["z_c0"],                           # 登录态判定
+    "ready": ["z_c0", "__zse_ck"],                  # 可导出判定
+    "wanted": ["d_c0", "__zse_ck", "z_c0"],         # 写入文件的键与顺序
+    "file": ".zhihu_cookie",                        # 输出文件（相对 scripts/，须 gitignored）
+}
+
 
 class ZhihuError(ValueError):
     """cookie 缺失/失效 / 风控拦截（可读异常）"""

@@ -97,6 +97,16 @@ def _get_wbi_keys(session, timeout: int) -> tuple:
 
 _COOKIE_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".bili_cookie")
 
+# cookie 一键导出规格（scripts/cookie_export.py / el.py cookie bilibili 读取；见 ADAPTER_SPEC §4）
+COOKIE_EXPORT = {
+    "url": "https://passport.bilibili.com/login",
+    "read_url": "https://www.bilibili.com",
+    "required": ["SESSDATA"],
+    "ready": ["SESSDATA"],
+    "wanted": ["SESSDATA", "bili_jct", "buvid3"],
+    "file": ".bili_cookie",
+}
+
 
 def load_cookie(client) -> bool:
     """从环境变量 BILI_COOKIE 或 scripts/.bili_cookie 注入登录 cookie；有则 True"""
