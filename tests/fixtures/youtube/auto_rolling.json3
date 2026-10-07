@@ -1,0 +1,113 @@
+{
+ "wireMagic": "pb3",
+ "events": [
+  {
+   "tStartMs": 0,
+   "dDurationMs": 2000,
+   "segs": [
+    {
+     "utf8": "hi everyone"
+    }
+   ]
+  },
+  {
+   "tStartMs": 1000,
+   "dDurationMs": 2000,
+   "segs": [
+    {
+     "utf8": "hi everyone so by now"
+    }
+   ]
+  },
+  {
+   "tStartMs": 2000,
+   "dDurationMs": 2000,
+   "segs": [
+    {
+     "utf8": "so by now you have probably"
+    }
+   ]
+  },
+  {
+   "tStartMs": 3000,
+   "dDurationMs": 2000,
+   "segs": [
+    {
+     "utf8": "you have probably seen chat gpt"
+    }
+   ]
+  },
+  {
+   "tStartMs": 4000,
+   "dDurationMs": 2000,
+   "segs": [
+    {
+     "utf8": "seen chat gpt and other large"
+    }
+   ]
+  },
+  {
+   "tStartMs": 5000,
+   "dDurationMs": 2000,
+   "segs": [
+    {
+     "utf8": "and other large language models"
+    }
+   ]
+  },
+  {
+   "tStartMs": 6000,
+   "dDurationMs": 2000,
+   "segs": [
+    {
+     "utf8": "language models are transforming"
+    }
+   ]
+  },
+  {
+   "tStartMs": 7000,
+   "dDurationMs": 2000,
+   "segs": [
+    {
+     "utf8": "are transforming the way we"
+    }
+   ]
+  },
+  {
+   "tStartMs": 8000,
+   "dDurationMs": 2000,
+   "segs": [
+    {
+     "utf8": "the way we build software"
+    }
+   ]
+  },
+  {
+   "tStartMs": 9000,
+   "dDurationMs": 2000,
+   "segs": [
+    {
+     "utf8": "build software using python"
+    }
+   ]
+  },
+  {
+   "tStartMs": 10000,
+   "dDurationMs": 2000,
+   "segs": [
+    {
+     "utf8": "using python and pytorch"
+    }
+   ]
+  },
+  {
+   "tStartMs": 11000,
+   "dDurationMs": 2000,
+   "segs": [
+    {
+     "utf8": "and pytorch every day"
+    }
+   ]
+  }
+ ]
+}
