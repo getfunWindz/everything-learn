@@ -26,5 +26,5 @@ class SourceAdapter(Protocol):
     def fetch_content(self, ref):
         """ItemRef → ContentResult（kind: timeline/document；status: ok/suspect/invalid/empty）"""
 
-    def fetch_media_url(self, ref, lowest: bool = False):
-        """音/视频直链；无媒体返回 None。lowest=True 取最低码率（复检抽帧省带宽）"""
+    def fetch_media_url(self, ref, media: str = "audio", lowest: bool = False):
+        """音/视频直链；无媒体返回 None。media: audio（转写）/ video（复检抽帧）；lowest=True 取最低码率"""

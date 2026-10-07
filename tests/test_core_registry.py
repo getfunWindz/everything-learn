@@ -12,7 +12,7 @@ class FakeAdapter:
     def list_items(self, ref): return [ref]
     def fetch_meta(self, ref): return None
     def fetch_content(self, ref): return None
-    def fetch_media_url(self, ref, lowest=False): return None
+    def fetch_media_url(self, ref, media="audio", lowest=False): return None
 
 
 @pytest.fixture(autouse=True)
@@ -48,6 +48,6 @@ def test_default_falls_back_to_bilibili():
         def list_items(self, ref): return [ref]
         def fetch_meta(self, ref): return None
         def fetch_content(self, ref): return None
-        def fetch_media_url(self, ref, lowest=False): return None
+        def fetch_media_url(self, ref, media="audio", lowest=False): return None
     registry.register(Bili)
     assert registry.default().name == "bilibili"
