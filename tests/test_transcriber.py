@@ -107,6 +107,18 @@ def test_transcribe_video_flow(tmp_path, monkeypatch):
     assert client.url_called == ("BV1GJ411x7h7", 1001)
 
 
+def test_transcribe_url_flow(monkeypatch):
+    """平台无关入口：给媒体直链 → 下载 → 转写"""
+    calls = {}
+    monkeypatch.setattr(transcriber, "download_audio",
+                        lambda url, dest: calls.setdefault("url", url) or dest)
+    monkeypatch.setattr(transcriber, "transcribe",
+                        lambda path, model_size="medium", **kw: [{"start": 0.0, "end": 1.0, "text": "hi"}])
+    out = transcriber.transcribe_url("http://media/audio.m4s", model_size="small", duration_sec=10)
+    assert out == [{"start": 0.0, "end": 1.0, "text": "hi"}]
+    assert calls["url"] == "http://media/audio.m4s"
+
+
 # ---------- VAD 策略：长视频默认禁用，可手动打开 ----------
 
 def _fake_model_factory(calls):

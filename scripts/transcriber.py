@@ -133,19 +133,23 @@ def _transcribe_with(WhisperModel, model_size: str, device: str, audio_path: str
             return lines
     return []
 
-def transcribe_video(client, bvid: str, cid: int, model_size: str = "medium",
-                      progress_callback=None, vad=None, duration_sec: float = None,
-                      vad_long_sec: float = VAD_LONG_SEC_DEFAULT) -> list:
-    """下载音频（临时目录）+ 转写，返回 [{start,end,text}]；vad/duration 透传（长视频默认禁 VAD）"""
-    url = client.get_audio_url(bvid, cid)
+def transcribe_url(url: str, model_size: str = "medium", progress_callback=None,
+                   vad=None, duration_sec: float = None,
+                   vad_long_sec: float = VAD_LONG_SEC_DEFAULT) -> list:
+    """平台无关入口：下载媒体直链（临时目录）+ 转写；vad/duration 透传（长视频默认禁 VAD）"""
     with tempfile.TemporaryDirectory() as td:
         audio_path = download_audio(url, os.path.join(td, "audio.m4s"))
         return transcribe(audio_path, model_size=model_size, progress_callback=progress_callback,
                           vad=vad, duration_sec=duration_sec, vad_long_sec=vad_long_sec)
 
 
+def transcribe_video(client, bvid: str, cid: int, **kwargs) -> list:
+    """兼容封装：从平台的音频直链接口取 URL 后转写"""
+    return transcribe_url(client.get_audio_url(bvid, cid), **kwargs)
+
+
 def transcribe_video_with_progress(client, bvid: str, cid: int, model_size: str = "medium",
                                    progress_callback=None, **kwargs) -> list:
-    """带进度回调的转写（供 bili.py 使用；内部映射为 log_progress）"""
+    """带进度回调的转写（保留旧接口；内部映射为 log_progress）"""
     return transcribe_video(client, bvid, cid, model_size=model_size,
                             progress_callback=progress_callback, **kwargs)
