@@ -47,10 +47,11 @@ class SourceAdapter(Protocol):
     name: str            # "bilibili" / "youtube" / "podcast" / "zhihu"
     kinds: set[str]      # {"video"} / {"audio"} / {"article"} / {"thread"}
     def match(self, url: str) -> bool: ...               # URL 路由
-    def resolve(self, q: str) -> ItemRef: ...            # 链接/名称 → 稳定标识
+    def resolve(self, q: str) -> ItemRef: ...            # 链接/名称 → 稳定标识（无法定位抛 SearchNeeded）
+    def list_items(self, ref: ItemRef) -> list[ItemRef]: ...  # 多P/列表展开（单项返回 [ref]）
     def fetch_meta(self, ref: ItemRef) -> ItemMeta: ...  # 标题/作者/时长/日期/统计
-    def fetch_content(self, ref: ItemRef) -> Content: ...# timeline / document
-    def fetch_media_url(self, ref: ItemRef) -> str | None# 音视频直链（无则 None）
+    def fetch_content(self, ref: ItemRef) -> ContentResult: ...  # timeline / document（含分级状态）
+    def fetch_media_url(self, ref: ItemRef, lowest: bool = False) -> str | None  # 音视频直链（无则 None）
 ```
 
 ### 3.3 目录骨架
