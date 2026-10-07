@@ -17,7 +17,7 @@ description: 将多平台学习内容（视频/音频/图文）总结为中文�
 | bilibili | `timeline`（视频） | ✅ 可用 |
 | YouTube | `timeline`（视频） | ✅ 可用（人工字幕优先，自动字幕滚动清洗后标注「字幕(自动)」） |
 | 播客（RSS / Apple Podcasts） | `timeline`（音频） | ✅ 可用（有转写稿直接解析，否则 Whisper；小宇宙暂不支持） |
-| 知乎 | `document`（图文） | 🚧 M3 规划中 |
+| 知乎 | `document`（图文） | ✅ 可用（专栏文章/回答/问题首屏；cookie 可 `python scripts/cookie_export.py zhihu` 一键导出） |
 | TED / Medium / 公众号 / X / 微博 / 小红书… | — | 走「自进化」流程（见 §3） |
 
 ## 0. 首次配置（硬性规则）
@@ -30,6 +30,9 @@ description: 将多平台学习内容（视频/音频/图文）总结为中文�
    - 配置完成后**必须告知用户**：字幕归属复检支持 `subtitle_check: auto`（默认，防线初筛）/ `always`（全量把关）/ `off`（关闭），**以用户选择为准**；
    - 未配置 / 调用失败时自动跳过，不阻塞原流程。
 4. **VAD 策略**：长视频（≥ `vad_long_sec`，默认 1800 秒）默认禁用 VAD；`--vad` 手动开启、`--no-vad` 强制关闭。
+5. **需要 cookie 的平台（知乎 / B 站）**：优先用内置导出器
+   `python scripts/cookie_export.py zhihu|bilibili`（Playwright + 系统 Edge/Chrome，首次在窗口内登录一次；需 `pip install playwright`）；
+   也可手动把浏览器的 cookie 整行写入 `scripts/.zhihu_cookie` / `scripts/.bili_cookie`。cookie 失效时适配器会给出明确提示。
 
 ## 1. 定位
 - 链接 / 平台标识：`python scripts/el.py resolve <输入>` 确认平台与标识；
@@ -42,7 +45,7 @@ python scripts/el.py run <链接/名称> [--page N | --pages "1-10" | --all] --o
 - **timeline 源**（B站/YouTube/播客）：平台字幕/自动字幕优先 → 分级校验（`ok/suspect/invalid`）→ 可疑走多模态 3 帧归属复检（一致采信 / 不一致强制 Whisper）→ 音轨 Whisper 兜底（GPU 自适应，长视频默认禁 VAD）；
   - **YouTube 细节**：人工字幕优先（含中文翻译轨）；自动字幕为滚动式，已做重复清洗并标注「字幕(自动)」；媒体直链带时效（调用时即取）
   - **播客细节**：RSS/Apple Podcasts 链接（Apple 经 iTunes 查找换成 feed）；有 `podcast:transcript` 直接解析，否则音频 Whisper；无画面信息（多模态复检自动跳过）
-- **document 源**（知乎等，M3 起）：正文提取 + 图片入 `assets/`；
+- **document 源**（知乎）：正文提取（章节/段落/公式/图片）→ 图片入 `assets/`；问题链接用 `--all` 展开首屏 5 条回答（深分页需 API 签名，本期不做）；
 - 产物三件套：`content_info.json`（元信息+来源标记）/ `content.txt`（timeline 带时间戳 / document 保持 Markdown 结构）/ `report_template.md`（按形态的报告骨架）；
 - 批量：失败不中断，汇总增量写入，`--resume` 断点续跑；
 - 抽帧供读图复检（agent 执行时）：`python scripts/el.py frames <视频> --range "起-止" --fps 1 --out <目录>`。
@@ -82,7 +85,7 @@ python scripts/el.py run <链接/名称> [--page N | --pages "1-10" | --all] --o
   经验证据：Whisper 转写 + 未复检 = 报告可能缺失关键公式与结论。复检执行者可参考 R12：当前模型是多模态则 agent 自检；否则询问用户是否配置 vision API；都不行则跳过（不阻塞）。
 
 ### document / collection（规划中）
-- `document`：按原文章节切段（`### 段N｜章节名`），引用用「小节标题」定位——报告骨架在 M3 实现，**在此之前 CLI 会明确提示未实现**，不要手工拼凑骨架；
+- `document`：按原文章节切段（`### 段N｜章节名`），引用用「小节标题」定位；报告骨架已实现（一句话总结 → 知识地图 → 知识详解 → 概念表 → 金句 → 原文摘录 → 自测 → 延伸阅读）；正文图片在 `assets/`，agent 按需多模态读图并入知识点；
 - `collection`（社媒聚合）：跨条目主题聚类 + 观点对比 + 来源标注——M6 起实现。
 
 ## 5. 交付
@@ -94,4 +97,5 @@ python scripts/el.py run <链接/名称> [--page N | --pages "1-10" | --all] --o
 - 本文件不写死任何本机路径；一切以用户配置的 `out_dir` 为准。
 - 平台接口偶发错乱（如 B 站字幕错位）：防线分级 + 归属复检 + Whisper 兜底会自动处理，不要绕过。
 - **YouTube 提取失败**（反爬更新/限流）先升级依赖：`pip install -U yt-dlp`（`el.py doctor` 会显示当前版本）；字幕接口 429 已内置退避重试。
+- **知乎风控**：短时间大量请求会触发临时限流（40362，通常几十分钟自行恢复）；适配器会给出可读提示。日常使用用浏览器 cookie 路径即可，不要高频循环抓取。
 - 搜索接口偶发风控：失败时提示用户改用链接。
