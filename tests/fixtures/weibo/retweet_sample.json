@@ -1,0 +1,41 @@
+{
+ "ok": 1,
+ "data": {
+  "id": 3883511142076046,
+  "idstr": "3883511142076046",
+  "mid": "3883511142076046",
+  "mblogid": "Cz2vo8I4C",
+  "bid": null,
+  "text": "是啊，那会有钱就挺好的//@Autinhorse的围脖: 我们大四实习的时候，去华为的给了500块。其它地方都是能让你去实习就不错了，没钱的。也根本和你以后的工作没关系。//@做游戏的老G:多前在小公司，给800实习工资，我盘算多帮他争取点，结果他自己先坐不住来，只好我提前结束面试……",
+  "created_at": "Sat Sep 05 00:37:51 +0800 2015",
+  "source": "<a href=\"http://weibo.com/\" rel=\"nofollow\">微博 weibo.com</a>",
+  "reposts_count": 2,
+  "comments_count": 1,
+  "attitudes_count": 0,
+  "user": {
+   "id": 1813587870,
+   "screen_name": "做游戏的老G"
+  },
+  "pics": null,
+  "page_info": null,
+  "retweeted_status": {
+   "id": 3883480515760314,
+   "idstr": "3883480515760314",
+   "mid": "3883480515760314",
+   "mblogid": "Cz1HZoawi",
+   "bid": null,
+   "text": "昨天在知乎刷到关于实习的一贴，评论区里数十人组团咆哮，大意是“实习不给转正，公司臭不要脸”。同学，我来告诉你更多的臭不要脸法则：《实习生的残酷世界》。 http://t.cn/Ry21KcH",
+   "created_at": "Fri Sep 04 22:36:08 +0800 2015",
+   "source": "<a href=\"http://app.weibo.com/t/feed/324Mrt\" rel=\"nofollow\">简书</a>",
+   "reposts_count": 489,
+   "comments_count": 122,
+   "attitudes_count": 255,
+   "user": {
+    "id": 1134424202,
+    "screen_name": "纯银V"
+   },
+   "pics": null,
+   "page_info": null
+  }
+ }
+}
