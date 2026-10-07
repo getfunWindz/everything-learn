@@ -1,41 +1,55 @@
-"""cookie 一键导出：Playwright 打开系统浏览器（项目专用 profile）→ 登录 → 写入 cookie 文件。
+"""cookie 一键导出（标配）：规格由适配器声明（providers/<platform>.py 的 COOKIE_EXPORT），本脚本驱动浏览器流程。
 
 用法：
-    python -X utf8 scripts/cookie_export.py zhihu [--browser msedge|chrome] [--timeout 300]
+    python -X utf8 scripts/cookie_export.py <platform> [--browser msedge|chrome] [--timeout 300]
+    python -X utf8 scripts/cookie_export.py --list
+    # 统一入口：python -X utf8 scripts/el.py cookie <platform>
 
+- 平台差异（登录入口/读取域/就绪 cookie/挑战页）全部写在 provider 模块里（见 ADAPTER_SPEC §4）；
+  本文件零平台硬编码，新平台 = 只加 providers/<name>.py 的 COOKIE_EXPORT。
 - 依赖 playwright（可选）：pip install playwright；无需 playwright install（复用系统 Edge/Chrome）。
-- 首次运行会打开新窗口，登录一次即可；profile 存于 scripts/.browser_profile_<browser>（gitignored）。
-- 已登录状态下再运行：几秒内自动导出（可反复使用，cookie 失效时重跑即可）。
+- 首次运行打开新窗口，登录一次即可；profile 存于 scripts/.browser_profile_<browser>（gitignored）。
 """
 import argparse
+import importlib
 import os
+import pkgutil
 import sys
 import time
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
+_REQUIRED_FIELDS = ("url", "read_url", "required", "ready", "wanted", "file")
+_PLATFORMS = None
 
-PLATFORMS = {
-    "zhihu": {
-        "url": "https://www.zhihu.com/signin",
-        "read_url": "https://www.zhihu.com",
-        "probe_url": "https://zhuanlan.zhihu.com/p/62628781",   # 内容页：浏览器会自动过挑战并生成 __zse_ck
-        "domain": ".zhihu.com",
-        "required": ["z_c0"],
-        "ready": ["z_c0", "__zse_ck"],
-        "wanted": ["d_c0", "__zse_ck", "z_c0"],
-        "file": ".zhihu_cookie",
-    },
-    "bilibili": {
-        "url": "https://passport.bilibili.com/login",
-        "read_url": "https://www.bilibili.com",
-        "probe_url": "",
-        "domain": ".bilibili.com",
-        "required": ["SESSDATA"],
-        "ready": ["SESSDATA"],
-        "wanted": ["SESSDATA", "bili_jct", "buvid3"],
-        "file": ".bili_cookie",
-    },
-}
+
+def _valid_spec(spec) -> bool:
+    return isinstance(spec, dict) and all(spec.get(k) for k in _REQUIRED_FIELDS)
+
+
+def discover_platforms() -> dict:
+    """扫描 providers/*.py 收集 COOKIE_EXPORT（下划线模块跳过；导入失败/字段不全跳过）"""
+    if _HERE not in sys.path:
+        sys.path.insert(0, _HERE)
+    import providers as pkg
+    found = {}
+    for m in pkgutil.iter_modules(pkg.__path__):
+        if m.name.startswith("_"):
+            continue
+        try:
+            mod = importlib.import_module(f"providers.{m.name}")
+        except Exception:
+            continue
+        spec = getattr(mod, "COOKIE_EXPORT", None)
+        if _valid_spec(spec):
+            found[m.name] = spec
+    return found
+
+
+def load_platforms(refresh: bool = False) -> dict:
+    global _PLATFORMS
+    if refresh or _PLATFORMS is None:
+        _PLATFORMS = discover_platforms()
+    return _PLATFORMS
 
 
 def build_cookie_string(pairs) -> str:
@@ -47,10 +61,12 @@ def required_present(cookies: dict, required) -> bool:
 
 
 def cookie_file_for(platform: str) -> str:
-    if platform not in PLATFORMS:
-        print(f"不支持的平台：{platform}（可选：{'/'.join(sorted(PLATFORMS))}）", file=sys.stderr)
+    platforms = load_platforms()
+    if platform not in platforms:
+        avail = "/".join(sorted(platforms)) or "（无，需在 provider 模块声明 COOKIE_EXPORT）"
+        print(f"不支持的平台：{platform}（已声明导出的平台：{avail}）", file=sys.stderr)
         raise SystemExit(2)
-    return os.path.join(_HERE, PLATFORMS[platform]["file"])
+    return os.path.join(_HERE, platforms[platform]["file"])
 
 
 def _read_cookies(ctx, url):
@@ -69,14 +85,17 @@ def _write_cookie_file(out: str, cfg: dict, cookies: dict) -> int:
     return 0
 
 
-def export(platform: str, browser: str, timeout: int) -> int:
+def export(platform: str, browser: str = "msedge", timeout: int = 300) -> int:
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
         print("未安装 playwright：请先执行  pip install playwright\n"
               "（不需要 playwright install，直接复用系统 Edge/Chrome）", file=sys.stderr)
         return 2
-    cfg = PLATFORMS[platform]
+    cfg = load_platforms().get(platform)
+    if cfg is None:
+        cookie_file_for(platform)   # 复用统一报错（不支持的平台 → SystemExit 2）
+        return 2
     profile = os.path.join(_HERE, f".browser_profile_{browser}")
     out = cookie_file_for(platform)
     print(f"打开 {browser}（首次需在窗口内登录 {platform}；已登录则自动导出）...")
@@ -119,7 +138,7 @@ def export(platform: str, browser: str, timeout: int) -> int:
                         print(err, file=sys.stderr)
                         return 3
                 if not required_present(cookies, cfg["ready"]):
-                    # 登录已就绪 → 打开内容页：真实浏览器会自动过风控挑战并生成 __zse_ck（实测 3s 内）
+                    # 登录已就绪 → 打开内容页：真实浏览器会自动过风控挑战并生成挑战 cookie（如知乎 __zse_ck）
                     nav = cfg.get("probe_url") or cfg["read_url"]
                     cookies, err = wait_for(cfg["ready"], nav,
                                             "若窗口内出现安全验证，请手动完成一次后重试。")
@@ -141,12 +160,19 @@ def export(platform: str, browser: str, timeout: int) -> int:
 
 def main():
     ap = argparse.ArgumentParser(description="cookie 一键导出（Playwright + 系统浏览器）")
-    ap.add_argument("platform", choices=sorted(PLATFORMS))
+    ap.add_argument("platform", nargs="?", help="平台标识（如 zhihu/bilibili）")
+    ap.add_argument("--list", action="store_true", help="列出已声明 cookie 导出的平台")
     ap.add_argument("--browser", default="msedge", choices=["msedge", "chrome"])
     ap.add_argument("--timeout", type=int, default=300, help="等待登录秒数（默认 300）")
     args = ap.parse_args()
-    raise SystemExit(export(args.platform, args.browser, args.timeout))
+    if args.list:
+        for name, spec in sorted(load_platforms().items()):
+            print(f"{name:>10} | {spec['file']:>16} | {spec['url']}")
+        return 0
+    if not args.platform:
+        ap.error("需要平台标识（或用 --list 查看可用平台）")
+    return export(args.platform, args.browser, args.timeout)
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

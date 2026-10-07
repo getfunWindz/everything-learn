@@ -1,6 +1,7 @@
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
-from cookie_export import build_cookie_string, required_present, cookie_file_for, PLATFORMS
+from cookie_export import (build_cookie_string, required_present, cookie_file_for,
+                           discover_platforms, load_platforms, _valid_spec)
 
 
 def test_build_cookie_string():
@@ -24,10 +25,20 @@ def test_cookie_file_for_known_and_unknown():
         pass
 
 
-def test_platform_configs_have_required_cookies():
-    assert PLATFORMS["zhihu"]["required"] == ["z_c0"]
-    assert "SESSDATA" in PLATFORMS["bilibili"]["required"]
-    assert "__zse_ck" in PLATFORMS["zhihu"]["ready"]  # 就绪判定需含挑战 cookie
-    assert PLATFORMS["zhihu"]["probe_url"].startswith("https://")  # 内容页触发风控脚本
-    for cfg in PLATFORMS.values():
-        assert cfg["url"].startswith("https://") and cfg["domain"] and cfg["file"]
+def test_discover_includes_builtin_platforms():
+    """标配：规格由 provider 模块声明（COOKIE_EXPORT），工具扫描发现"""
+    platforms = discover_platforms()
+    assert {"zhihu", "bilibili"} <= set(platforms)
+    assert platforms["zhihu"]["file"] == ".zhihu_cookie"
+    assert "__zse_ck" in platforms["zhihu"]["ready"]
+    assert platforms["bilibili"]["required"] == ["SESSDATA"]
+    assert load_platforms(refresh=True) is not None
+
+
+def test_valid_spec_filter():
+    ok = {"url": "u", "read_url": "r", "required": ["a"], "ready": ["a"], "wanted": ["a"], "file": "f"}
+    assert _valid_spec(ok) is True
+    assert _valid_spec({}) is False
+    assert _valid_spec({**ok, "required": []}) is False   # 空 required = 不是登录态判定
+    assert _valid_spec({**ok, "file": ""}) is False
+    assert _valid_spec("not-a-dict") is False
