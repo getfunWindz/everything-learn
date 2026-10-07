@@ -137,7 +137,7 @@ def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False)
             assets = []
             if getattr(content, "images", None):
                 try:
-                    assets = images.download_images(content.images, out_dir)
+                    assets = images.download_images(content.images, out_dir, platform=ref.platform)
                 except Exception as e:
                     print(f"  P{label} 图片下载失败（不影响正文）：{str(e)[:80]}", file=sys.stderr)
             info = artifacts.build_info(meta, ref, kind=payload.get("kind", "timeline"),
@@ -163,7 +163,7 @@ def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False)
         assets = []
         if res.images:
             try:
-                assets = images.download_images(res.images, out_dir)
+                assets = images.download_images(res.images, out_dir, platform=ref.platform)
             except Exception as e:
                 print(f"  P{label} 图片下载失败（不影响正文）：{str(e)[:80]}", file=sys.stderr)
         info = artifacts.build_info(meta, ref, kind="document", source=src,

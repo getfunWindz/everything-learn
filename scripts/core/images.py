@@ -9,6 +9,8 @@ from core.retry import retry_with_backoff
 _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
        "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
 _EXT_OK = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
+# 图片 CDN 常要求站内 Referer（如微博 sinaimg 无 Referer 会 403）
+_REFERERS = {"zhihu": "https://www.zhihu.com/", "weibo": "https://weibo.com/"}
 
 
 def _ext(url: str) -> str:
@@ -17,10 +19,16 @@ def _ext(url: str) -> str:
 
 
 def download_images(urls, out_dir: str, timeout: int = 30, session=None,
-                    attempts: int = 2, base_delay: float = 1.0) -> list:
-    """下载到 <out_dir>/assets/，返回相对文件名列表（如 assets/img_01_ab12cd34.jpg）"""
+                    attempts: int = 2, base_delay: float = 1.0,
+                    platform: str = None, referer: str = None) -> list:
+    """下载到 <out_dir>/assets/，返回相对文件名列表（如 assets/img_01_ab12cd34.jpg）
+
+    referer 未指定时按 platform 取站内 Referer（图片 CDN 常需）。"""
     if not urls:
         return []
+    if referer is None:
+        referer = _REFERERS.get(platform)
+    headers = {"Referer": referer} if referer else {}
     assets = os.path.join(out_dir, "assets")
     os.makedirs(assets, exist_ok=True)
     s = session or requests.Session()
@@ -34,8 +42,7 @@ def download_images(urls, out_dir: str, timeout: int = 30, session=None,
             saved.append(f"assets/{name}")
             continue
         try:
-            r = retry_with_backoff(lambda u=url: s.get(u, timeout=timeout,
-                                                       headers={"Referer": "https://www.zhihu.com/"}),
+            r = retry_with_backoff(lambda u=url: s.get(u, timeout=timeout, headers=headers),
                                    attempts=attempts, base_delay=base_delay)
             r.raise_for_status()
             with open(dest, "wb") as f:

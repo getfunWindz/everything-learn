@@ -35,3 +35,18 @@ def test_download_images_skips_existing(tmp_path):
     first = download_images(["https://pic1.zhimg.com/a.jpg"], str(tmp_path), session=s)
     second = download_images(["https://pic1.zhimg.com/a.jpg"], str(tmp_path), session=s)
     assert first == second and len(s.hits) == 1  # 第二次不重复请求
+
+
+def test_download_images_uses_platform_referer(tmp_path):
+    """图片 CDN 站内 Referer：weibo → weibo.com（sinaimg 无 Referer 会 403）"""
+    class Sess:
+        headers = {}
+        def __init__(self): self.seen = []
+        def get(self, url, **kw):
+            self.seen.append(kw.get("headers") or {})
+            return _Resp()
+    s = Sess()
+    download_images(["https://wx4.sinaimg.cn/large/a.jpg"], str(tmp_path), session=s, platform="weibo")
+    download_images(["https://pic1.zhimg.com/a.jpg"], str(tmp_path), session=s, platform="zhihu")
+    assert s.seen[0].get("Referer") == "https://weibo.com/"
+    assert s.seen[1].get("Referer") == "https://www.zhihu.com/"
