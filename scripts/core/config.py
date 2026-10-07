@@ -11,6 +11,11 @@ DEFAULT_CONFIG = {
     "vad_long_sec": 1800,       # “长视频”阈值（秒）：≥ 该值时默认禁用 VAD
     "api_retries": 4,           # 接口限流/风控重试次数（指数退避）
     "api_retry_base": 1.5,      # 退避基数（秒）
+    "rate_limits": {            # 反爬缓速：每平台请求最小间隔（秒）+ 抖动；0=关闭；风险高的调大
+        "zhihu": {"min_interval": 4.0, "jitter": 1.5},
+        "bilibili": {"min_interval": 1.5, "jitter": 0.5},
+        "youtube": {"min_interval": 1.5, "jitter": 0.5}
+    },
     "hf_endpoint": "",          # HF 镜像（如 https://hf-mirror.com），空则用官方
     "hf_disable_xet": True,     # 禁用 HF xet 协议（镜像站必需）
     "auth": {},                 # 各平台凭据：{"bilibili": {...}, "zhihu": {...}}（按需）
