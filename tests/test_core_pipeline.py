@@ -171,3 +171,32 @@ def test_run_input_pages_selection(tmp_path):
     summary = run_input("http://fake/v/1", opts, adapter=FakeAdapter(n_items=3))
     assert summary["page_count"] == 2
     assert [r["page"] for r in summary["pages"]] == ["2", "3"]
+
+
+def test_run_input_falls_back_to_sniff(tmp_path):
+    """无 match 的 URL → sniff 适配器接管（不再误送 bilibili 搜索）"""
+    from core import registry as reg
+
+    class SniffAdapter:
+        name = "sniffable"
+        kinds = {"audio"}
+        def match(self, url): return False
+        def sniff(self, url): return "sniff.example/feed" in url
+        def resolve(self, q):
+            return ItemRef(platform="sniffable", item_id="F1", url=q, sub_id="")
+        def list_items(self, ref): return [ref]
+        def fetch_meta(self, ref):
+            return ItemMeta(title="播客标题", author="主播A", duration=10)
+        def fetch_content(self, ref):
+            return ContentResult(kind="timeline", status="ok",
+                                 segments=[{"start": 0.0, "end": 1.0, "text": "hi"}])
+        def fetch_media_url(self, ref, media="audio", lowest=False): return None
+
+    reg.reset()
+    reg.register(SniffAdapter)
+    try:
+        out = str(tmp_path / "out")
+        res = run_input("https://sniff.example/feed", RunOptions(out_root=out))
+        assert isinstance(res, tuple) and res[0] == "ok"
+    finally:
+        reg.reset()
