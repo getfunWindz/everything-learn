@@ -33,7 +33,7 @@ python scripts/el.py export "<报告目录>" --format html
 ## 测试
 
 ```bash
-python -m pytest tests/ -q    # 198 passed（全部 mock 网络，离线可跑）
+python -m pytest tests/ -q    # 199 passed（全部 mock 网络，离线可跑）
 ```
 
 ## 平台规划
