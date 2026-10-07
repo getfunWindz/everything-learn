@@ -64,3 +64,11 @@ def test_medium_default_is_conservative(monkeypatch):
     monkeypatch.setattr(cfg, "load_config", lambda: {})
     iv, jit = throttle._interval("medium")
     assert iv >= 8.0 and jit > 0
+
+
+def test_weibo_default_is_conservative(monkeypatch):
+    """微博（432 敏感）默认间隔 >= 5s"""
+    from core import config as cfg
+    monkeypatch.setattr(cfg, "load_config", lambda: {})
+    iv, jit = throttle._interval("weibo")
+    assert iv >= 5.0 and jit > 0
