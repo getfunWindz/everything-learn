@@ -17,8 +17,12 @@ description: 将多平台学习内容（视频/音频/图文）总结为中文�
 | bilibili | `timeline`（视频） | ✅ 可用 |
 | YouTube | `timeline`（视频） | ✅ 可用（人工字幕优先，自动字幕滚动清洗后标注「字幕(自动)」） |
 | 播客（RSS / Apple Podcasts） | `timeline`（音频） | ✅ 可用（有转写稿直接解析，否则 Whisper；小宇宙暂不支持） |
-| 知乎 | `document`（图文） | ✅ 可用（专栏文章/回答/问题首屏；cookie 可 `python scripts/cookie_export.py zhihu` 一键导出） |
-| TED / Medium / 公众号 / X / 微博 / 小红书… | — | 走「自进化」流程（见 §3） |
+| 知乎 | `document`（图文） | ✅ 可用（专栏文章/回答/问题首屏；cookie 可 `python scripts/el.py cookie zhihu` 一键导出） |
+| TED | `timeline`（视频） | 🚧 M4（官网公开字幕；先尽调） |
+| Medium | `document`（图文） | 🚧 M5（RSS/公开页；先尽调） |
+| 微博 / 公众号 / X / 小红书 | `collection`/`document` | 🚧 M6+（逐个尽调后开工） |
+| 抖音 | `timeline`（视频） | 🚧 M7（尽调 ✅：浏览器访客 cookie + yt-dlp，无需登录） |
+| 名单外平台 | — | 走「自进化」流程（见 §3） |
 
 ## 0. 首次配置（硬性规则）
 
@@ -52,7 +56,7 @@ python scripts/el.py run <链接/名称> [--page N | --pages "1-10" | --all] --o
 - 抽帧供读图复检（agent 执行时）：`python scripts/el.py frames <视频> --range "起-止" --fps 1 --out <目录>`。
 
 ## 3. 自进化：无适配器平台
-当输入的 URL **没有被任何适配器匹配**时：
+当输入的 URL **没有被任何适配器匹配**时（路线表内的平台由项目按里程碑接入；名单外平台走本流程）：
 
 1. **不要直接拒绝**，先询问用户：「这个平台还没有适配器，是否按规范现场搭建一个？」
 2. 用户确认后，按 `docs/ADAPTER_SPEC.md` 完成**可行性尽调**（内容形态/获取方式/鉴权/风控/可得性/结论），把结论表展示给用户；
