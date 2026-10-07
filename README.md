@@ -27,8 +27,9 @@
 python scripts/el.py run "<视频链接/BV号>" --out "D:/学习笔记"
 
 # 需要 cookie 的平台（知乎/B站）：一键导出（Playwright + 系统 Edge/Chrome，首次需在窗口内登录一次）
-pip install playwright                 # 可选依赖，无需 playwright install
-python scripts/cookie_export.py zhihu  # 或 bilibili；导出后重跑 el.py run 即可
+pip install playwright                   # 可选依赖，无需 playwright install
+python scripts/el.py cookie zhihu        # 或 bilibili；导出后重跑 el.py run 即可
+python scripts/el.py cookie --list       # 查看已声明导出的平台（新平台见 ADAPTER_SPEC §4）
 
 # 批量多 P / 断点续跑
 python scripts/el.py run "<BV号>" --all --out "D:/学习笔记"

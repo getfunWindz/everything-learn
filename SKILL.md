@@ -31,8 +31,9 @@ description: 将多平台学习内容（视频/音频/图文）总结为中文�
    - 未配置 / 调用失败时自动跳过，不阻塞原流程。
 4. **VAD 策略**：长视频（≥ `vad_long_sec`，默认 1800 秒）默认禁用 VAD；`--vad` 手动开启、`--no-vad` 强制关闭。
 5. **需要 cookie 的平台（知乎 / B 站）**：优先用内置导出器
-   `python scripts/cookie_export.py zhihu|bilibili`（Playwright + 系统 Edge/Chrome，首次在窗口内登录一次；需 `pip install playwright`）；
+   `python scripts/el.py cookie zhihu|bilibili`（等价入口 `scripts/cookie_export.py`；Playwright + 系统 Edge/Chrome，首次在窗口内登录一次；需 `pip install playwright`）；
    也可手动把浏览器的 cookie 整行写入 `scripts/.zhihu_cookie` / `scripts/.bili_cookie`。cookie 失效时适配器会给出明确提示。
+   - **新平台接入（标配）**：在 `providers/<name>.py` 声明 `COOKIE_EXPORT`（字段表见 `docs/ADAPTER_SPEC.md` §4），导出器自动发现（`python scripts/el.py cookie --list` 可查），无需改工具。
 
 ## 1. 定位
 - 链接 / 平台标识：`python scripts/el.py resolve <输入>` 确认平台与标识；
