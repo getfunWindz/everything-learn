@@ -160,3 +160,23 @@ def test_fetch_media_url_returns_selected(monkeypatch):
     assert a.fetch_media_url(ref, media="audio") == "http://a/1"
     assert a.fetch_media_url(ref, media="video", lowest=True) == "http://v/1"
     assert calls["n"] == 1   # 单次运行内复用同一份 info（避免重复提取）
+
+
+def test_download_retries_on_429(monkeypatch):
+    """字幕下载遇 429 限流 → 有界退避重试"""
+    import requests as req_mod
+    from core import retry as retry_mod
+    monkeypatch.setattr(retry_mod.time, "sleep", lambda s: None)
+    calls = {"n": 0}
+    class R:
+        def __init__(self, code):
+            self.status_code, self.encoding, self.text = code, "utf-8", "ok"
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise RuntimeError(f"HTTP {self.status_code}")
+    def fake_get(url, headers=None, timeout=None):
+        calls["n"] += 1
+        return R(429) if calls["n"] < 3 else R(200)
+    monkeypatch.setattr(req_mod, "get", fake_get)
+    assert YouTubeAdapter()._download("http://x/sub") == "ok"
+    assert calls["n"] == 3
