@@ -1,0 +1,39 @@
+WEBVTT
+Kind: captions
+Language: en
+
+00:00:01.000 --> 00:00:02.800
+Hello and welcome.
+
+00:00:03.000 --> 00:00:04.800
+Today we build GPT.
+
+00:00:05.000 --> 00:00:06.800
+From scratch in code.
+
+00:00:07.000 --> 00:00:08.800
+Spelled out one step at a time.
+
+00:00:09.000 --> 00:00:10.800
+First the attention mechanism.
+
+00:00:11.000 --> 00:00:12.800
+Then the transformer block.
+
+00:00:13.000 --> 00:00:14.800
+Then training on real data.
+
+00:00:15.000 --> 00:00:16.800
+We also cover tokenization.
+
+00:00:17.000 --> 00:00:18.800
+Then sampling and generation.
+
+00:00:19.000 --> 00:00:20.800
+Finally we evaluate the model.
+
+00:00:21.000 --> 00:00:22.800
+And we discuss next steps.
+
+00:00:23.000 --> 00:00:24.800
+Thanks for watching.

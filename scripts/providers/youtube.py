@@ -34,6 +34,84 @@ def _load_ytdlp():
     return _yt_dlp_module
 
 
+# ---------------- 字幕解析（json3 / vtt） ----------------
+
+def _norm_text(s: str) -> str:
+    return re.sub(r"\s+", " ", s or "").strip()
+
+
+def _overlap_len(prev: str, cur: str) -> int:
+    """prev 的后缀 == cur 的前缀 的最长长度（≥2 字符才算滚动重复）"""
+    for n in range(min(len(prev), len(cur)), 1, -1):
+        if prev[-n:] == cur[:n]:
+            return n
+    return 0
+
+
+def parse_json3(text: str) -> list:
+    """解析 YouTube json3 字幕；自动字幕为滚动式 → 去掉与上一事件重复的前缀"""
+    import json
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return []
+    out = []
+    prev = ""
+    for ev in data.get("events") or []:
+        segs = ev.get("segs")
+        if not segs:
+            continue
+        cur = _norm_text("".join(s.get("utf8") or "" for s in segs))
+        if not cur:
+            continue
+        n = _overlap_len(prev, cur)
+        new = cur[n:].strip()
+        prev = cur
+        if not new:
+            continue
+        start = float(ev.get("tStartMs") or 0) / 1000.0
+        dur = max(float(ev.get("dDurationMs") or 0) / 1000.0, 0.5)
+        out.append({"start": round(start, 2), "end": round(start + dur, 2), "text": new})
+    return out
+
+
+_VTT_TS = re.compile(r"(\d{1,2}):(\d{2}):(\d{2})[.,](\d{3})\s*-->\s*(\d{1,2}):(\d{2}):(\d{2})[.,](\d{3})")
+
+
+def parse_vtt(text: str) -> list:
+    """解析 WebVTT 字幕"""
+    lines = (text or "").splitlines()
+    out, i = [], 0
+    while i < len(lines):
+        m = _VTT_TS.search(lines[i])
+        if not m:
+            i += 1
+            continue
+        s = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + int(m.group(3)) + int(m.group(4)) / 1000
+        e = int(m.group(5)) * 3600 + int(m.group(6)) * 60 + int(m.group(7)) + int(m.group(8)) / 1000
+        i += 1
+        buf = []
+        while i < len(lines) and lines[i].strip():
+            buf.append(re.sub(r"<[^>]+>", "", lines[i]).strip())
+            i += 1
+        t = _norm_text(" ".join(buf))
+        if t:
+            out.append({"start": round(s, 2), "end": round(e, 2), "text": t})
+    return out
+
+
+def _pick_caption_entry(entries) -> dict:
+    """优先 json3，其次 vtt，再次任意带 url 的条目"""
+    for ext in ("json3", "vtt"):
+        for e in entries or []:
+            if (e.get("ext") or "").lower() == ext and e.get("url"):
+                return e
+    for e in entries or []:
+        if e.get("url"):
+            return e
+    return {}
+
+
 @register
 class YouTubeAdapter:
     name = "youtube"
@@ -112,10 +190,67 @@ class YouTubeAdapter:
                         page=str(ref.sub_id or ""), page_part=ref.title or "",
                         extra={"video_id": ref.item_id})
 
-    # ---------------- 内容 / 媒体（Task 3/4 实现） ----------------
+    # ---------------- 内容：字幕（人工优先；自动字幕滚动去重） ----------------
+
+    _LANG_CHAIN = ["zh-Hans", "zh-CN", "zh", "en"]
 
     def fetch_content(self, ref) -> ContentResult:
-        raise NotImplementedError("YouTube 字幕提取将在 M1 Task 3 实现")
+        info = self._info(ref)
+        subs = info.get("subtitles") or {}
+        autos = info.get("automatic_captions") or {}
+        chain = ([self.lang] if self.lang else []) + self._LANG_CHAIN
+        entry, label = self._pick_caption(subs, autos, chain)
+        if not entry:
+            return ContentResult(kind="timeline", status="empty", reason="无字幕轨")
+        try:
+            text = self._download(entry["url"])
+        except Exception as e:
+            return ContentResult(kind="timeline", status="empty",
+                                 reason=f"字幕下载失败：{str(e)[:80]}")
+        ext = (entry.get("ext") or "").lower()
+        if ext == "json3":
+            segs = parse_json3(text)
+        elif ext == "vtt":
+            segs = parse_vtt(text)
+        else:
+            segs = parse_json3(text) or parse_vtt(text)
+        duration = float(info.get("duration") or ref.duration or 0)
+        if not segs:
+            return ContentResult(kind="timeline", status="empty", reason="字幕解析为空", label=label)
+        last = segs[-1]["end"]
+        coverage = (last / duration) if duration else 1.0
+        if len(segs) < 10 or coverage < 0.5:
+            return ContentResult(kind="timeline", status="suspect", segments=segs, label=label,
+                                 reason=f"覆盖不足({len(segs)}段 末条{last:.0f}s)")
+        return ContentResult(kind="timeline", status="ok", segments=segs, label=label)
+
+    def _pick_caption(self, subs, autos, chain):
+        """人工字幕优先（按语言链）→ 自动字幕（按语言链）→ 任意人工 → 任意自动"""
+        for lang in chain:
+            if lang and subs.get(lang):
+                e = _pick_caption_entry(subs[lang])
+                if e:
+                    return e, ""
+        for lang in chain:
+            if lang and autos.get(lang):
+                e = _pick_caption_entry(autos[lang])
+                if e:
+                    return e, "字幕(自动)"
+        for table, label in ((subs, ""), (autos, "字幕(自动)")):
+            for entries in table.values():
+                e = _pick_caption_entry(entries)
+                if e:
+                    return e, label
+        return None, ""
+
+    def _download(self, url: str) -> str:
+        import requests
+        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=60)
+        r.raise_for_status()
+        r.encoding = "utf-8"
+        return r.text
+
+    # ---------------- 媒体（Task 4 实现） ----------------
 
     def fetch_media_url(self, ref, media: str = "audio", lowest: bool = False):
         raise NotImplementedError("YouTube 媒体直链将在 M1 Task 4 实现")
