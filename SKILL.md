@@ -22,7 +22,7 @@ description: 将多平台学习内容（视频/音频/图文）总结为中文�
 | Medium | `document`（图文） | 🟡 实现完成（双通道：浏览器辅助正文 + feed 解析）；Cloudflare 高风控，真实冒烟待冷却复跑 |
 | 微博 | `document`（帖子） | ✅ 可用（单帖：正文/长文/图片/转发；用户时间线需 cookie：`el.py cookie weibo`） |
 | 公众号 / X / 小红书 | `collection`/`document` | 🚧 M8+（逐个尽调后开工） |
-| 抖音 | `timeline`（视频） | 🚧 M7（尽调 ✅：浏览器访客 cookie + yt-dlp，无需登录） |
+| 抖音 | `timeline`（视频） | ✅ 可用（访客 cookie 一键导出 + yt-dlp + Whisper；无平台字幕） |
 | 名单外平台 | — | 走「自进化」流程（见 §3） |
 
 ## 0. 首次配置（硬性规则）
@@ -35,7 +35,7 @@ description: 将多平台学习内容（视频/音频/图文）总结为中文�
    - 配置完成后**必须告知用户**：字幕归属复检支持 `subtitle_check: auto`（默认，防线初筛）/ `always`（全量把关）/ `off`（关闭），**以用户选择为准**；
    - 未配置 / 调用失败时自动跳过，不阻塞原流程。
 4. **VAD 策略**：长视频（≥ `vad_long_sec`，默认 1800 秒）默认禁用 VAD；`--vad` 手动开启、`--no-vad` 强制关闭。
-5. **需要 cookie 的平台（知乎 / B 站）**：优先用内置导出器
+5. **需要 cookie 的平台（知乎 / B 站 / 微博 / 抖音）**：优先用内置导出器
    `python scripts/el.py cookie zhihu|bilibili`（等价入口 `scripts/cookie_export.py`；Playwright + 系统 Edge/Chrome，首次在窗口内登录一次；需 `pip install playwright`）；
    也可手动把浏览器的 cookie 整行写入 `scripts/.zhihu_cookie` / `scripts/.bili_cookie`。cookie 失效时适配器会给出明确提示。
    - **新平台接入（标配）**：在 `providers/<name>.py` 声明 `COOKIE_EXPORT`（字段表见 `docs/ADAPTER_SPEC.md` §4），导出器自动发现（`python scripts/el.py cookie --list` 可查），无需改工具。
