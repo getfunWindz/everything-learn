@@ -10,7 +10,9 @@ INFO = {
     "view_count": 1000, "like_count": 50, "comment_count": 5,
     "formats": [
         {"url": "https://v.douyinvod.com/low.mp4", "height": 480, "tbr": 500},
+        {"url": "https://api-play-hl.amemv.com/aweme/v1/play/?video_id=low", "height": 540, "tbr": None},
         {"url": "https://v.douyinvod.com/high.mp4", "height": 1080, "tbr": 2000},
+        {"url": "https://api-play-hl.amemv.com/aweme/v1/play/?video_id=high", "height": 720, "tbr": 328},
     ],
 }
 
@@ -18,7 +20,7 @@ INFO = {
 def test_to_netscape():
     s = to_netscape("ttwid=abc; __ac_nonce=def", domain=".douyin.com")
     assert s.startswith("# Netscape HTTP Cookie File")
-    assert ".douyin.com\tTRUE\t/\tFALSE\t0\tttwid\tabc" in s
+    assert ".douyin.com\tTRUE\t/\tFALSE\t4102444800\tttwid\tabc" in s
 
 
 def test_match_and_resolve():
@@ -64,8 +66,10 @@ def test_fetch_media_url_picks_formats(monkeypatch):
     a = DouyinAdapter(session=object())
     monkeypatch.setattr(DouyinAdapter, "_info", lambda self, ref: INFO)
     ref = a.resolve("https://www.douyin.com/video/7279377986187431202")
-    assert a.fetch_media_url(ref, media="audio") == "https://v.douyinvod.com/high.mp4"
-    assert a.fetch_media_url(ref, media="video", lowest=True) == "https://v.douyinvod.com/low.mp4"
+    # 优先 api-play 直链（CDN douyinvod 常态 403）；音频取最小、视频默认最大、lowest 最小
+    assert a.fetch_media_url(ref, media="audio") == "https://api-play-hl.amemv.com/aweme/v1/play/?video_id=low"
+    assert a.fetch_media_url(ref, media="video") == "https://api-play-hl.amemv.com/aweme/v1/play/?video_id=high"
+    assert a.fetch_media_url(ref, media="video", lowest=True) == "https://api-play-hl.amemv.com/aweme/v1/play/?video_id=low"
 
 
 def test_cookie_missing_readable(monkeypatch, tmp_path):
@@ -94,3 +98,9 @@ def test_cookie_export_spec_declared():
     from providers.douyin import COOKIE_EXPORT
     assert COOKIE_EXPORT["file"] == ".douyin_cookie"
     assert COOKIE_EXPORT["required"] == ["ttwid"]
+
+
+def test_media_headers():
+    a = DouyinAdapter()
+    h = a.media_headers()
+    assert "douyin.com" in h["Referer"] and h["User-Agent"].startswith("Mozilla/5.0")

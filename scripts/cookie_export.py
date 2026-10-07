@@ -78,7 +78,11 @@ def _read_cookies(ctx, url):
 
 
 def _write_cookie_file(out: str, cfg: dict, cookies: dict) -> int:
-    pairs = [(n, cookies[n]) for n in cfg["wanted"] if cookies.get(n)]
+    wanted = cfg["wanted"]
+    if "*" in wanted:                      # 全量导出（风控 JS 生成的 cookie 集不确定时用）
+        pairs = [(n, cookies[n]) for n in sorted(cookies)]
+    else:
+        pairs = [(n, cookies[n]) for n in wanted if cookies.get(n)]
     with open(out, "w", encoding="utf-8") as f:
         f.write(build_cookie_string(pairs) + "\n")
     print(f"已写入 {len(pairs)} 个 cookie → {out}（{', '.join(n for n, _ in pairs)}）")
@@ -137,10 +141,16 @@ def export(platform: str, browser: str = "msedge", timeout: int = 300) -> int:
                     if cookies is None:
                         print(err, file=sys.stderr)
                         return 3
+                # probe_url：完整加载一个内容页（触发风控 JS，生成完整/新鲜 cookie 集）
+                if cfg.get("probe_url"):
+                    try:
+                        page.goto(cfg["probe_url"], wait_until="domcontentloaded")
+                        page.wait_for_timeout(4000)   # 等风控脚本写入 cookie（后续 ready 轮询兑底）
+                    except Exception:
+                        pass
+                cookies = _read_cookies(ctx, cfg["read_url"]) or cookies
                 if not required_present(cookies, cfg["ready"]):
-                    # 登录已就绪 → 打开内容页：真实浏览器会自动过风控挑战并生成挑战 cookie（如知乎 __zse_ck）
-                    nav = cfg.get("probe_url") or cfg["read_url"]
-                    cookies, err = wait_for(cfg["ready"], nav,
+                    cookies, err = wait_for(cfg["ready"], cfg.get("probe_url") or cfg["read_url"],
                                             "若窗口内出现安全验证，请手动完成一次后重试。")
                     if cookies is None:
                         print(err, file=sys.stderr)

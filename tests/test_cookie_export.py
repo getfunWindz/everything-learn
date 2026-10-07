@@ -42,3 +42,11 @@ def test_valid_spec_filter():
     assert _valid_spec({**ok, "required": []}) is False   # 空 required = 不是登录态判定
     assert _valid_spec({**ok, "file": ""}) is False
     assert _valid_spec("not-a-dict") is False
+
+
+def test_write_cookie_file_wildcard(tmp_path):
+    """wanted=["*"] → 全量导出（风控 cookie 集不确定的平台用）"""
+    from cookie_export import _write_cookie_file
+    out = str(tmp_path / "c.txt")
+    assert _write_cookie_file(out, {"wanted": ["*"]}, {"b": "2", "a": "1"}) == 0
+    assert open(out, encoding="utf-8").read().strip() == "a=1; b=2"

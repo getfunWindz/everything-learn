@@ -19,12 +19,14 @@ _SHORT_RE = re.compile(r"v\.douyin\.com/([0-9A-Za-z]+)")
 _COOKIE_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".douyin_cookie")
 
 # cookie 一键导出规格（el.py cookie douyin；见 ADAPTER_SPEC §4）——访客 cookie 即可，无需登录
+# probe_url：完整加载一个公开视频页，让风控 JS 生成完整新鲜 cookie（yt-dlp 无签名，依赖此套 cookie）
 COOKIE_EXPORT = {
     "url": "https://www.douyin.com/",
     "read_url": "https://www.douyin.com",
+    "probe_url": "https://www.douyin.com/video/7279377986187431202",
     "required": ["ttwid"],
-    "ready": ["ttwid"],
-    "wanted": ["ttwid", "__ac_nonce", "__ac_signature", "s_v_web_id", "odin_tt", "UIFID"],
+    "ready": ["ttwid", "__ac_signature", "odin_tt"],   # odin_tt 风控 JS 后才写入 → 等完整集合
+    "wanted": ["*"],
     "file": ".douyin_cookie",
 }
 
@@ -70,7 +72,11 @@ def load_cookie() -> str:
 
 
 def to_netscape(cookie_str: str, domain: str = ".douyin.com") -> str:
-    """name=value; ... → Netscape cookie 文件文本（yt-dlp cookiefile 用）"""
+    """name=value; ... → Netscape cookie 文件文本（yt-dlp cookiefile 用）
+
+    过期时间写远期（2100）：写 0 会被 cookie jar 视为会话/已过期而丢弃，
+    导致 yt-dlp 误判「Fresh cookies are needed」。"""
+    expiry = "4102444800"
     lines = ["# Netscape HTTP Cookie File"]
     for part in (cookie_str or "").split(";"):
         part = part.strip()
@@ -80,7 +86,7 @@ def to_netscape(cookie_str: str, domain: str = ".douyin.com") -> str:
         k, v = k.strip(), v.strip()
         if not k:
             continue
-        lines.append("\t".join([domain, "TRUE", "/", "FALSE", "0", k, v]))
+        lines.append("\t".join([domain, "TRUE", "/", "FALSE", expiry, k, v]))
     return "\n".join(lines) + "\n"
 
 
@@ -185,6 +191,10 @@ class DouyinAdapter:
         return ContentResult(kind="timeline", status="empty",
                              reason="抖音无平台字幕（将走 Whisper 转写）", label="无字幕")
 
+    def media_headers(self):
+        """媒体 CDN 请求头（douyinvod 拒裸 UA/bilibili Referer；api-play 转跳后也依赖正常 UA）"""
+        return {"User-Agent": _UA, "Referer": "https://www.douyin.com/"}
+
     def fetch_media_url(self, ref, media="audio", lowest=False):
         try:
             info = self._info(ref)
@@ -192,6 +202,11 @@ class DouyinAdapter:
             return None
         fmts = [f for f in (info.get("formats") or []) if f.get("url")]
         if fmts:
-            fmts.sort(key=lambda f: ((f.get("height") or 0), (f.get("tbr") or 0)))
-            return (fmts[0] if lowest else fmts[-1])["url"]
+            # 优先 api-play*.amemv.com（官方 play 接口，裸下载可用）；CDN 直链（douyinvod/365yg）常 403
+            api = [f for f in fmts if "amemv.com/aweme/v1/play" in (f.get("url") or "")]
+            pool = api or fmts
+            pool.sort(key=lambda f: ((f.get("height") or 0), (f.get("tbr") or 0)))
+            if media == "audio":
+                return pool[0]["url"]          # 转写只需音频：最小文件省带宽
+            return (pool[0] if lowest else pool[-1])["url"]
         return info.get("url") or None
