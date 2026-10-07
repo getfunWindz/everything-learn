@@ -145,7 +145,7 @@ def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False)
         err = str(e)[:100]
         print(f"  P{label} 内容获取失败：{err}", file=sys.stderr)
         return "failed", "", 0, "", err
-    src = "document" if res.kind == "document" else "字幕"
+    src = res.label or ("document" if res.kind == "document" else "字幕")
     if res.kind == "document":
         if res.kind not in report.SUPPORTED_KINDS:
             return "failed", src, 0, "", f"内容形态 {res.kind} 的报告骨架尚未实现（M3）"

@@ -62,3 +62,4 @@ class ContentResult:
     segments: list = field(default_factory=list)   # timeline：dict {start,end,text}
     blocks: list = field(default_factory=list)     # document：dict {heading,text}
     reason: str = ""
+    label: str = ""                 # 内容来源标注（如 “字幕(自动)”），透传到 content_info.source
