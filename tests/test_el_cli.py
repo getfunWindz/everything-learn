@@ -646,8 +646,9 @@ def test_run_wechat_platform_pick(tmp_path, monkeypatch):
     monkeypatch.setattr(el, "_wechat_adapter", lambda: _FakeWx())
     calls = {}
 
-    def fake_run(inp, opts, client=None):
+    def fake_run(inp, opts, adapter=None, client=None):
         calls["input"] = inp
+        calls["adapter"] = adapter
         return "ok", "正文", 3, str(tmp_path / "out"), ""
 
     monkeypatch.setattr(el.pipeline, "run_input", fake_run)
@@ -655,3 +656,19 @@ def test_run_wechat_platform_pick(tmp_path, monkeypatch):
                                   out=str(tmp_path / "out"), no_whisper=False,
                                   no_cache=False, interval=1.5), client=object())
     assert calls["input"] == "https://mp.weixin.qq.com/s/AbCdEf1234567890_-abc"
+    assert isinstance(calls["adapter"], _FakeWx)
+
+
+def test_run_wechat_no_bilibili_fallback(tmp_path, monkeypatch):
+    monkeypatch.setattr(el, "_wechat_adapter", lambda: _FakeWx())
+
+    def raise_search(inp, opts, adapter=None, client=None):
+        from core.adapter import SearchNeeded
+        raise SearchNeeded(inp)
+
+    monkeypatch.setattr(el.pipeline, "run_input", raise_search)
+    with pytest.raises(SystemExit) as e:
+        el.cmd_run(argparse.Namespace(input="深度学习", platform="wechat", pick=1,
+                                      out=str(tmp_path / "out"), no_whisper=False,
+                                      no_cache=False, interval=1.5), client=object())
+    assert e.value.code == 4

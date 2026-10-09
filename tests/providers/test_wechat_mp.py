@@ -153,3 +153,32 @@ def test_html_fetch_cached_within_run():
     a.fetch_content(ref)
     a.fetch_meta(ref)
     assert s.calls == [ref.url]
+
+
+def test_match_signed_sogou_url_and_resolve():
+    signed = ("https://mp.weixin.qq.com/s?src=11&timestamp=1791540606&ver=7016"
+              "&signature=FAKE&new=1")
+    a = WeChatMpAdapter(session=object())
+    assert a.match(signed)
+    ref = a.resolve(signed)
+    assert ref.item_id.startswith("wx-signed-")
+    assert ref.extra["referer"] == "https://weixin.sogou.com/"
+
+
+def test_signed_url_uses_sogou_referer():
+    class HeaderSession(_FakeSession):
+        def __init__(self, text):
+            super().__init__(text)
+            self.headers_seen = []
+
+        def get(self, url, headers=None, timeout=None, allow_redirects=True):
+            self.headers_seen.append(dict(headers or {}))
+            return super().get(url, headers=headers, timeout=timeout,
+                               allow_redirects=allow_redirects)
+
+    s = HeaderSession(_fx("article.html"))
+    a = WeChatMpAdapter(session=s)
+    ref = a.resolve("https://mp.weixin.qq.com/s?src=11&timestamp=1&ver=1&signature=FAKE&new=1")
+    res = a.fetch_content(ref)
+    assert res.status == "ok"
+    assert s.headers_seen[0]["Referer"] == "https://weixin.sogou.com/"

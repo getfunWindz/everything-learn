@@ -217,6 +217,7 @@ def cmd_run(args, client: ApiClient = None):
     client = client or ApiClient(max_retries=cfg.get("api_retries", 4),
                                  retry_base_delay=cfg.get("api_retry_base", 1.5))
     platform = getattr(args, "platform", None)
+    forced_adapter = None
     try:
         out_root = config.resolve_out_dir(getattr(args, "out", None))
     except config.ConfigError as e:
@@ -260,6 +261,7 @@ def cmd_run(args, client: ApiClient = None):
         except Exception as e:
             print(f"搜狗跳转解析失败：{e}", file=sys.stderr)
             sys.exit(4)
+        forced_adapter = adapter
     opts = RunOptions(
         out_root=out_root,
         page=getattr(args, "page", None),
@@ -276,11 +278,14 @@ def cmd_run(args, client: ApiClient = None):
     )
 
     def _run(inp):
-        return pipeline.run_input(inp, opts, client=client)
+        return pipeline.run_input(inp, opts, adapter=forced_adapter, client=client)
 
     try:
         result = _run(input_str)
     except SearchNeeded:
+        if platform in ("wechat", "wechat_mp"):
+            print(f"无法定位内容：{input_str}（公众号输入需可解析的文章链接）", file=sys.stderr)
+            sys.exit(4)
         try:
             results = client.search(input_str, limit=max(1, args.pick))
         except BiliError as e:

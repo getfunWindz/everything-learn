@@ -4,6 +4,7 @@
 图片 data-src（mmbiz.qpic.cn 免 Referer 可下）；搜狗搜索路径会话绑定（实验性，可能失效）。
 无需 COOKIE_EXPORT（无登录凭据）。
 """
+import hashlib
 import html as html_mod
 import re
 import urllib.parse
@@ -121,7 +122,7 @@ class WeChatMpAdapter:
         url = url or ""
         if not _HOST_RE.search(url):
             return False
-        return bool(_SHORT_RE.search(url) or re.search(r"/s\?\S*__biz=", url))
+        return bool(_SHORT_RE.search(url) or ("?" in url))
 
     def resolve(self, q: str) -> ItemRef:
         q = (q or "").strip()
@@ -141,6 +142,12 @@ class WeChatMpAdapter:
                 return ItemRef(platform="wechat_mp", item_id=f"wx-{slug}_{mid}_{idx}",
                                url=q, sub_id="1",
                                extra={"kind": "article", "biz": biz, "mid": mid, "idx": idx})
+            if qs.get("src") or qs.get("signature") or qs.get("timestamp"):
+                digest = hashlib.md5(q.encode("utf-8")).hexdigest()[:12]
+                return ItemRef(platform="wechat_mp", item_id=f"wx-signed-{digest}",
+                               url=q, sub_id="1",
+                               extra={"kind": "article", "signed": True,
+                                      "referer": "https://weixin.sogou.com/"})
         raise SearchNeeded(q)
 
     def list_items(self, ref):
@@ -148,12 +155,12 @@ class WeChatMpAdapter:
 
     # ---------------- 内容 ----------------
 
-    def _get_html(self, url: str) -> str:
+    def _get_html(self, url: str, referer: str = None) -> str:
         cached = getattr(self, "_html_cache", None)
         if cached and cached[0] == url:
             return cached[1]
         try:
-            r = self.session.get(url, headers={"Referer": "https://mp.weixin.qq.com/"},
+            r = self.session.get(url, headers={"Referer": referer or "https://mp.weixin.qq.com/"},
                                  timeout=25)
         except requests.RequestException as e:
             raise WeChatError(f"网络请求失败：{str(e)[:80]}")
@@ -163,7 +170,7 @@ class WeChatMpAdapter:
         return r.text
 
     def fetch_meta(self, ref) -> ItemMeta:
-        m = parse_meta(self._get_html(ref.url))
+        m = parse_meta(self._get_html(ref.url, ref.extra.get("referer")))
         return ItemMeta(title=m["title"] or "公众号文章",
                         author=m["account"] or m["author"] or "",
                         url=ref.url, published=m["published"],
@@ -172,7 +179,7 @@ class WeChatMpAdapter:
 
     def fetch_content(self, ref) -> ContentResult:
         try:
-            blocks, imgs = extract_article(self._get_html(ref.url))
+            blocks, imgs = extract_article(self._get_html(ref.url, ref.extra.get("referer")))
         except WeChatError as e:
             return ContentResult(kind="document", status="empty",
                                  reason=str(e)[:120], label="正文")
