@@ -40,3 +40,11 @@ def test_skip_script_and_noscript():
 def test_entities_and_br():
     blocks, _ = html_to_blocks("<p>a&amp;b<br>c</p>")
     assert blocks[0]["text"] == "a&b\nc"
+
+
+def test_lazy_data_src_images():
+    html = ('<p>正文</p><img class="rich_pages" data-ratio="0.7" '
+            'data-src="https://mmbiz.qpic.cn/mmbiz_png/abc/640?wx_fmt=png" />')
+    blocks, images = html_to_blocks(html)
+    assert images == ["https://mmbiz.qpic.cn/mmbiz_png/abc/640"]
+    assert blocks[0]["text"] == "正文"

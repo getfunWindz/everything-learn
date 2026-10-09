@@ -51,7 +51,8 @@ class _BlocksParser(HTMLParser):
             self._cur["paras"].append(text)
 
     def _handle_img(self, attrs):
-        src = attrs.get("data-original") or attrs.get("data-actualsrc") or attrs.get("src") or ""
+        src = (attrs.get("data-original") or attrs.get("data-actualsrc")
+               or attrs.get("data-src") or attrs.get("src") or "")
         if "eeimg" in (attrs.get("class") or "") or "/equation" in src:
             tex = attrs.get("alt") or ""
             if not tex and "tex=" in src:
