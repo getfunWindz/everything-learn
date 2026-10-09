@@ -2,7 +2,8 @@ import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts"))
 import pytest
 from core.adapter import SearchNeeded
-from providers.wechat_mp import WeChatMpAdapter
+from providers.wechat_mp import (WeChatMpAdapter, WeChatError,
+                                 parse_sogou_results, parse_meta, extract_article)
 from tests.contract.harness import run_contract
 
 
@@ -97,3 +98,40 @@ def test_error_page_readable():
     ref = a.resolve("https://mp.weixin.qq.com/s/aaaaaaaaaaaaaaaaaaaaaa")
     res = a.fetch_content(ref)
     assert res.status == "empty" and "参数错误" in res.reason
+
+
+def test_parse_sogou_results_from_fixture():
+    hits = parse_sogou_results(_fx("sogou_search.html"), limit=5)
+    assert len(hits) == 2
+    assert hits[0]["title"] == "专题 | 基于标准数据集的深度学习目标检测算法"
+    assert hits[0]["account"] == "信息通信技术与政策"
+    assert hits[0]["date"] == "2026-08-16"
+    assert hits[0]["link"] == "https://weixin.sogou.com/link?url=AAAA"
+    assert hits[1]["account"] == "算法小站"
+    assert hits[1]["date"] == "2021-09-06"
+
+
+def test_parse_sogou_captcha_readable():
+    with pytest.raises(WeChatError) as e:
+        parse_sogou_results("<html>请输入验证码</html>")
+    assert "验证码" in str(e.value)
+
+
+def test_search_articles_uses_session():
+    a = WeChatMpAdapter(session=_FakeSession(_fx("sogou_search.html")))
+    hits = a.search_articles("深度学习", limit=2)
+    assert len(hits) == 2 and hits[0]["account"] == "信息通信技术与政策"
+
+
+def test_resolve_sogou_link_js_concat():
+    a = WeChatMpAdapter(session=_FakeSession(_fx("sogou_link.html")))
+    url = a.resolve_sogou_link("https://weixin.sogou.com/link?url=AAAA")
+    assert url == ("https://mp.weixin.qq.com/s?src=11&timestamp=1791540606"
+                   "&ver=7016&signature=FAKE&new=1")
+
+
+def test_resolve_sogou_link_expired_readable():
+    a = WeChatMpAdapter(session=_FakeSession("<html>系统出错</html>"))
+    with pytest.raises(WeChatError) as e:
+        a.resolve_sogou_link("https://weixin.sogou.com/link?url=AAAA")
+    assert "同一会话" in str(e.value)

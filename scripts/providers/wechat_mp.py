@@ -6,6 +6,7 @@
 """
 import html as html_mod
 import re
+import urllib.parse
 from datetime import datetime
 from urllib.parse import parse_qs, urlparse
 
@@ -66,6 +67,36 @@ def extract_article(html: str):
         end = html.find("rich_media_area_extra", start)
     seg = html[start:end if end > start else len(html)]
     return html_to_blocks(seg)
+
+
+def strip_tags(raw: str) -> str:
+    s = re.sub(r"<[^>]+>", "", raw or "")
+    return re.sub(r"\s+", " ", html_mod.unescape(s)).strip()
+
+
+def parse_sogou_results(html: str, limit: int = 5) -> list:
+    """搜狗微信搜索结果 → [{title, account, date, link, snippet}]（实验性）"""
+    if "news-list" not in (html or ""):
+        why = "可能需要验证码" if ("验证码" in (html or "") or "antispider" in (html or "").lower()) else "页面异常"
+        raise WeChatError(f"搜狗搜索失败（{why}）；稍后再试或直接提供文章链接")
+    blocks = re.split(r'<li id="sogou_vr_11002601_box_\d+"', html)[1:]
+    out = []
+    for b in blocks[:max(0, limit)]:
+        m = re.search(r'<h3>\s*<a[^>]*href="(/link\?url=[^"]+)"[^>]*>(.*?)</a>', b, re.S)
+        if not m:
+            continue
+        acc = re.search(r'<span class="all-time-y2">(.*?)</span>', b, re.S)
+        ts = re.search(r"timeConvert\('(\d+)'\)", b)
+        date = datetime.fromtimestamp(int(ts.group(1))).strftime("%Y-%m-%d") if ts else ""
+        snip = re.search(r'<p class="txt-info">(.*?)</p>', b, re.S)
+        out.append({
+            "title": strip_tags(m.group(2)),
+            "account": strip_tags(acc.group(1)) if acc else "",
+            "date": date,
+            "link": "https://weixin.sogou.com" + html_mod.unescape(m.group(1)),
+            "snippet": strip_tags(snip.group(1)) if snip else "",
+        })
+    return out
 
 
 @register
@@ -148,6 +179,23 @@ class WeChatMpAdapter:
         reason = "" if status == "ok" else f"正文过短（{text_len} 字）"
         return ContentResult(kind="document", status=status, blocks=blocks, images=imgs,
                              reason=reason, label="正文")
+
+    # ---------------- 搜狗搜索（实验性：结果链接会话绑定，仅同进程可用） ----------------
+
+    def search_articles(self, query: str, limit: int = 5) -> list:
+        url = _SOGOU_SEARCH.format(q=urllib.parse.quote(query or ""))
+        r = self.session.get(url, headers={"Referer": "https://weixin.sogou.com/"}, timeout=25)
+        return parse_sogou_results(r.text, limit=limit)
+
+    def resolve_sogou_link(self, link: str) -> str:
+        """搜狗跳转页 → 微信签名文章 URL（必须与搜索同一会话；实验性）"""
+        r = self.session.get(link, headers={"Referer": "https://weixin.sogou.com/weixin"},
+                             timeout=25, allow_redirects=False)
+        parts = re.findall(r"url \+= '([^']+)'", r.text or "")
+        signed = "".join(parts).replace("@", "").strip()
+        if not signed.startswith("https://mp.weixin.qq.com/"):
+            raise WeChatError("搜狗跳转解析失败（需与搜索同一会话；可改用文章原链接）")
+        return signed
 
     def fetch_media_url(self, ref, media="audio", lowest=False):
         return None
