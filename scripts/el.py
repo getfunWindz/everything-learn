@@ -43,7 +43,37 @@ def cmd_resolve(args):
         print(json.dumps({"kind": "search", "keyword": args.input}, ensure_ascii=False))
 
 
+def _wechat_adapter():
+    """公众号适配器（注册表单例；测试可替换）"""
+    from core import registry
+    registry.load_providers()
+    return registry.get("wechat_mp")
+
+
+def _search_wechat(args):
+    adapter = _wechat_adapter()
+    if adapter is None:
+        print("未找到 wechat_mp 适配器（检查 scripts/providers/wechat_mp.py）", file=sys.stderr)
+        sys.exit(2)
+    try:
+        hits = adapter.search_articles(args.keyword, limit=getattr(args, "limit", 5))
+    except Exception as e:
+        print(f"搜索失败：{e}", file=sys.stderr)
+        print("提示：搜狗微信搜索可能有验证码/限流；也可直接提供文章链接。", file=sys.stderr)
+        sys.exit(2)
+    if not hits:
+        print("无搜索结果", file=sys.stderr)
+        sys.exit(1)
+    for i, h in enumerate(hits, 1):
+        print(f"{i}. {h['title']} — {h['account']}（{h['date']}）")
+    print("\n提示：搜狗结果链接会话绑定，不能跨进程复用；直接抓取请运行：", file=sys.stderr)
+    print(f'  python scripts/el.py run --platform wechat "{args.keyword}" --pick N', file=sys.stderr)
+
+
 def cmd_search(args):
+    platform = getattr(args, "platform", "bilibili")
+    if platform in ("wechat", "wechat_mp"):
+        return _search_wechat(args)
     client = ApiClient()
     try:
         results = client.search(args.keyword, limit=args.limit)
@@ -186,17 +216,19 @@ def cmd_run(args, client: ApiClient = None):
     config.apply_hf_env(cfg)
     client = client or ApiClient(max_retries=cfg.get("api_retries", 4),
                                  retry_base_delay=cfg.get("api_retry_base", 1.5))
+    platform = getattr(args, "platform", None)
     try:
         out_root = config.resolve_out_dir(getattr(args, "out", None))
     except config.ConfigError as e:
         print(f"配置错误：{e}", file=sys.stderr)
         sys.exit(2)
-    try:
-        if client.check_login() is False:
-            print("⚠ 登录 cookie 已过期或未配置：搜索与 AI 字幕将不可用，仅可获取无字幕视频并走 Whisper 转写。", file=sys.stderr)
-            print("  请更新 scripts/.bili_cookie（SESSDATA=xxx）或设置环境变量 BILI_COOKIE", file=sys.stderr)
-    except Exception:
-        pass  # 检测失败不阻断主流程
+    if platform not in ("wechat", "wechat_mp"):
+        try:
+            if client.check_login() is False:
+                print("⚠ 登录 cookie 已过期或未配置：搜索与 AI 字幕将不可用，仅可获取无字幕视频并走 Whisper 转写。", file=sys.stderr)
+                print("  请更新 scripts/.bili_cookie（SESSDATA=xxx）或设置环境变量 BILI_COOKIE", file=sys.stderr)
+        except Exception:
+            pass  # 检测失败不阻断主流程
     if getattr(args, "fav", None):
         try:
             bvid, _t = _resolve_fav(client, args.fav, args.pick)
@@ -206,6 +238,28 @@ def cmd_run(args, client: ApiClient = None):
         input_str = bvid
     else:
         input_str = args.input
+    if platform in ("wechat", "wechat_mp") and not str(input_str).startswith(("http://", "https://")):
+        adapter = _wechat_adapter()
+        if adapter is None:
+            print("未找到 wechat_mp 适配器（检查 scripts/providers/wechat_mp.py）", file=sys.stderr)
+            sys.exit(2)
+        try:
+            hits = adapter.search_articles(input_str, limit=max(1, args.pick))
+        except Exception as e:
+            print(f"搜索失败：{e}（搜狗可能触发验证码，建议改用文章链接）", file=sys.stderr)
+            sys.exit(2)
+        if not hits:
+            print(f"未找到与「{input_str}」相关的文章", file=sys.stderr)
+            sys.exit(1)
+        for i, h in enumerate(hits, 1):
+            print(f"{i}. {h['title']} — {h['account']}（{h['date']}）")
+        hit = hits[args.pick - 1]
+        print(f"名称搜索命中：{hit['title']}（{hit['account']}）")
+        try:
+            input_str = adapter.resolve_sogou_link(hit["link"])
+        except Exception as e:
+            print(f"搜狗跳转解析失败：{e}", file=sys.stderr)
+            sys.exit(4)
     opts = RunOptions(
         out_root=out_root,
         page=getattr(args, "page", None),
@@ -274,8 +328,9 @@ def main(argv=None):
     sub = p.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("resolve", help="解析输入为平台标识")
     r.add_argument("input"); r.set_defaults(func=cmd_resolve)
-    s = sub.add_parser("search", help="搜索视频候选（bilibili）")
+    s = sub.add_parser("search", help="搜索视频候选（bilibili/wechat）")
     s.add_argument("keyword"); s.add_argument("--limit", type=int, default=5)
+    s.add_argument("--platform", default="bilibili", choices=["bilibili", "wechat"])
     s.set_defaults(func=cmd_search)
     fv = sub.add_parser("favs", help="列出账号收藏夹")
     fv.set_defaults(func=cmd_favs)
@@ -308,6 +363,8 @@ def main(argv=None):
     g.add_argument("--pages", default=None, help='批量分P范围，如 "1-10" 或 "1,3,5-8"')
     g.add_argument("--all", dest="all_", action="store_true", help="批量处理全部分P")
     run.add_argument("--fav", default=None, help='从收藏夹选视频（收藏夹id或名称，配合 --pick 选第N个）')
+    run.add_argument("--platform", default=None,
+                     help="指定平台（wechat=公众号搜索后立即抓取；默认自动路由）")
     run.add_argument("--resume", action="store_true", help="跳过已成功处理的P（断点续跑）")
     run.add_argument("--lang", default=None, help='字幕语言（zh/ja/en等，默认自动中文优先）')
     run.add_argument("--model", default=None, help="whisper 模型（tiny/small/medium/large-v3，默认 config.whisper_model）")

@@ -622,3 +622,36 @@ def test_cookie_command_list(capsys):
         assert e.code == 0
     out = capsys.readouterr().out
     assert "zhihu" in out and "bilibili" in out
+
+
+class _FakeWx:
+    def search_articles(self, q, limit=5):
+        return [{"title": "标题A", "account": "账号A", "date": "2026-08-16",
+                 "link": "https://weixin.sogou.com/link?url=x", "snippet": ""},
+                {"title": "标题B", "account": "账号B", "date": "2021-09-06",
+                 "link": "https://weixin.sogou.com/link?url=y", "snippet": ""}]
+
+    def resolve_sogou_link(self, link):
+        return "https://mp.weixin.qq.com/s/AbCdEf1234567890_-abc"
+
+
+def test_search_wechat_platform(monkeypatch, capsys):
+    monkeypatch.setattr(el, "_wechat_adapter", lambda: _FakeWx())
+    el.cmd_search(argparse.Namespace(keyword="深度学习", limit=5, platform="wechat"))
+    out = capsys.readouterr()
+    assert "标题A" in out.out and "账号A" in out.out
+
+
+def test_run_wechat_platform_pick(tmp_path, monkeypatch):
+    monkeypatch.setattr(el, "_wechat_adapter", lambda: _FakeWx())
+    calls = {}
+
+    def fake_run(inp, opts, client=None):
+        calls["input"] = inp
+        return "ok", "正文", 3, str(tmp_path / "out"), ""
+
+    monkeypatch.setattr(el.pipeline, "run_input", fake_run)
+    el.cmd_run(argparse.Namespace(input="深度学习", platform="wechat", pick=2,
+                                  out=str(tmp_path / "out"), no_whisper=False,
+                                  no_cache=False, interval=1.5), client=object())
+    assert calls["input"] == "https://mp.weixin.qq.com/s/AbCdEf1234567890_-abc"
