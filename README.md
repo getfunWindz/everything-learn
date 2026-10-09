@@ -4,7 +4,7 @@
 
 - 📄 设计文档（spec）：[docs/specs/2026-10-07-everything-learn-design.md](docs/specs/2026-10-07-everything-learn-design.md)
 - 🧩 适配器规范（自进化）：[docs/ADAPTER_SPEC.md](docs/ADAPTER_SPEC.md) · [开发指南](docs/ADAPTER_TEMPLATE.md)
-- 🚧 状态：**M0–M7 完成** —— B 站、YouTube、播客、知乎、TED、**微博（单帖）、抖音**可用（含反爬缓速基座与 cookie 导出标配）；更多平台按路线接入
+- 🚧 状态：**M0–M8 完成** —— B 站、YouTube、播客、知乎、TED、**微博（单帖）、抖音、微信公众号（单篇）**可用（含反爬缓速基座与 cookie 导出标配）；更多平台按路线接入
 - 🧬 上游项目：[bilibili-learn](https://github.com/getfunWindz/bilibili-learn)（轻量版，只做 B 站，保持原样）
 
 ## 当前能力（M0）
@@ -15,6 +15,7 @@
 - **TED**：`ted.com/talks/<slug>` → 官网官方字幕（多语含简中，zh-cn 优先）→ 同规格报告；字幕全缺时 mp4 → Whisper 兜底；无需 cookie
 - **微博**：单条微博（正文/长文/图片/转发）→ 章节式报告；用户主页时间线批量（需 cookie，`el.py cookie weibo`）；432 风控给出可读提示
 - **抖音**：视频链接 / 短链 → yt-dlp（访客 cookie，一键导出）→ 无平台字幕 → Whisper 转写 → 时间轴报告
+- **微信公众号**：单篇文章（短链/长链）→ 无需 cookie 直连 → 章节式报告 + 图片入 `assets/`；搜狗搜索实验性（`el.py search --platform wechat`，结果会话绑定）
 - **知乎**：专栏文章 / 单个回答 / 问题（`--all` 展开首屏 5 条回答）→ SSR 正文 → 章节式报告骨架 + 图片入 `assets/`；需要浏览器 cookie（可用内置导出器）
 - **架构**：`core/`（内容契约、注册表、配置、缓存、重试、流水线、产物、HTML→块转换、图片下载）+ `providers/`（平台适配器）；B 站为参考实现
 - **产物三件套**：`content_info.json` / `content.txt` / `report_template.md`
@@ -38,6 +39,11 @@ python scripts/el.py cookie --list       # 查看已声明导出的平台（新�
 python scripts/el.py run "<BV号>" --all --out "D:/学习笔记"
 python scripts/el.py run "<BV号>" --pages "1-10" --out "D:/学习笔记" --resume
 
+# 微信公众号（单篇链接无需 cookie；搜索为实验性）
+python scripts/el.py run "https://mp.weixin.qq.com/s/xxxx" --out "D:/学习笔记"
+python scripts/el.py search --platform wechat "关键词"
+python scripts/el.py run --platform wechat "关键词" --pick 1 --out "D:/学习笔记"
+
 # 环境自检 / 报告导出
 python scripts/el.py doctor
 python scripts/el.py export "<报告目录>" --format html
@@ -46,7 +52,7 @@ python scripts/el.py export "<报告目录>" --format html
 ## 测试
 
 ```bash
-python -m pytest tests/ -q    # 337 passed（全部 mock 网络，离线可跑）
+python -m pytest tests/ -q    # 357 passed（全部 mock 网络，离线可跑）
 ```
 
 ## 平台规划
@@ -61,5 +67,6 @@ python -m pytest tests/ -q    # 337 passed（全部 mock 网络，离线可跑�
 | Medium | document（图文） | 🟡 实现完成（浏览器辅助 + feed）；CF 高风控，冒烟待冷却 |
 | 抖音 | timeline（视频） | ✅ 可用（访客 cookie + yt-dlp + Whisper；无需登录） |
 | 微博 | document（帖子） | ✅ 可用（单帖；时间线需 cookie） |
-| 公众号 / X / 小红书 | — | 🚧 M8+（逐个尽调） |
+| 微信公众号 | document（图文） | ✅ 可用（单篇链接直连，无需 cookie；搜狗搜索实验性） |
+| X / 小红书 | — | 🚧 M9+（逐个尽调） |
 | 名单外平台 | — | 自进化流程现场接入 |
