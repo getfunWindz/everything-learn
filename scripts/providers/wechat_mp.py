@@ -149,6 +149,9 @@ class WeChatMpAdapter:
     # ---------------- 内容 ----------------
 
     def _get_html(self, url: str) -> str:
+        cached = getattr(self, "_html_cache", None)
+        if cached and cached[0] == url:
+            return cached[1]
         try:
             r = self.session.get(url, headers={"Referer": "https://mp.weixin.qq.com/"},
                                  timeout=25)
@@ -156,6 +159,7 @@ class WeChatMpAdapter:
             raise WeChatError(f"网络请求失败：{str(e)[:80]}")
         if r.status_code != 200:
             raise WeChatError(f"公众号页面异常（HTTP {r.status_code}）")
+        self._html_cache = (url, r.text)
         return r.text
 
     def fetch_meta(self, ref) -> ItemMeta:

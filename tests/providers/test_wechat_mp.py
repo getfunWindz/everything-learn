@@ -135,3 +135,21 @@ def test_resolve_sogou_link_expired_readable():
     with pytest.raises(WeChatError) as e:
         a.resolve_sogou_link("https://weixin.sogou.com/link?url=AAAA")
     assert "同一会话" in str(e.value)
+
+
+def test_html_fetch_cached_within_run():
+    class CountingSession(_FakeSession):
+        def __init__(self, text):
+            super().__init__(text)
+            self.calls = []
+
+        def get(self, *a, **kw):
+            self.calls.append(a[0])
+            return super().get(*a, **kw)
+
+    s = CountingSession(_fx("article.html"))
+    a = WeChatMpAdapter(session=s)
+    ref = a.resolve("https://mp.weixin.qq.com/s/-cThzr5N2w3IEYYf-duCDA")
+    a.fetch_content(ref)
+    a.fetch_meta(ref)
+    assert s.calls == [ref.url]
