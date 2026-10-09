@@ -15,7 +15,8 @@ _last = {}          # platform -> 上次请求时刻（monotonic）
 
 # 每两次请求间的最小间隔（秒）：风控越高、值越大
 _DEFAULTS = {"zhihu": 4.0, "douyin": 4.0, "weibo": 6.0, "xiaohongshu": 5.0,
-             "medium": 10.0, "bilibili": 1.5, "youtube": 1.5, "podcast": 0.5, "default": 1.0}
+             "medium": 10.0, "bilibili": 1.5, "youtube": 1.5, "podcast": 0.5,
+             "wechat_mp": 6.0, "default": 1.0}
 _JITTER_DEFAULT = 0.5
 
 # 测试可替换（便于注入时钟/睡眠）
