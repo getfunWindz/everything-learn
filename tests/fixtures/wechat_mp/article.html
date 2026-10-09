@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta property="og:title" content="这个 TCP 问题你得懂：Cannot assign requested address" />
+<meta property="og:url" content="https://mp.weixin.qq.com/s/-cThzr5N2w3IEYYf-duCDA" />
+<script>
+var author = "yongxinz";
+var ct = "1630882800";
+var biz = "MzI3MjY1ODI2Ng==";
+var mid = "2247484162";
+var idx = "1";
+var msg_link = "https://mp.weixin.qq.com/s/-cThzr5N2w3IEYYf-duCDA";
+</script>
+</head>
+<body>
+<div class="rich_media_inner">
+  <a role="button" id="js_name"> AlwaysBeta </a>
+  <div class="rich_media_content js_underline_content" id="js_content" style="visibility: hidden;">
+    <p>线上服务突然大量报错：<strong>Cannot assign requested address</strong>。</p>
+    <h2>一、问题现象</h2>
+    <p>客户端频繁新建连接，端口耗尽，导致连接失败。</p>
+    <img class="rich_pages wxw-img" data-ratio="0.66" data-src="https://mmbiz.qpic.cn/mmbiz_png/9aKOAbMEQ5qcotFGPMS0qazbMibmnluxObCrSQCw3yVmnEOjcvRrSq95NbiaesvqfWKccRx4KOicUIpYtxP5MLWcw/640?wx_fmt=png" />
+    <h2>二、排查过程</h2>
+    <ul>
+      <li>检查 TIME_WAIT 数量</li>
+      <li>检查端口范围</li>
+    </ul>
+    <p>最终定位到短连接频率过高。</p>
+  </div>
+  <div id="js_article_bottom_bar"></div>
+</div>
+</body>
+</html>

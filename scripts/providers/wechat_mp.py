@@ -4,12 +4,15 @@
 图片 data-src（mmbiz.qpic.cn 免 Referer 可下）；搜狗搜索路径会话绑定（实验性，可能失效）。
 无需 COOKIE_EXPORT（无登录凭据）。
 """
+import html as html_mod
 import re
+from datetime import datetime
 from urllib.parse import parse_qs, urlparse
 
 import requests
 
 from core.adapter import SearchNeeded
+from core.htmlblocks import html_to_blocks
 from core.models import ContentResult, ItemMeta, ItemRef
 from core.registry import register
 from core.throttle import ThrottledSession
@@ -23,6 +26,46 @@ _SOGOU_SEARCH = "https://weixin.sogou.com/weixin?type=2&query={q}"
 
 class WeChatError(ValueError):
     """公众号取数失败（页面异常/搜狗跳转失效，可读）"""
+
+
+_ERROR_MARKERS = ("参数错误", "系统出错", "该内容已被发布者删除",
+                  "此内容因违规无法查看", "该公众号已迁移", "已被屏蔽", "环境异常")
+
+
+def _find(html: str, pat: str) -> str:
+    m = re.search(pat, html or "", re.S)
+    return html_mod.unescape(m.group(1).strip()) if m else ""
+
+
+def parse_meta(html: str) -> dict:
+    """页面元信息：title/account（公众号名）/author（文章作者）/published/canonical"""
+    title = _find(html, r'og:title"\s*content="([^"]*)"') or _find(html, r"var msg_title = '([^']*)'")
+    account = _find(html, r'id="js_name"[^>]*>\s*([^<]{1,40}?)\s*<') or _find(html, r"nick_name:\s*'([^']+)'")
+    author = _find(html, r'var author = "([^"]*)"') or account
+    ct = _find(html, r'var ct = "(\d+)"')
+    published = ""
+    if ct:
+        try:
+            published = datetime.fromtimestamp(int(ct)).strftime("%Y-%m-%d")
+        except (ValueError, OSError, OverflowError):
+            published = ""
+    return {"title": title, "account": account, "author": author,
+            "published": published, "canonical": _find(html, r'var msg_link = "([^"]+)"')}
+
+
+def extract_article(html: str):
+    """正文切片（js_content → bottom bar）→ (blocks, images)；页面异常抛 WeChatError"""
+    if "rich_media_content" not in (html or ""):
+        why = next((k for k in _ERROR_MARKERS if k in (html or "")), "页面不含正文")
+        raise WeChatError(f"公众号页面不可读：{why}")
+    start = html.find('id="js_content"')
+    if start < 0:
+        raise WeChatError("公众号页面结构异常：未找到正文容器")
+    end = html.find('id="js_article_bottom_bar"', start)
+    if end < 0:
+        end = html.find("rich_media_area_extra", start)
+    seg = html[start:end if end > start else len(html)]
+    return html_to_blocks(seg)
 
 
 @register
@@ -72,13 +115,39 @@ class WeChatMpAdapter:
     def list_items(self, ref):
         return [ref]
 
-    # ---------------- 内容（Task 3 实现） ----------------
+    # ---------------- 内容 ----------------
+
+    def _get_html(self, url: str) -> str:
+        try:
+            r = self.session.get(url, headers={"Referer": "https://mp.weixin.qq.com/"},
+                                 timeout=25)
+        except requests.RequestException as e:
+            raise WeChatError(f"网络请求失败：{str(e)[:80]}")
+        if r.status_code != 200:
+            raise WeChatError(f"公众号页面异常（HTTP {r.status_code}）")
+        return r.text
 
     def fetch_meta(self, ref) -> ItemMeta:
-        raise NotImplementedError
+        m = parse_meta(self._get_html(ref.url))
+        return ItemMeta(title=m["title"] or "公众号文章",
+                        author=m["account"] or m["author"] or "",
+                        url=ref.url, published=m["published"],
+                        desc="" if m["author"] == m["account"] else m["author"],
+                        page=ref.sub_id or "1")
 
     def fetch_content(self, ref) -> ContentResult:
-        raise NotImplementedError
+        try:
+            blocks, imgs = extract_article(self._get_html(ref.url))
+        except WeChatError as e:
+            return ContentResult(kind="document", status="empty",
+                                 reason=str(e)[:120], label="正文")
+        if not blocks and not imgs:
+            return ContentResult(kind="document", status="empty", reason="正文为空", label="正文")
+        text_len = sum(len(b.get("text") or "") for b in blocks)
+        status = "ok" if (text_len >= 20 or imgs) else "suspect"
+        reason = "" if status == "ok" else f"正文过短（{text_len} 字）"
+        return ContentResult(kind="document", status=status, blocks=blocks, images=imgs,
+                             reason=reason, label="正文")
 
     def fetch_media_url(self, ref, media="audio", lowest=False):
         return None
