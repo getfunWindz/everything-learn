@@ -1,6 +1,6 @@
 ---
 name: everything-learn
-description: 将多平台学习内容（视频/音频/图文/帖子）总结为中文学习报告。触发词：「总结这个视频/文章/播客」「学习笔记」「把内容整理成学习报告」等，用户提供链接、名称或平台内容标识。当前支持 B 站、YouTube、播客、知乎、TED、Medium、微博、抖音、微信公众号；遇到没有适配器的平台可按规范现场搭建适配器。
+description: 将多平台学习内容（视频/音频/图文/帖子）总结为中文学习报告。触发词：「总结这个视频/文章/播客」「学习笔记」「把内容整理成学习报告」等，用户提供链接、名称或平台内容标识。当前支持 B 站、YouTube、播客、知乎、TED、Medium、微博、抖音、微信公众号、X（Twitter）；遇到没有适配器的平台可按规范现场搭建适配器。
 ---
 
 # everything-learn：多平台学习内容总结
@@ -22,7 +22,8 @@ description: 将多平台学习内容（视频/音频/图文/帖子）总结为�
 | Medium | `document`（图文） | 🟡 实现完成（双通道：浏览器辅助正文 + feed 解析）；Cloudflare 高风控，真实冒烟待冷却复跑 |
 | 微博 | `document`（帖子） | ✅ 可用（单帖：正文/长文/图片/转发；用户时间线需 cookie：`el.py cookie weibo`） |
 | 微信公众号 | `document`（图文） | ✅ 可用（单篇链接直连，无需 cookie；搜狗搜索实验性：`el.py search --platform wechat`） |
-| X / 小红书 | `collection`/`document` | 🚧 M9+（逐个尽调后开工） |
+| X（Twitter） | `document`（推文） | ✅ 可用（单推文：正文/图片；视频推文附 Whisper 口播转写；无需 cookie；时间线/搜索不做） |
+| 小红书 | `collection`/`document` | 🚧 M10+（逐个尽调后开工） |
 | 抖音 | `timeline`（视频） | ✅ 可用（访客 cookie 一键导出 + yt-dlp + Whisper；无平台字幕） |
 | 名单外平台 | — | 走「自进化」流程（见 §3） |
 
@@ -55,6 +56,7 @@ python scripts/el.py run <链接/名称> [--page N | --pages "1-10" | --all] --o
   - **播客细节**：RSS/Apple Podcasts 链接（Apple 经 iTunes 查找换成 feed）；有 `podcast:transcript` 直接解析，否则音频 Whisper；无画面信息（多模态复检自动跳过）
 - **document 源**（知乎/公众号/微博）：正文提取（章节/段落/公式/图片）→ 图片入 `assets/`；问题链接用 `--all` 展开首屏 5 条回答（深分页需 API 签名，本期不做）；
   - **公众号细节**：单篇链接直连（无需 cookie；正文服务端渲染、图片 `data-src` 自动入 `assets/`）；搜狗搜索为实验性路径（验证码/限流风险 + 签名链接会话绑定）；
+  - **X（Twitter）细节**：单推文直连（无需 cookie，syndication 公开接口）；图片入 `assets/`；视频推文自动取 mp4 并 Whisper 转写为「视频口播内容」小节（多语自动检测）；缓速 10s（限流会升级，遇 429/连接异常时给可读提示，不要高频重试）；
 - 产物三件套：`content_info.json`（元信息+来源标记）/ `content.txt`（timeline 带时间戳 / document 保持 Markdown 结构）/ `report_template.md`（按形态的报告骨架）；
 - 批量：失败不中断，汇总增量写入，`--resume` 断点续跑；
 - 抽帧供读图复检（agent 执行时）：`python scripts/el.py frames <视频> --range "起-止" --fps 1 --out <目录>`。
@@ -108,4 +110,5 @@ python scripts/el.py run <链接/名称> [--page N | --pages "1-10" | --all] --o
 - **YouTube 提取失败**（反爬更新/限流）先升级依赖：`pip install -U yt-dlp`（`el.py doctor` 会显示当前版本）；字幕接口 429 已内置退避重试。
 - **知乎风控**：短时间大量请求会触发临时限流（40362，通常几十分钟自行恢复）；适配器会给出可读提示。日常使用用浏览器 cookie 路径即可，不要高频循环抓取。
 - 搜索接口偶发风控：失败时提示用户改用链接。
+- **X（Twitter）**：单推文无需 cookie；限流会跨宿主升级（429 → SSL EOF，含图片/视频 CDN）；缓速默认 10s，被拒时退避一次即给可读提示，不要循环重试；时间线与搜索不做（实测不可靠）。
 - **公众号**：单篇链接无需 cookie；搜狗搜索为实验性（验证码/antispider 风险，结果链接会话绑定、不可跨进程复用）；页面「参数错误/系统出错」等异常会给可读提示。
