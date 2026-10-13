@@ -122,7 +122,8 @@ class ZhihuAdapter:
 
     def match(self, url: str) -> bool:
         return bool(_ARTICLE_RE.search(url or "") or _ANSWER_RE.search(url or "")
-                    or _QUESTION_RE.search(url or ""))
+                    or _QUESTION_RE.search(url or "") or _PEOPLE_RE.search(url or "")
+                    or _COLLECTION_RE.search(url or ""))
 
     def resolve(self, q: str) -> ItemRef:
         m = _ARTICLE_RE.search(q or "")
@@ -320,6 +321,12 @@ class ZhihuAdapter:
                         page=ref.sub_id or "1", page_part=f"回答：{ans_author}")
 
     # ---------------- 内容 ----------------
+
+    def fetch_root_meta(self, ref, refs) -> ItemMeta:
+        """合集根元信息：收藏夹/用户列表用列表自身 meta；其余沿用首条（默认行为）"""
+        if ref.extra.get("kind") in ("collection", "user"):
+            return self.fetch_meta(ref)
+        return self.fetch_meta(refs[0])
 
     def fetch_content(self, ref) -> ContentResult:
         kind = ref.extra.get("kind")

@@ -200,3 +200,21 @@ def test_collection_meta(monkeypatch):
     ref = a.resolve("https://www.zhihu.com/collection/838981379")
     meta = a.fetch_meta(ref)
     assert meta.title == "深度学习" and meta.author == "Jie Chen"
+
+
+def test_match_user_and_collection_urls():
+    a = ZhihuAdapter()
+    assert a.match("https://www.zhihu.com/people/excited-vczh")
+    assert a.match("https://www.zhihu.com/people/excited-vczh/answers")
+    assert a.match("https://www.zhihu.com/collection/838981379")
+
+
+def test_fetch_root_meta_for_collection(monkeypatch):
+    from core.models import ItemRef
+    a = ZhihuAdapter()
+    monkeypatch.setattr(ZhihuAdapter, "_api_get",
+                        lambda self, path, params: _zf("collection_meta.json"))
+    ref = a.resolve("https://www.zhihu.com/collection/838981379")
+    meta = a.fetch_root_meta(ref, [ItemRef(platform="zhihu", item_id="answer-1",
+                                           url="u", sub_id="1")])
+    assert meta.title == "深度学习"

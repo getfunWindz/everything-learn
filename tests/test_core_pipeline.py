@@ -256,3 +256,16 @@ def test_media_headers_hook():
     assert _media_headers(A()) == {"X": "1"}
     assert _media_headers(object()) is None
     assert _media_headers(B()) is None
+
+
+def test_run_input_uses_adapter_root_meta_hook(tmp_path):
+    """合集根 meta：适配器可选钩子 fetch_root_meta 优先于 refs[0]（账号级列表语义）"""
+    class HookAdapter(FakeAdapter):
+        def fetch_root_meta(self, ref, refs):
+            return ItemMeta(title="合集根标题", author="合集作者")
+    out = str(tmp_path / "out")
+    opts = RunOptions(out_root=out, all_=True, interval=0)
+    run_input("http://fake/v/1", opts, adapter=HookAdapter(n_items=2))
+    base = os.path.join(out, "合集作者")
+    coll = [d for d in os.listdir(base) if d.endswith("_合集")]
+    assert coll and "合集根标题" in coll[0]

@@ -433,21 +433,25 @@ class ApiClient:
                 for it in (d.get("list") or [])]
 
     def get_history(self, limit: int = 30, ps: int = 30) -> list:
-        """观看历史（游标翻页）→ [{bvid,title,duration}]（需登录 cookie）"""
-        items, cursor = [], None
+        """观看历史（data 为列表；以末条 view_at 作 max 游标续拉）→ [{bvid,title,duration}]"""
+        items, max_at, seen = [], None, set()
         while len(items) < limit:
             params = {"ps": min(ps, max(1, limit - len(items)))}
-            if cursor:
-                params["max"] = cursor
+            if max_at:
+                params["max"] = max_at
             d = self._get("/x/v2/history", params)
-            page = d.get("list") or []
-            items.extend({"bvid": it.get("bvid") or "",
-                          "title": it.get("title") or "",
-                          "duration": it.get("duration") or 0}
-                         for it in page)
-            cursor = ((d.get("cursor") or {}).get("max")
-                      if isinstance(d.get("cursor"), dict) else None)
-            if not page or not cursor or len(page) < params["ps"]:
+            page = d if isinstance(d, list) else (d.get("list") or [])
+            new = [it for it in page if (it.get("bvid"), it.get("view_at")) not in seen]
+            if not new:
+                break
+            for it in new:
+                seen.add((it.get("bvid"), it.get("view_at")))
+                items.append({"bvid": it.get("bvid") or "",
+                              "title": it.get("title") or "",
+                              "duration": it.get("duration") or 0,
+                              "view_at": it.get("view_at") or 0})
+            max_at = page[-1].get("view_at") if page else None
+            if not max_at or len(page) < params["ps"]:
                 break
         return items[:limit]
 

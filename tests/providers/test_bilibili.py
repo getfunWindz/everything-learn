@@ -389,12 +389,16 @@ def test_get_toview(monkeypatch):
 
 def test_get_history_pagination(monkeypatch):
     c = ApiClient()
-    pages = [{"list": [{"bvid": f"BV{i}", "title": f"历史{i}", "duration": 60} for i in range(1, 4)],
-              "cursor": {"max": 100, "view_at": 1}},
-             {"list": [{"bvid": "BV9", "title": "历史9", "duration": 60}], "cursor": {}}]
-    monkeypatch.setattr(ApiClient, "_get", lambda self, path, params=None, envelope=True: pages.pop(0))
+    pages = [[{"bvid": f"BV{i}", "title": f"历史{i}", "duration": 60, "view_at": 1000 - i}
+              for i in range(1, 4)],
+             [{"bvid": "BV9", "title": "历史9", "duration": 60, "view_at": 900}]]
+    calls = []
+    monkeypatch.setattr(ApiClient, "_get",
+                        lambda self, path, params=None, envelope=True:
+                        calls.append(params) or pages.pop(0))
     items = c.get_history(limit=10, ps=3)
     assert [i["bvid"] for i in items] == ["BV1", "BV2", "BV3", "BV9"]
+    assert calls[1]["max"] == 997          # 第二页用末条 view_at 作游标
 
 
 def test_get_followings(monkeypatch):

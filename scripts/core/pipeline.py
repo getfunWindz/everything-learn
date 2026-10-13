@@ -390,7 +390,8 @@ def run_input(input_str: str, opts: RunOptions, adapter=None, client=None):
                 print("续跑：全部 P 均已完成，无需处理", file=sys.stderr)
                 return {"kind": "skip", "pages": []}
     try:
-        root_meta = a.fetch_meta(refs[0])
+        hook = getattr(a, "fetch_root_meta", None)
+        root_meta = hook(ref, refs) if callable(hook) else a.fetch_meta(refs[0])
     except PipelineError:
         raise
     except Exception as e:
