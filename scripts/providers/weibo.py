@@ -27,6 +27,7 @@ _TIMELINE = "https://m.weibo.cn/api/container/getIndex?type=uid&value={uid}&cont
 _HOME = "https://m.weibo.cn/"
 _COOKIE_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".weibo_cookie")
 _TIMELINE_LIMIT = 10
+_TIMELINE_MAX_PAGES = 20      # 安全上限（200 条），防超活跃账号无限翻页
 
 # cookie 一键导出规格（el.py cookie weibo；见 ADAPTER_SPEC §4）
 COOKIE_EXPORT = {
@@ -246,20 +247,45 @@ class WeiboAdapter:
 
     # ---------------- 列表 / 元信息 / 内容 ----------------
 
+    def _timeline_mblogs(self, uid: str) -> list:
+        """时间线 since_id 翻页拉全量（安全上限 _TIMELINE_MAX_PAGES 页）；
+        中途风控时若有已拉取内容则优雅停止，否则抛出可读异常。"""
+        base = _TIMELINE.format(uid=uid)
+        mblogs, since_id, seen = [], None, set()
+        for _ in range(_TIMELINE_MAX_PAGES):
+            url = base + (f"&since_id={since_id}" if since_id else "")
+            try:
+                d = self._get_json(url)
+            except WeiboError:
+                if mblogs:
+                    break
+                raise
+            cards = ((d.get("data") or {}).get("cards") or [])
+            page = []
+            for c in cards:
+                if c.get("mblog"):
+                    page.append(c["mblog"])
+                for g in (c.get("card_group") or []):
+                    if g.get("mblog"):
+                        page.append(g["mblog"])
+            new = [m for m in page if str(m.get("id") or m.get("idstr")) not in seen]
+            if not new:
+                break
+            for m in new:
+                seen.add(str(m.get("id") or m.get("idstr")))
+            mblogs.extend(new)
+            since_id = ((d.get("data") or {}).get("cardlistInfo") or {}).get("since_id")
+            if not since_id:
+                break
+        return mblogs
+
     def list_items(self, ref):
         if ref.extra.get("kind") != "user":
             return [ref]
         uid = ref.extra["uid"]
-        d = self._get_json(_TIMELINE.format(uid=uid))
-        mblogs = []
-        for c in ((d.get("data") or {}).get("cards") or []):
-            if c.get("mblog"):
-                mblogs.append(c["mblog"])
-            for g in (c.get("card_group") or []):
-                if g.get("mblog"):
-                    mblogs.append(g["mblog"])
+        mblogs = self._timeline_mblogs(uid)
         items = []
-        for i, m in enumerate(mblogs[:_TIMELINE_LIMIT], 1):
+        for i, m in enumerate(mblogs, 1):
             sid = str(m.get("id") or m.get("idstr") or "")
             if not sid:
                 continue

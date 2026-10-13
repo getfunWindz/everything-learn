@@ -1,6 +1,7 @@
 import sys, os, json
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts"))
-from providers.weibo import WeiboAdapter, strip_html, pics_to_urls, video_url, parse_created_at
+from providers.weibo import (WeiboAdapter, WeiboError, strip_html, pics_to_urls,
+                             video_url, parse_created_at)
 from core.models import ItemRef
 from tests.contract.harness import run_contract
 
@@ -119,3 +120,40 @@ def test_cookie_export_spec_declared():
     from providers.weibo import COOKIE_EXPORT
     assert COOKIE_EXPORT["file"] == ".weibo_cookie"
     assert "SUB" in COOKIE_EXPORT["required"]
+
+
+def _mb(i, text="内容"):
+    return {"id": str(1000 + i), "bid": f"B{i}", "text": f"{text}{i}",
+            "user": {"screen_name": "测试用户"}, "created_at": "Sat Sep 05 01:22:48 +0800 2020"}
+
+
+def test_timeline_full_pagination(monkeypatch):
+    a = WeiboAdapter(session=object())
+    pages = [
+        {"data": {"cards": [{"mblog": _mb(i)} for i in range(1, 11)],
+                  "cardlistInfo": {"since_id": 999}}},
+        {"data": {"cards": [{"mblog": _mb(i)} for i in range(11, 16)],
+                  "cardlistInfo": {}}},
+    ]
+    calls = []
+    monkeypatch.setattr(WeiboAdapter, "_get_json",
+                        lambda self, url: calls.append(url) or pages.pop(0))
+    ref = ItemRef(platform="weibo", item_id="user-1", url="", sub_id="1",
+                  extra={"kind": "user", "uid": "1"})
+    refs = a.list_items(ref)
+    assert len(refs) == 15
+    assert "since_id=999" in calls[1]          # 第二页带上 since_id
+
+
+def test_timeline_pagination_stops_on_risk(monkeypatch):
+    a = WeiboAdapter(session=object())
+    def gen(self, url):
+        if "since_id" in url:
+            raise WeiboError("微博风控拦截（432/空响应）")
+        return {"data": {"cards": [{"mblog": _mb(i)} for i in range(1, 11)],
+                         "cardlistInfo": {"since_id": 999}}}
+    monkeypatch.setattr(WeiboAdapter, "_get_json", gen)
+    ref = ItemRef(platform="weibo", item_id="user-1", url="", sub_id="1",
+                  extra={"kind": "user", "uid": "1"})
+    refs = a.list_items(ref)                   # 中途风控：已有内容优雅停止，不抛
+    assert len(refs) == 10
