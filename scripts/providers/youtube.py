@@ -12,7 +12,8 @@ from core.registry import register
 from core.subtitles import _norm_text, parse_vtt  # noqa: F401  （parse_vtt 供适配器与测试引用）
 
 _VID = re.compile(r"^[0-9A-Za-z_-]{11}$")
-_URL_RE = re.compile(r"(youtube\.com/(watch\?|shorts/|playlist)|youtu\.be/)", re.I)
+_URL_RE = re.compile(
+    r"(youtube\.com/(watch\?|shorts/|playlist|@|channel/|c/|user/))|youtu\.be/", re.I)
 _WATCH = "https://www.youtube.com/watch?v={}"
 
 
@@ -129,6 +130,11 @@ class YouTubeAdapter:
             if not m:
                 raise ValueError(f"无法解析播放列表 ID：{q}")
             return ItemRef(platform="youtube", item_id=m.group(1), url=q, extra={"playlist": True})
+        m = re.search(r"youtube\.com/(@[A-Za-z0-9_.\-]+|channel/UC[A-Za-z0-9_-]+|c/[A-Za-z0-9_.\-]+|user/[A-Za-z0-9_.\-]+)", q)
+        if m:
+            slug = re.sub(r"[^A-Za-z0-9_-]+", "-", m.group(1)).strip("-")
+            return ItemRef(platform="youtube", item_id=f"channel-{slug}", url=q,
+                           extra={"channel": True})
         for pat in (r"[?&]v=([0-9A-Za-z_-]{11})", r"youtu\.be/([0-9A-Za-z_-]{11})",
                     r"shorts/([0-9A-Za-z_-]{11})"):
             m = re.search(pat, q)
@@ -153,6 +159,20 @@ class YouTubeAdapter:
     # ---------------- 展开 / 元信息 ----------------
 
     def list_items(self, ref):
+        if ref.extra.get("channel"):
+            base = ref.url.split("?")[0].rstrip("/")
+            if not base.endswith("/videos"):
+                base += "/videos"
+            info = self._extract(base, extract_flat=True)
+            items = []
+            for i, e in enumerate(info.get("entries") or [], 1):
+                if not e or not e.get("id"):
+                    continue
+                items.append(ItemRef(platform="youtube", item_id=e["id"],
+                                     url=_WATCH.format(e["id"]), sub_id=str(i),
+                                     title=e.get("title") or "",
+                                     duration=int(e.get("duration") or 0)))
+            return items or [ref]
         if ref.extra.get("playlist"):
             info = self._extract(ref.url, extract_flat=True)
             items = []

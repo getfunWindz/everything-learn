@@ -199,3 +199,34 @@ def test_download_waits_throttle(monkeypatch):
     monkeypatch.setattr(req_mod, "get", fake_get)
     assert YouTubeAdapter()._download("http://x/sub") == "ok"
     assert waits == ["youtube"] and order == ["get"]
+
+
+def test_match_and_resolve_channel():
+    a = YouTubeAdapter()
+    for url in ("https://www.youtube.com/@NASA/videos",
+                "https://www.youtube.com/@NASA",
+                "https://www.youtube.com/channel/UC1234567890abcdefghij",
+                "https://www.youtube.com/c/SomeChannel",
+                "https://www.youtube.com/user/SomeUser"):
+        assert a.match(url), url
+    ref = a.resolve("https://www.youtube.com/@NASA")
+    assert ref.extra.get("channel") is True
+
+
+def test_channel_list_items(monkeypatch):
+    a = YouTubeAdapter()
+    flat = {"entries": [
+        {"id": "vid001", "title": "第一个视频", "duration": 300},
+        {"id": "vid002", "title": "第二个视频", "duration": 120},
+    ]}
+    captured = {}
+
+    def fake_extract(self, url, **kw):
+        captured["url"] = url
+        return flat
+
+    monkeypatch.setattr(YouTubeAdapter, "_extract", fake_extract)
+    ref = a.resolve("https://www.youtube.com/@NASA")
+    items = a.list_items(ref)
+    assert [r.item_id for r in items] == ["vid001", "vid002"]
+    assert captured["url"].endswith("/videos")
