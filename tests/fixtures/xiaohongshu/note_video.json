@@ -1,0 +1,149 @@
+{
+ "noteId": "6ab0a6b9000000002b027713",
+ "title": "没有ai的年代，我们老艺术家是怎么熬过来的",
+ "desc": "#小时候[话题]# #童年[话题]# #教材全解[话题]# #00后[话题]# #回忆[话题]# #学习方法[话题]# #万万没想到[话题]# #背书匠[话题]# #我的学习进化论[话题]# #学习效率[话题]#",
+ "type": "video",
+ "time": 1789961913000,
+ "interactInfo": {
+  "liked": false,
+  "collected": false,
+  "collectedCount": "1974",
+  "followed": false,
+  "likedCount": "1.2万",
+  "commentCount": "193",
+  "shareCount": "640",
+  "relation": "none",
+  "niceCount": ""
+ },
+ "tagList": [
+  {
+   "name": "小时候",
+   "type": "topic",
+   "id": "5c2f15c00000000008027208"
+  },
+  {
+   "name": "童年",
+   "type": "topic",
+   "id": "5be3a9036c8206000136645f"
+  },
+  {
+   "type": "topic",
+   "id": "615bca29000000000101e896",
+   "name": "教材全解"
+  },
+  {
+   "id": "5aba47865974aa797e3a5e59",
+   "name": "00后",
+   "type": "topic"
+  },
+  {
+   "id": "5be8e74f50fe5600012517fc",
+   "name": "回忆",
+   "type": "topic"
+  },
+  {
+   "id": "5bf95e4e9c1d820001fa0b6c",
+   "name": "学习方法",
+   "type": "topic"
+  },
+  {
+   "id": "54c90c7cb4c4d62123de9dfe",
+   "name": "万万没想到",
+   "type": "topic"
+  },
+  {
+   "id": "6878ebbd000000001800a6cd",
+   "name": "背书匠",
+   "type": "topic"
+  },
+  {
+   "id": "6870f60e000000001703a819",
+   "name": "我的学习进化论",
+   "type": "topic"
+  },
+  {
+   "name": "学习效率",
+   "type": "topic",
+   "id": "5bf9358d42d9630001d2c5bb"
+  }
+ ],
+ "user": {
+  "id": null,
+  "nickname": "爆米花🍿",
+  "avatar": "https://sns-avatar-qc.xhscdn.com/avatar/1040g2jo320doopi8lsc05qfasmfgfo0381rij18"
+ },
+ "imageList": [
+  {
+   "width": 1080,
+   "infoList": [
+    {
+     "imageScene": "WB_PRV",
+     "url": "http://sns-webpic-qc.xhscdn.com/202610132223/45c8ceecd5b95e89ed6ad6a15d7806c7/1040g2sg325c6hils4edg5qfasmfgfo033q8i338!nd_prv_wlteh_jpg_3"
+    },
+    {
+     "imageScene": "WB_DFT",
+     "url": "http://sns-webpic-qc.xhscdn.com/202610132223/69436e40c86b83e4a3536e8792e45041/1040g2sg325c6hils4edg5qfasmfgfo033q8i338!nd_dft_wlteh_jpg_3"
+    }
+   ],
+   "urlPre": "http://sns-webpic-qc.xhscdn.com/202610132223/45c8ceecd5b95e89ed6ad6a15d7806c7/1040g2sg325c6hils4edg5qfasmfgfo033q8i338!nd_prv_wlteh_jpg_3",
+   "fileId": "1040g2sg325c6hils4edg5qfasmfgfo033q8i338",
+   "url": "",
+   "traceId": "",
+   "urlDefault": "http://sns-webpic-qc.xhscdn.com/202610132223/69436e40c86b83e4a3536e8792e45041/1040g2sg325c6hils4edg5qfasmfgfo033q8i338!nd_dft_wlteh_jpg_3",
+   "stream": {},
+   "livePhoto": false,
+   "height": 1920
+  }
+ ],
+ "video": {
+  "media": {
+   "stream": {
+    "h264": [
+     {
+      "videoBitrate": 3054127,
+      "audioCodec": "aac",
+      "rotate": 0,
+      "qualityType": "HD",
+      "format": "mp4",
+      "duration": 37036,
+      "size": 14429841,
+      "videoDuration": 37033,
+      "vmaf": -1,
+      "psnr": 0,
+      "streamDesc": "X264_MP4",
+      "height": 1280,
+      "videoCodec": "h264",
+      "masterUrl": "http://sns-video-v4.xhscdn.com/stream/1/110/258/01eab0a66ec07d6201037001a0c20b9af9_258.mp4?b=c5a3b2806c36c2c404&csig=inLumWLzb0uAKbnd&oi=2297124061990478136111&sign=8fe5ad6db64f656d7cf863e8644e43fd&t=6ad2dc3e&trid=a2308a2cf4039347bfdc228cbcedf76b",
+      "ssim": 0,
+      "weight": 59,
+      "streamType": 258,
+      "width": 720,
+      "audioBitrate": 56091,
+      "audioDuration": 37035,
+      "audioChannels": 2,
+      "backupUrls": [
+       "http://sns-bak-v1.xhscdn.com/stream/1/110/258/01eab0a66ec07d6201037001a0c20b9af9_258.mp4?b=c5a3b2806c36c2c404&csig=inLumWLzb0uAKbnd&oi=2297124061990478136111&trid=a2308a2cf4039347bfdc228cbcedf76b",
+       "http://sns-bak-v6.xhscdn.com/stream/1/110/258/01eab0a66ec07d6201037001a0c20b9af9_258.mp4?b=c5a3b2806c36c2c404&csig=inLumWLzb0uAKbnd&oi=2297124061990478136111&trid=a2308a2cf4039347bfdc228cbcedf76b"
+      ],
+      "hdrType": 0,
+      "defaultStream": 0,
+      "volume": 0,
+      "avgBitrate": 3116932,
+      "fps": 30
+     }
+    ]
+   },
+   "video": {
+    "hdrType": 0,
+    "drmType": 0,
+    "streamTypes": [
+     258
+    ],
+    "bizName": 110,
+    "bizId": "282232156790355731",
+    "duration": 38,
+    "md5": "5219c38dcf928ea2a99431354f8e769f"
+   }
+  }
+ }
+}

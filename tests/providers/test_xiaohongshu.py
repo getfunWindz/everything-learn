@@ -57,3 +57,111 @@ def test_list_items_and_contract():
     ref = a.resolve("https://www.xiaohongshu.com/explore/6acde40b000000001b02c980?xsec_token=ABC")
     assert a.list_items(ref) == [ref]
     assert run_contract(a) == []
+
+
+FIX = os.path.join(os.path.dirname(__file__), "..", "fixtures", "xiaohongshu")
+
+
+def _fx_text(name):
+    with open(os.path.join(FIX, name), encoding="utf-8") as f:
+        return f.read()
+
+
+def _fx_json(name):
+    with open(os.path.join(FIX, name), encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _note_html(state):
+    return "<html><head></head><body><script>window.__INITIAL_STATE__ = " + \
+        json.dumps(state, ensure_ascii=False) + "</script></body></html>"
+
+
+class _Resp:
+    def __init__(self, text="", url="", status=200):
+        self.text, self.url, self.status_code = text, url, status
+
+    def json(self):
+        return json.loads(self.text)
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise RuntimeError(f"HTTP {self.status_code}")
+
+    def close(self):
+        pass
+
+
+class _SeqSession:
+    """按顺序返回预设响应；记录请求 URL"""
+    def __init__(self, resps):
+        self._resps = list(resps)
+        self.calls = []
+        self.headers = {}
+
+    def get(self, url, **kw):
+        self.calls.append(url)
+        return self._resps.pop(0)
+
+
+def _state(kind="normal"):
+    note = _fx_json(f"note_{kind}.json")
+    return {"note": {"noteDetailMap": {note["noteId"]: {"note": note}}}}
+
+
+def test_parse_normal_note_meta_and_content():
+    nid = "6acde40b000000001b02c980"
+    html = _note_html(_state("normal"))
+    url = f"https://www.xiaohongshu.com/explore/{nid}?xsec_token=ABC&xsec_source=pc_share"
+    a = XiaohongshuAdapter(session=_SeqSession([_Resp(text=html, url=url)]))
+    ref = a.resolve(url)
+    meta = a.fetch_meta(ref)
+    assert meta.author == "NANA"
+    assert meta.published
+    res = a.fetch_content(ref)
+    assert res.kind == "document" and res.status == "ok"
+    assert any("冰美式" in b["text"] for b in res.blocks)
+    assert len(res.images) == 8
+    assert res.images[0].startswith("https://sns-webpic-qc.xhscdn.com/")
+
+
+def test_video_note_transcribed(monkeypatch):
+    nid = "6ab0a6b9000000002b027713"
+    html = _note_html(_state("video"))
+    url = f"https://www.xiaohongshu.com/explore/{nid}?xsec_token=ABC&xsec_source=pc_share"
+    a = XiaohongshuAdapter(session=_SeqSession([_Resp(text=html, url=url)]))
+    ref = a.resolve(url)
+    import transcriber
+    monkeypatch.setattr(transcriber, "transcribe_url",
+                        lambda url, **kw: [{"start": 0.0, "end": 1.0, "text": "测试口播"}])
+    res = a.fetch_content(ref)
+    assert any(b["heading"] == "视频口播内容" and "测试口播" in b["text"] for b in res.blocks)
+    assert res.images == []          # 视频笔记不把封面当正文图
+    assert a.fetch_media_url(ref).startswith("https://sns-video")
+
+
+def test_missing_token_harvests_from_explore():
+    nid = "6acde40b000000001b02c980"
+    note_html = _note_html(_state("normal"))
+    explore_html = _fx_text("explore.html")
+    s = _SeqSession([
+        _Resp(text=explore_html),
+        _Resp(text=note_html, url=f"https://www.xiaohongshu.com/explore/{nid}"),
+    ])
+    a = XiaohongshuAdapter(session=s)
+    ref = a.resolve(f"https://www.xiaohongshu.com/explore/{nid}")   # 无 token
+    res = a.fetch_content(ref)
+    assert res.status == "ok"
+    assert "xsec_token=FAKETOKENXHS=" in s.calls[-1]               # 用现取 token 重试
+
+
+def test_sec404_readable():
+    bad_url = "https://www.xiaohongshu.com/404?source=/404/sec_x"
+    a = XiaohongshuAdapter(session=_SeqSession([
+        _Resp(text="<html></html>", url=bad_url),   # note 请求 → sec404
+        _Resp(text="<html></html>", url=bad_url),   # explore 1
+        _Resp(text="<html></html>", url=bad_url),   # explore 2
+    ]))
+    ref = a.resolve("https://www.xiaohongshu.com/explore/6acde40b000000001b02c980?xsec_token=OLD")
+    res = a.fetch_content(ref)
+    assert res.status == "empty" and "重新分享" in res.reason
