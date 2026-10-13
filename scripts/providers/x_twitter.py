@@ -20,7 +20,7 @@ from core.throttle import ThrottledSession
 _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
        "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
 _STATUS_RE = re.compile(
-    r"https?://(?:(?:mobile|www)\.)?(?:x|twitter)\.com/(?:[A-Za-z0-9_]+/)*(?:web/)?status/(\d{6,})")
+    r"https?://(?:(?:mobile|www)\.)?(?:x|twitter)\.com/(?:[A-Za-z0-9_]+/)*(?:web/)?status/(\d+)")
 _TCO_RE = re.compile(r"https?://t\.co/([A-Za-z0-9]+)")
 _TWEET_API = "https://cdn.syndication.twimg.com/tweet-result"
 

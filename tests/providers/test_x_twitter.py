@@ -25,6 +25,12 @@ def test_match_forms():
     assert not a.match("https://example.com/NASA/status/2108563438901350773")
 
 
+def test_match_short_historical_id():
+    a = XTwitterAdapter(session=object())
+    assert a.match("https://x.com/jack/status/20")
+    assert a.resolve("https://x.com/jack/status/20").item_id == "tw-20"
+
+
 def test_resolve_status_forms():
     a = XTwitterAdapter(session=object())
     for url in ("https://x.com/NASA/status/2108563438901350773",
