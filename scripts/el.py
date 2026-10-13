@@ -143,6 +143,49 @@ def cmd_export(args):
     print(f"已导出：{out}")
 
 
+def _scan_adapter(input_str):
+    """scan 用适配器解析（URL → 适配器；测试可替换）"""
+    from core import registry
+    registry.load_providers()
+    return registry.match_url(input_str) or registry.sniff_url(input_str)
+
+
+def cmd_scan(args, client: ApiClient = None):
+    """账号级扫描：枚举列表 → 过滤/优先级/快照（不抓内容）"""
+    from core import scan as scan_core
+    if not str(args.input).startswith(("http://", "https://")):
+        print("scan 需要 URL（名称类请先 search，或直接 run）", file=sys.stderr)
+        sys.exit(2)
+    adapter = _scan_adapter(args.input)
+    if adapter is None:
+        print(f"没有适配器能处理：{args.input}", file=sys.stderr)
+        sys.exit(2)
+    try:
+        ref = adapter.resolve(args.input)
+        refs = adapter.list_items(ref)
+    except SearchNeeded:
+        print("该输入需要平台搜索，scan 暂不支持名称类", file=sys.stderr)
+        sys.exit(2)
+    except Exception as e:
+        print(f"枚举失败：{str(e)[:120]}", file=sys.stderr)
+        sys.exit(4)
+    if args.limit:
+        refs = refs[:args.limit]
+    items = scan_core.refs_to_items(refs)
+    keywords = ([k.strip() for k in args.filter.split(",") if k.strip()]
+                if args.filter else scan_core.AI_KEYWORDS)
+    hit = scan_core.filter_items(items, keywords)
+    ranked = scan_core.sort_by_priority(hit) if args.priority else hit
+    print(f"[{adapter.name}] 共 {len(items)} 条，命中 {len(hit)} 条：")
+    for i, it in enumerate(ranked, 1):
+        score = f"（{it['view']}）" if it.get("view") else ""
+        print(f"{i}. {it['title'][:60]}{score}")
+    print("\n批量抓取：python scripts/el.py run \"<原链接>\" --all（或 --pages \"1-10\"）")
+    if args.snapshot:
+        path = scan_core.make_snapshot(items, out_dir=args.out or "", prefix=adapter.name)
+        print(f"快照已保存：{path}")
+
+
 def cmd_favs(args, client: ApiClient = None):
     """列出当前账号的收藏夹"""
     client = client or ApiClient()
@@ -360,6 +403,14 @@ def main(argv=None):
     fr.add_argument("--max", type=int, default=30, help="最大帧数（默认 30）")
     fr.add_argument("--out", default="frames", help="输出目录")
     fr.set_defaults(func=cmd_frames)
+    sc = sub.add_parser("scan", help="账号级扫描：枚举列表→过滤/优先级/快照（不抓内容）")
+    sc.add_argument("input", help="列表链接（用户主页/收藏夹/播放列表/频道）")
+    sc.add_argument("--filter", default=None, help="关键词（逗号分隔；默认内置 AI 关键词）")
+    sc.add_argument("--priority", action="store_true", help="按热度降序")
+    sc.add_argument("--limit", type=int, default=0, help="最多枚举条数（0=全部）")
+    sc.add_argument("--snapshot", action="store_true", help="保存 JSON 快照")
+    sc.add_argument("--out", default=None, help="快照目录")
+    sc.set_defaults(func=cmd_scan)
     fs = sub.add_parser("favs-scan", help="扫描收藏夹：拉全量+主题过滤+优先级排序+快照")
     fs.add_argument("fav", help="收藏夹 id 或名称")
     fs.add_argument("--filter", default=None, help="关键词列表（逗号分隔，默认内置 AI 关键词）")

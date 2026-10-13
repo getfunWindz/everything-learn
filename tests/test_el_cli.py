@@ -693,3 +693,43 @@ def test_run_url_skips_bili_check_for_non_bili(tmp_path, monkeypatch):
     el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", pick=1, out=str(tmp_path / "out"),
                                   no_whisper=False, no_cache=False, interval=1.5), client=C())
     assert calls["login"] == 1
+
+
+def test_scan_command_lists_filtered_ranked(monkeypatch, capsys):
+    class A:
+        name = "fake"
+        def resolve(self, q):
+            from core.models import ItemRef
+            return ItemRef(platform="fake", item_id="root", url=q, sub_id="1")
+        def list_items(self, ref):
+            from core.models import ItemRef
+            return [ItemRef(platform="fake", item_id=f"i{i}", url=f"u{i}", sub_id=str(i),
+                            title=t, extra={"view": v})
+                    for i, (t, v) in enumerate([("GPT 教程", 100), ("音乐现场", 900),
+                                                ("深度学习实战", 500)], 1)]
+    monkeypatch.setattr(el, "_scan_adapter", lambda s: A())
+    el.cmd_scan(argparse.Namespace(input="https://fake/list", filter=None, priority=True,
+                                   limit=0, snapshot=False, out=None))
+    out = capsys.readouterr().out
+    assert "共 3 条，命中 2 条" in out
+    assert out.index("深度学习实战") < out.index("GPT 教程")     # 优先级排序（500>100）
+
+
+def test_scan_command_limit_and_non_url(monkeypatch, capsys):
+    class A:
+        name = "fake"
+        def resolve(self, q):
+            from core.models import ItemRef
+            return ItemRef(platform="fake", item_id="r", url=q, sub_id="1")
+        def list_items(self, ref):
+            from core.models import ItemRef
+            return [ItemRef(platform="fake", item_id=f"i{i}", url=f"u{i}", sub_id=str(i),
+                            title="AI 内容", extra={}) for i in range(5)]
+    monkeypatch.setattr(el, "_scan_adapter", lambda s: A())
+    el.cmd_scan(argparse.Namespace(input="https://fake/list", filter=None, priority=False,
+                                   limit=3, snapshot=False, out=None))
+    assert "共 3 条" in capsys.readouterr().out
+    with pytest.raises(SystemExit) as e:
+        el.cmd_scan(argparse.Namespace(input="一个名称", filter=None, priority=False,
+                                       limit=0, snapshot=False, out=None))
+    assert e.value.code == 2
