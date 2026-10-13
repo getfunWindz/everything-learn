@@ -154,3 +154,49 @@ def test_session_is_throttled():
     from core.throttle import ThrottledSession
     a = ZhihuAdapter()
     assert isinstance(a.session, ThrottledSession) and a.session.platform == "zhihu"
+
+
+ZHFIX = os.path.join(os.path.dirname(__file__), "..", "fixtures", "zhihu")
+
+
+def _zf(name):
+    with open(os.path.join(ZHFIX, name), encoding="utf-8") as f:
+        return json.load(f)
+
+
+def test_resolve_user_and_collection():
+    a = ZhihuAdapter()
+    uref = a.resolve("https://www.zhihu.com/people/excited-vczh/answers")
+    assert uref.extra["kind"] == "user" and uref.extra["token"] == "excited-vczh"
+    cref = a.resolve("https://www.zhihu.com/collection/838981379")
+    assert cref.extra["kind"] == "collection" and cref.extra["collection_id"] == "838981379"
+
+
+def test_list_user_answers(monkeypatch):
+    a = ZhihuAdapter()
+    monkeypatch.setattr(ZhihuAdapter, "_api_get",
+                        lambda self, path, params: _zf("answers_page.json"))
+    ref = a.resolve("https://www.zhihu.com/people/someone")
+    items = a.list_items(ref)
+    assert [r.extra["answer_id"] for r in items] == ["111", "112"]
+    assert items[0].url == "https://www.zhihu.com/question/222/answer/111"
+    assert items[0].extra["view"] == 128
+
+
+def test_list_collection_items(monkeypatch):
+    a = ZhihuAdapter()
+    monkeypatch.setattr(ZhihuAdapter, "_api_get",
+                        lambda self, path, params: _zf("collection_items.json"))
+    ref = a.resolve("https://www.zhihu.com/collection/838981379")
+    items = a.list_items(ref)
+    assert [r.extra["kind"] for r in items] == ["answer", "article"]
+    assert items[1].item_id == "article-62628781"
+
+
+def test_collection_meta(monkeypatch):
+    a = ZhihuAdapter()
+    monkeypatch.setattr(ZhihuAdapter, "_api_get",
+                        lambda self, path, params: _zf("collection_meta.json"))
+    ref = a.resolve("https://www.zhihu.com/collection/838981379")
+    meta = a.fetch_meta(ref)
+    assert meta.title == "深度学习" and meta.author == "Jie Chen"
