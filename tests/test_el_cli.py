@@ -672,3 +672,24 @@ def test_run_wechat_no_bilibili_fallback(tmp_path, monkeypatch):
                                       out=str(tmp_path / "out"), no_whisper=False,
                                       no_cache=False, interval=1.5), client=object())
     assert e.value.code == 4
+
+
+def test_run_url_skips_bili_check_for_non_bili(tmp_path, monkeypatch):
+    """非 B 站适配器 URL 运行时不应触发 B 站登录检查（避免误报 cookie 警告）"""
+    calls = {"login": 0}
+
+    class C:
+        def check_login(self):
+            calls["login"] += 1
+            return True
+
+    monkeypatch.setattr(el.pipeline, "run_input",
+                        lambda inp, opts, adapter=None, client=None:
+                        ("ok", "正文", 1, str(tmp_path / "out"), ""))
+    el.cmd_run(argparse.Namespace(input="https://x.com/NASA/status/2108563438901350773",
+                                  pick=1, out=str(tmp_path / "out"), no_whisper=False,
+                                  no_cache=False, interval=1.5), client=C())
+    assert calls["login"] == 0
+    el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", pick=1, out=str(tmp_path / "out"),
+                                  no_whisper=False, no_cache=False, interval=1.5), client=C())
+    assert calls["login"] == 1

@@ -223,7 +223,21 @@ def cmd_run(args, client: ApiClient = None):
     except config.ConfigError as e:
         print(f"配置错误：{e}", file=sys.stderr)
         sys.exit(2)
-    if platform not in ("wechat", "wechat_mp"):
+    def _skip_bili_check():
+        """非 B 站平台运行（wechat 指定 / 已匹配非 bilibili 适配器的 URL）跳过 B 站登录检查"""
+        if platform in ("wechat", "wechat_mp"):
+            return True
+        if getattr(args, "fav", None):
+            return False
+        s = str(getattr(args, "input", "") or "")
+        if not s.startswith(("http://", "https://")):
+            return False
+        from core import registry
+        registry.load_providers()
+        a = registry.match_url(s)
+        return a is not None and a.name != "bilibili"
+
+    if not _skip_bili_check():
         try:
             if client.check_login() is False:
                 print("⚠ 登录 cookie 已过期或未配置：搜索与 AI 字幕将不可用，仅可获取无字幕视频并走 Whisper 转写。", file=sys.stderr)
