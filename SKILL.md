@@ -46,6 +46,7 @@ description: 将多平台学习内容（视频/音频/图文/帖子）总结为�
 - 链接 / 平台标识：`python scripts/el.py resolve <输入>` 确认平台与标识；
 - 名称类输入：走平台搜索（B 站 `el.py search <关键词>`），**列出候选让用户确认**后再继续；
 - **公众号搜索（实验性）**：`el.py search --platform wechat "<关键词>"` 列出候选；直接抓取用 `el.py run --platform wechat "<关键词>" --pick N`（搜狗结果链接**会话绑定**，必须同进程立即抓取，不能跨进程复用）。
+- **账号级扫描（M11）**：用户主页/收藏夹/频道等列表链接 → `el.py scan <链接> [--filter] [--priority] [--limit] [--snapshot]` 先枚举与筛选（命中项可 `--snapshot` 存档）；批量抓取用 `el.py run <链接> --all`（或 `--pages "1-10"`）；B站账号数据另有 `el.py toview|history|following`（需 cookie）。
 
 ## 2. 获取内容
 ```bash

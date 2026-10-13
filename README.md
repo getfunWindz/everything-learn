@@ -4,7 +4,7 @@
 
 - 📄 设计文档（spec）：[docs/specs/2026-10-07-everything-learn-design.md](docs/specs/2026-10-07-everything-learn-design.md)
 - 🧩 适配器规范（自进化）：[docs/ADAPTER_SPEC.md](docs/ADAPTER_SPEC.md) · [开发指南](docs/ADAPTER_TEMPLATE.md)
-- 🚧 状态：**M0–M10 完成** —— B 站、YouTube、播客、知乎、TED、**微博（单帖）、抖音、微信公众号（单篇）、X（单推文）、小红书（单笔记）**可用（含反爬缓速基座与 cookie 导出标配）；更多平台按路线接入
+- 🚧 状态：**M0–M11 完成** —— B 站、YouTube、播客、知乎、TED、**微博（单帖）、抖音、微信公众号（单篇）、X（单推文）、小红书（单笔记）、账号级扫描**可用（含反爬缓速基座与 cookie 导出标配）；更多平台按路线接入
 - 🧬 上游项目：[bilibili-learn](https://github.com/getfunWindz/bilibili-learn)（轻量版，只做 B 站，保持原样）
 
 ## 当前能力（M0）
@@ -18,6 +18,7 @@
 - **微信公众号**：单篇文章（短链/长链）→ 无需 cookie 直连 → 章节式报告 + 图片入 `assets/`；搜狗搜索实验性（`el.py search --platform wechat`，结果会话绑定）
 - **X（Twitter）**：单推文（x.com/twitter.com，含 /i/status 与 t.co 短链）→ 无需 cookie → 正文/图片；视频推文自动取 mp4 → Whisper → 「视频口播内容」小节（多语自动检测）
 - **小红书**：单笔记（xhslink 短链 / explore / discovery 链接）→ 正文/图片入 `assets/`；视频笔记 → Whisper → 「视频口播内容」；依赖短时效 `xsec_token`（分享链自带或 explore 兜底现取，实验性）
+- **账号级扫描（M11）**：微博用户时间线全量（`since_id` 翻页）、知乎用户回答/收藏夹 items、YouTube 频道列表 → `el.py scan <链接>` 枚举筛选 + `el.py run <链接> --all` 批量报告；B站账号数据：`el.py toview / history / following`（需 cookie）
 - **知乎**：专栏文章 / 单个回答 / 问题（`--all` 展开首屏 5 条回答）→ SSR 正文 → 章节式报告骨架 + 图片入 `assets/`；需要浏览器 cookie（可用内置导出器）
 - **架构**：`core/`（内容契约、注册表、配置、缓存、重试、流水线、产物、HTML→块转换、图片下载）+ `providers/`（平台适配器）；B 站为参考实现
 - **产物三件套**：`content_info.json` / `content.txt` / `report_template.md`
@@ -52,6 +53,11 @@ python scripts/el.py run "https://x.com/NASA/status/2108563438901350773" --out "
 # 小红书单笔记（xhslink 分享链；链接需含 xsec_token 或让工具现取）
 python scripts/el.py run "https://xhslink.cn/o/xxxx" --out "D:/学习笔记"
 
+# 账号级扫描（枚举列表→过滤/优先级→批量抓取；支持微博时间线/知乎收藏夹或用户/YouTube 频道）
+python scripts/el.py scan "https://www.zhihu.com/collection/xxxx" --priority
+python scripts/el.py run "https://www.zhihu.com/collection/xxxx" --all --out "D:/学习笔记"
+python scripts/el.py toview / history --limit 10 / following            # B站账号数据（需 cookie）
+
 # 环境自检 / 报告导出
 python scripts/el.py doctor
 python scripts/el.py export "<报告目录>" --format html
@@ -60,7 +66,7 @@ python scripts/el.py export "<报告目录>" --format html
 ## 测试
 
 ```bash
-python -m pytest tests/ -q    # 380 passed（全部 mock 网络，离线可跑）
+python -m pytest tests/ -q    # 403 passed（全部 mock 网络，离线可跑）
 ```
 
 ## 平台规划
