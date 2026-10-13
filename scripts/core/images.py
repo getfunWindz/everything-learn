@@ -10,7 +10,8 @@ _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
        "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
 _EXT_OK = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
 # 图片 CDN 常要求站内 Referer（如微博 sinaimg 无 Referer 会 403）
-_REFERERS = {"zhihu": "https://www.zhihu.com/", "weibo": "https://weibo.com/"}
+_REFERERS = {"zhihu": "https://www.zhihu.com/", "weibo": "https://weibo.com/",
+             "x_twitter": "https://x.com/"}
 
 
 def _ext(url: str) -> str:
