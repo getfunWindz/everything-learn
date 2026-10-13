@@ -1,0 +1,142 @@
+{
+ "id_str": "2108563438901350773",
+ "text": "\"There are no adjectives. I'm going to need to invent some new ones to describe what we are looking at out this window.\"\n\nListen to newly-released recordings from the Artemis II lunar flyby — and hear more from our lunar scientists — in a recent episode of Houston We Have a https://t.co/JZigh1lvp4",
+ "created_at": "2026-10-09T14:21:13.000Z",
+ "lang": "en",
+ "favorite_count": 1417,
+ "conversation_count": 90,
+ "note_tweet": {
+  "id": "Tm90ZVR3ZWV0UmVzdWx0czoyMTA4NTYzNDM4Nzg4MTMyODY0"
+ },
+ "entities": {
+  "media": [
+   {
+    "display_url": "pic.x.com/JZigh1lvp4",
+    "expanded_url": "https://x.com/NASA/status/2108563438901350773/photo/1",
+    "indices": [
+     275,
+     298
+    ],
+    "url": "https://t.co/JZigh1lvp4"
+   }
+  ]
+ },
+ "photos": [
+  {
+   "accessibilityLabel": "A photo from the Artemis II flight around the Moon, showing the Orion spacecraft and Moon dramatically shadowed by light behind the Moon. Text at the top of the photo reads, \"Houston We Have a Podcast.\"",
+   "backgroundColor": {
+    "red": 204,
+    "green": 214,
+    "blue": 221
+   },
+   "cropCandidates": [
+    {
+     "h": 1075,
+     "w": 1920,
+     "x": 0,
+     "y": 0
+    },
+    {
+     "h": 1080,
+     "w": 1080,
+     "x": 276,
+     "y": 0
+    },
+    {
+     "h": 1080,
+     "w": 947,
+     "x": 343,
+     "y": 0
+    },
+    {
+     "h": 1080,
+     "w": 540,
+     "x": 546,
+     "y": 0
+    },
+    {
+     "h": 1080,
+     "w": 1920,
+     "x": 0,
+     "y": 0
+    }
+   ],
+   "expandedUrl": "https://x.com/NASA/status/2108563438901350773/photo/1",
+   "url": "https://pbs.twimg.com/media/HUMfRfoW8AA5f7T.jpg",
+   "width": 1920,
+   "height": 1080
+  }
+ ],
+ "user": {
+  "id_str": "11348282",
+  "name": "NASA",
+  "screen_name": "NASA",
+  "verified": false,
+  "is_blue_verified": true
+ },
+ "mediaDetails": [
+  {
+   "type": "photo",
+   "media_url_https": "https://pbs.twimg.com/media/HUMfRfoW8AA5f7T.jpg",
+   "ext_alt_text": "A photo from the Artemis II flight around the Moon, showing the Orion spacecraft and Moon dramatically shadowed by light behind the Moon. Text at the top of the photo reads, \"Houston We Have a Podcast.\"",
+   "original_info": {
+    "focus_rects": [
+     {
+      "h": 1075,
+      "w": 1920,
+      "x": 0,
+      "y": 0
+     },
+     {
+      "h": 1080,
+      "w": 1080,
+      "x": 276,
+      "y": 0
+     },
+     {
+      "h": 1080,
+      "w": 947,
+      "x": 343,
+      "y": 0
+     },
+     {
+      "h": 1080,
+      "w": 540,
+      "x": 546,
+      "y": 0
+     },
+     {
+      "h": 1080,
+      "w": 1920,
+      "x": 0,
+      "y": 0
+     }
+    ],
+    "height": 1080,
+    "width": 1920
+   },
+   "sizes": {
+    "large": {
+     "h": 1080,
+     "resize": "fit",
+     "w": 1920
+    },
+    "medium": {
+     "h": 675,
+     "resize": "fit",
+     "w": 1200
+    },
+    "small": {
+     "h": 383,
+     "resize": "fit",
+     "w": 680
+    },
+    "thumb": {
+     "h": 150,
+     "resize": "crop",
+     "w": 150
+    }
+   }
+  }
+ ]
+}

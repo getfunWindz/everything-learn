@@ -1,0 +1,68 @@
+{
+ "id_str": "2109957980011552839",
+ "text": "Falcon 9 lands on Landing Zone 40 https://t.co/WbkYBCZ0Ha",
+ "created_at": "2026-10-06T13:55:00.000Z",
+ "conversation_count": 142,
+ "favorite_count": 5200,
+ "lang": "en",
+ "user": {
+  "id_str": "34743251",
+  "name": "SpaceX",
+  "screen_name": "SpaceX",
+  "verified": true
+ },
+ "entities": {
+  "urls": [
+   {
+    "url": "https://t.co/WbkYBCZ0Ha",
+    "expanded_url": "https://x.com/SpaceX/status/2109957980011552839/video/1"
+   }
+  ]
+ },
+ "mediaDetails": [
+  {
+   "type": "video",
+   "media_url_https": "https://pbs.twimg.com/amplify_video_thumb/2109957915553456128/img/bgnf2x9BEBQwMUcR.jpg",
+   "ext_alt_text": null,
+   "original_info": {
+    "width": 3840,
+    "height": 2160
+   },
+   "video_info": {
+    "duration_millis": 20320,
+    "variants": [
+     {
+      "content_type": "application/x-mpegURL",
+      "url": "https://video.twimg.com/amplify_video/2109957915553456128/pl/_VSRJsfquNt5xLb0.m3u8?tag=29&v=db2"
+     },
+     {
+      "bitrate": 256000,
+      "content_type": "video/mp4",
+      "url": "https://video.twimg.com/amplify_video/2109957915553456128/vid/avc1/480x270/4Dd_zif6a2JAGRzx.mp4?tag=29"
+     },
+     {
+      "bitrate": 832000,
+      "content_type": "video/mp4",
+      "url": "https://video.twimg.com/amplify_video/2109957915553456128/vid/avc1/640x360/sMmRL3JG2YyqWsBs.mp4?tag=29"
+     },
+     {
+      "bitrate": 2176000,
+      "content_type": "video/mp4",
+      "url": "https://video.twimg.com/amplify_video/2109957915553456128/vid/avc1/1280x720/PY83zJ1WKRFOQwzC.mp4?tag=29"
+     },
+     {
+      "bitrate": 10368000,
+      "content_type": "video/mp4",
+      "url": "https://video.twimg.com/amplify_video/2109957915553456128/vid/avc1/1920x1080/JokxhR6IyMXF-QaZ.mp4?tag=29"
+     },
+     {
+      "bitrate": 25128000,
+      "content_type": "video/mp4",
+      "url": "https://video.twimg.com/amplify_video/2109957915553456128/vid/avc1/3840x2160/qB9LVmJElxF6y5SV.mp4?tag=29"
+     }
+    ]
+   }
+  }
+ ],
+ "photos": []
+}

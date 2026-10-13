@@ -61,3 +61,81 @@ def test_list_items_and_contract():
     ref = a.resolve("https://x.com/NASA/status/2108563438901350773")
     assert a.list_items(ref) == [ref]
     assert run_contract(a) == []
+
+
+FIX = os.path.join(os.path.dirname(__file__), "..", "fixtures", "x_twitter")
+
+
+def _fx(name):
+    with open(os.path.join(FIX, name), encoding="utf-8") as f:
+        return json.load(f)
+
+
+class _JsonResp:
+    def __init__(self, payload=None, text="", status=200):
+        self._payload, self.text, self.status_code = payload, text, status
+
+    def json(self):
+        return self._payload
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise RuntimeError(f"HTTP {self.status_code}")
+
+
+class _ApiSession:
+    def __init__(self, resp):
+        self._resp = resp
+        self.headers = {}
+
+    def get(self, url, **kw):
+        return self._resp
+
+
+def test_parse_tweet_photo():
+    a = XTwitterAdapter(session=_ApiSession(_JsonResp(_fx("tweet_photo.json"))))
+    ref = a.resolve("https://x.com/NASA/status/2108563438901350773")
+    meta = a.fetch_meta(ref)
+    assert "There are no adjectives" in meta.title
+    assert meta.author == "NASA"
+    assert meta.published
+    res = a.fetch_content(ref)
+    assert res.kind == "document" and res.status == "ok"
+    assert any("Houston We Have a" in b["text"] for b in res.blocks)
+    assert res.images and res.images[0].startswith("https://pbs.twimg.com/media/")
+
+
+def test_video_variant_prefers_720p_mp4():
+    a = XTwitterAdapter(session=_ApiSession(_JsonResp(_fx("tweet_video.json"))))
+    ref = a.resolve("https://x.com/SpaceX/status/2109957980011552839")
+    assert a._data(ref)["video_url"].endswith("1280x720/PY83zJ1WKRFOQwzC.mp4?tag=29")
+    assert a.fetch_media_url(ref, media="audio") == a._data(ref)["video_url"]
+
+
+def test_video_transcribed_block(monkeypatch):
+    a = XTwitterAdapter(session=_ApiSession(_JsonResp(_fx("tweet_video.json"))))
+    ref = a.resolve("https://x.com/SpaceX/status/2109957980011552839")
+    import transcriber
+    monkeypatch.setattr(transcriber, "transcribe_url",
+                        lambda url, **kw: [{"start": 0.0, "end": 2.0, "text": "Falcon has landed"}])
+    res = a.fetch_content(ref)
+    assert any(b["heading"] == "视频口播内容" and "Falcon has landed" in b["text"]
+               for b in res.blocks)
+
+
+def test_video_transcribe_failure_note(monkeypatch):
+    a = XTwitterAdapter(session=_ApiSession(_JsonResp(_fx("tweet_video.json"))))
+    ref = a.resolve("https://x.com/SpaceX/status/2109957980011552839")
+    import transcriber
+    def boom(*a, **k):
+        raise RuntimeError("no whisper")
+    monkeypatch.setattr(transcriber, "transcribe_url", boom)
+    res = a.fetch_content(ref)
+    assert any(b["heading"] == "视频口播内容" and "转写失败" in b["text"] for b in res.blocks)
+
+
+def test_404_readable():
+    a = XTwitterAdapter(session=_ApiSession(_JsonResp(text="<html>Not Found</html>", status=404)))
+    ref = a.resolve("https://x.com/NASA/status/2108563438901350773")
+    res = a.fetch_content(ref)
+    assert res.status == "empty" and "不存在" in res.reason
