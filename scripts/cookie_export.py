@@ -23,7 +23,13 @@ _PLATFORMS = None
 
 
 def _valid_spec(spec) -> bool:
-    return isinstance(spec, dict) and all(spec.get(k) for k in _REQUIRED_FIELDS)
+    if not (isinstance(spec, dict) and all(spec.get(k) for k in _REQUIRED_FIELDS)):
+        return False
+    v = spec.get("verify")
+    if v is not None:
+        if not (isinstance(v, dict) and v.get("url") and v.get("expect")):
+            return False
+    return True
 
 
 def discover_platforms() -> dict:
@@ -75,6 +81,26 @@ def _read_cookies(ctx, url):
         return {c["name"]: c["value"] for c in ctx.cookies(url)}
     except Exception:
         return None
+
+
+def _wait_for_verify(page, spec: dict, deadline: float):
+    """页面内 fetch verify.url（带凭据），轮询直到响应包含 expect 子串。
+    返回 (True, "") / (False, 可读错误)。用于「游客也有关键 cookie」的平台（如微博 SUB）。"""
+    expr = ("async (u) => { const r = await fetch(u, {credentials:'include'});"
+            " return await r.text(); }")
+    while time.time() < deadline:
+        try:
+            text = page.evaluate(expr, spec["url"]) or ""
+        except Exception:
+            text = ""
+        if spec["expect"] in text:
+            return True, ""
+        try:
+            page.wait_for_timeout(2000)
+        except Exception:
+            time.sleep(2)
+    return False, ("登录校验未通过：未检测到有效登录态（可能是游客 cookie）。"
+                   "请确认已在窗口内完成登录后重试；本次未写入 cookie 文件。")
 
 
 def _write_cookie_file(out: str, cfg: dict, cookies: dict) -> int:
@@ -154,6 +180,16 @@ def export(platform: str, browser: str = "msedge", timeout: int = 300) -> int:
                                             "若窗口内出现安全验证，请手动完成一次后重试。")
                     if cookies is None:
                         print(err, file=sys.stderr)
+                        return 3
+                if cfg.get("verify"):
+                    try:
+                        page.goto(cfg.get("probe_url") or cfg["url"],
+                                  wait_until="domcontentloaded")
+                    except Exception:
+                        pass
+                    verified, verr = _wait_for_verify(page, cfg["verify"], deadline)
+                    if not verified:
+                        print(verr, file=sys.stderr)
                         return 3
                 return _write_cookie_file(out, cfg, cookies)
             finally:

@@ -34,6 +34,8 @@ COOKIE_EXPORT = {
     "read_url": "https://m.weibo.cn",
     "required": ["SUB"],
     "ready": ["SUB", "WEIBOCN_FROM"],
+    # 防「假登录」：m.weibo.cn 游客也会下发 SUB → 必须校验 /api/config login:true 才落盘
+    "verify": {"url": "https://m.weibo.cn/api/config", "expect": '\"login\":true'},
     "wanted": ["SUB", "SUBP", "WEIBOCN_FROM", "_T_WM", "M_WEIBOCN_PARAMS"],
     "file": ".weibo_cookie",
 }

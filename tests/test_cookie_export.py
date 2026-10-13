@@ -1,4 +1,5 @@
 import sys, os
+import time
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 from cookie_export import (build_cookie_string, required_present, cookie_file_for,
                            discover_platforms, load_platforms, _valid_spec)
@@ -50,3 +51,47 @@ def test_write_cookie_file_wildcard(tmp_path):
     out = str(tmp_path / "c.txt")
     assert _write_cookie_file(out, {"wanted": ["*"]}, {"b": "2", "a": "1"}) == 0
     assert open(out, encoding="utf-8").read().strip() == "a=1; b=2"
+
+
+def test_valid_spec_verify_optional_and_checked():
+    """verify 为可选字段；声明时必须是 {url, expect} 非空"""
+    ok = {"url": "u", "read_url": "r", "required": ["a"], "ready": ["a"],
+          "wanted": ["a"], "file": "f"}
+    assert _valid_spec({**ok, "verify": {"url": "https://x/api", "expect": '"login":true'}}) is True
+    assert _valid_spec(ok) is True                       # 不声明也合法（向后兼容）
+    assert _valid_spec({**ok, "verify": {}}) is False
+    assert _valid_spec({**ok, "verify": {"url": "u"}}) is False
+    assert _valid_spec({**ok, "verify": {"expect": "x"}}) is False
+
+
+def test_weibo_spec_declares_login_verify():
+    """防假登录：SUB 游客也有 → 微博必须用登录校验（/api/config login:true）"""
+    platforms = discover_platforms()
+    v = platforms["weibo"].get("verify") or {}
+    assert v.get("url", "").endswith("/api/config")
+    assert '"login":true' in (v.get("expect") or "")
+
+
+def test_wait_for_verify_success_and_timeout():
+    from cookie_export import _wait_for_verify
+
+    class FakePage:
+        def __init__(self, seq):
+            self.seq = list(seq)
+            self.calls = 0
+
+        def evaluate(self, expr, arg):
+            self.calls += 1
+            return self.seq[min(self.calls - 1, len(self.seq) - 1)]
+
+        def wait_for_timeout(self, ms):
+            pass
+
+    page = FakePage(['{"login":false}', '{"login":true}'])
+    ok, err = _wait_for_verify(page, {"url": "https://x/api", "expect": '"login":true'},
+                               time.time() + 30)
+    assert ok is True and err == "" and page.calls == 2
+
+    ok2, err2 = _wait_for_verify(FakePage(['{"login":false}']),
+                                 {"url": "https://x/api", "expect": '"login":true'}, 0)
+    assert ok2 is False and "登录校验" in err2
