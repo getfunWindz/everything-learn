@@ -218,7 +218,8 @@ class XTwitterAdapter:
                 d["video_url"], model_size=cfg.get("whisper_model") or "medium",
                 vad=vad, duration_sec=d["video_ms"] / 1000,
                 vad_long_sec=cfg.get("vad_long_sec", 1800),
-                headers={"User-Agent": _UA, "Referer": "https://x.com/"})
+                headers={"User-Agent": _UA, "Referer": "https://x.com/"},
+                language=None)          # 多语言内容：自动检测（默认 zh 是 B 站向）
             text = " ".join((l.get("text") or "").strip() for l in lines if (l.get("text") or "").strip())
             return {"heading": "视频口播内容", "text": text or "（视频无口播内容）"}
         except Exception as e:

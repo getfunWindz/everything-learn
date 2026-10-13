@@ -135,14 +135,17 @@ def _transcribe_with(WhisperModel, model_size: str, device: str, audio_path: str
 
 def transcribe_url(url: str, model_size: str = "medium", progress_callback=None,
                    vad=None, duration_sec: float = None,
-                   vad_long_sec: float = VAD_LONG_SEC_DEFAULT, headers: dict = None) -> list:
+                   vad_long_sec: float = VAD_LONG_SEC_DEFAULT, headers: dict = None,
+                   language: str = "zh") -> list:
     """平台无关入口：下载媒体直链（临时目录）+ 转写；vad/duration 透传（长视频默认禁 VAD）
 
-    headers：媒体 CDN 可能要求平台特定 UA/Referer（扣音等）；默认用内置 HEADERS（B 站向）。"""
+    headers：媒体 CDN 可能要求平台特定 UA/Referer（扣音等）；默认用内置 HEADERS（B 站向）。
+    language：默认 zh（B 站向）；多语平台（如 X）传 None 自动检测。"""
     with tempfile.TemporaryDirectory() as td:
         audio_path = download_audio(url, os.path.join(td, "audio.m4s"), headers=headers)
         return transcribe(audio_path, model_size=model_size, progress_callback=progress_callback,
-                          vad=vad, duration_sec=duration_sec, vad_long_sec=vad_long_sec)
+                          vad=vad, duration_sec=duration_sec, vad_long_sec=vad_long_sec,
+                          language=language)
 
 
 def transcribe_video(client, bvid: str, cid: int, **kwargs) -> list:

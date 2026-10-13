@@ -119,6 +119,21 @@ def test_transcribe_url_flow(monkeypatch):
     assert calls["url"] == "http://media/audio.m4s"
 
 
+def test_transcribe_url_passes_language(monkeypatch):
+    """language 透传（X 等多语言平台用 None 自动检测；默认仍 zh 保持既有行为）"""
+    captured = {}
+    monkeypatch.setattr(transcriber, "download_audio",
+                        lambda url, dest, headers=None: dest)
+
+    def fake_transcribe(path, **kw):
+        captured.update(kw)
+        return []
+
+    monkeypatch.setattr(transcriber, "transcribe", fake_transcribe)
+    transcriber.transcribe_url("http://media/audio.m4s", language=None)
+    assert captured.get("language") is None
+
+
 # ---------- VAD 策略：长视频默认禁用，可手动打开 ----------
 
 def _fake_model_factory(calls):
