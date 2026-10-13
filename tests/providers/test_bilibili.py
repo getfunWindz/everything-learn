@@ -375,3 +375,33 @@ def test_search_without_cookie_raises_guidance(monkeypatch):
     with pytest.raises(BiliError) as e:
         client.search("Python 入门")
     assert "cookie" in str(e.value).lower() or "SESSDATA" in str(e.value)
+
+
+def test_get_toview(monkeypatch):
+    c = ApiClient()
+    monkeypatch.setattr(ApiClient, "_get",
+                        lambda self, path, params=None, envelope=True:
+                        {"list": [{"bvid": "BV1", "title": "稍后看", "duration": 300,
+                                   "owner": {"name": "UP"}}]})
+    items = c.get_toview()
+    assert items[0]["bvid"] == "BV1" and items[0]["owner"] == "UP"
+
+
+def test_get_history_pagination(monkeypatch):
+    c = ApiClient()
+    pages = [{"list": [{"bvid": f"BV{i}", "title": f"历史{i}", "duration": 60} for i in range(1, 4)],
+              "cursor": {"max": 100, "view_at": 1}},
+             {"list": [{"bvid": "BV9", "title": "历史9", "duration": 60}], "cursor": {}}]
+    monkeypatch.setattr(ApiClient, "_get", lambda self, path, params=None, envelope=True: pages.pop(0))
+    items = c.get_history(limit=10, ps=3)
+    assert [i["bvid"] for i in items] == ["BV1", "BV2", "BV3", "BV9"]
+
+
+def test_get_followings(monkeypatch):
+    c = ApiClient()
+    monkeypatch.setattr(ApiClient, "_get",
+                        lambda self, path, params=None, envelope=True:
+                        {"list": [{"mid": 1, "uname": "小明", "sign": "签名"}]}
+                        if "followings" in path else {"mid": 42})
+    items = c.get_followings(limit=10, ps=50)
+    assert items[0]["uname"] == "小明"

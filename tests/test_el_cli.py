@@ -733,3 +733,19 @@ def test_scan_command_limit_and_non_url(monkeypatch, capsys):
         el.cmd_scan(argparse.Namespace(input="一个名称", filter=None, priority=False,
                                        limit=0, snapshot=False, out=None))
     assert e.value.code == 2
+
+
+def test_toview_history_following_commands(monkeypatch, capsys):
+    class C:
+        def get_toview(self):
+            return [{"bvid": "BV1", "title": "稍后看", "duration": 60, "owner": "UP"}]
+        def get_history(self, limit=30):
+            return [{"bvid": "BV2", "title": "历史", "duration": 60}]
+        def get_followings(self, limit=50):
+            return [{"mid": 1, "uname": "小明", "sign": "签名"}]
+    el.cmd_toview(argparse.Namespace(), client=C())
+    assert "稍后看" in capsys.readouterr().out
+    el.cmd_history(argparse.Namespace(limit=10), client=C())
+    assert "历史" in capsys.readouterr().out
+    el.cmd_following(argparse.Namespace(limit=10), client=C())
+    assert "小明" in capsys.readouterr().out

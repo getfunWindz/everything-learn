@@ -423,6 +423,51 @@ class ApiClient:
                         "duration": m.get("duration", 0)})
         return out
 
+    def get_toview(self) -> list:
+        """稍后再看 → [{bvid,title,duration,owner}]（需登录 cookie）"""
+        d = self._get("/x/v2/history/toview")
+        return [{"bvid": it.get("bvid") or "",
+                 "title": it.get("title") or "",
+                 "duration": it.get("duration") or 0,
+                 "owner": ((it.get("owner") or {}).get("name") or "")}
+                for it in (d.get("list") or [])]
+
+    def get_history(self, limit: int = 30, ps: int = 30) -> list:
+        """观看历史（游标翻页）→ [{bvid,title,duration}]（需登录 cookie）"""
+        items, cursor = [], None
+        while len(items) < limit:
+            params = {"ps": min(ps, max(1, limit - len(items)))}
+            if cursor:
+                params["max"] = cursor
+            d = self._get("/x/v2/history", params)
+            page = d.get("list") or []
+            items.extend({"bvid": it.get("bvid") or "",
+                          "title": it.get("title") or "",
+                          "duration": it.get("duration") or 0}
+                         for it in page)
+            cursor = ((d.get("cursor") or {}).get("max")
+                      if isinstance(d.get("cursor"), dict) else None)
+            if not page or not cursor or len(page) < params["ps"]:
+                break
+        return items[:limit]
+
+    def get_followings(self, limit: int = 50, ps: int = 50) -> list:
+        """关注列表 → [{mid,uname,sign}]（需登录 cookie）"""
+        nav = self._get("/x/web-interface/nav", {})
+        own_mid = nav.get("mid") or 0
+        items, pn = [], 1
+        while len(items) < limit:
+            d = self._get("/x/relation/followings",
+                          {"vmid": own_mid, "pn": pn, "ps": ps, "order": "desc"})
+            page = d.get("list") or []
+            items.extend({"mid": u.get("mid"), "uname": u.get("uname") or "",
+                          "sign": (u.get("sign") or "")[:40]}
+                         for u in page)
+            if not page or len(page) < ps:
+                break
+            pn += 1
+        return items[:limit]
+
 
 # ---------------- 输入解析（链接 / BV号 / av号 → VideoSpec） ----------------
 

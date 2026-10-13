@@ -186,6 +186,45 @@ def cmd_scan(args, client: ApiClient = None):
         print(f"快照已保存：{path}")
 
 
+def cmd_toview(args, client: ApiClient = None):
+    """列出稍后再看（需登录 cookie）"""
+    client = client or ApiClient()
+    try:
+        items = client.get_toview()
+    except BiliError as e:
+        print(f"获取稍后再看失败：{e}（需要有效登录 cookie：el.py cookie bilibili）", file=sys.stderr)
+        sys.exit(2)
+    if not items:
+        print("稍后再看为空", file=sys.stderr)
+        sys.exit(1)
+    for i, it in enumerate(items, 1):
+        print(f"{i}. [{it['bvid']}] {it['title']}（{it.get('owner', '')}）")
+
+
+def cmd_history(args, client: ApiClient = None):
+    """列出观看历史（需登录 cookie）"""
+    client = client or ApiClient()
+    try:
+        items = client.get_history(limit=getattr(args, "limit", 30))
+    except BiliError as e:
+        print(f"获取历史失败：{e}（需要有效登录 cookie）", file=sys.stderr)
+        sys.exit(2)
+    for i, it in enumerate(items, 1):
+        print(f"{i}. [{it['bvid']}] {it['title']}")
+
+
+def cmd_following(args, client: ApiClient = None):
+    """列出关注（需登录 cookie）"""
+    client = client or ApiClient()
+    try:
+        items = client.get_followings(limit=getattr(args, "limit", 50))
+    except BiliError as e:
+        print(f"获取关注失败：{e}（需要有效登录 cookie）", file=sys.stderr)
+        sys.exit(2)
+    for i, it in enumerate(items, 1):
+        print(f"{i}. [{it['mid']}] {it['uname']} — {it.get('sign', '')}")
+
+
 def cmd_favs(args, client: ApiClient = None):
     """列出当前账号的收藏夹"""
     client = client or ApiClient()
@@ -403,6 +442,14 @@ def main(argv=None):
     fr.add_argument("--max", type=int, default=30, help="最大帧数（默认 30）")
     fr.add_argument("--out", default="frames", help="输出目录")
     fr.set_defaults(func=cmd_frames)
+    tv = sub.add_parser("toview", help="列出稍后再看（B站，需登录 cookie）")
+    tv.set_defaults(func=cmd_toview)
+    hi = sub.add_parser("history", help="列出观看历史（B站，需登录 cookie）")
+    hi.add_argument("--limit", type=int, default=30)
+    hi.set_defaults(func=cmd_history)
+    fo = sub.add_parser("following", help="列出关注（B站，需登录 cookie）")
+    fo.add_argument("--limit", type=int, default=50)
+    fo.set_defaults(func=cmd_following)
     sc = sub.add_parser("scan", help="账号级扫描：枚举列表→过滤/优先级/快照（不抓内容）")
     sc.add_argument("input", help="列表链接（用户主页/收藏夹/播放列表/频道）")
     sc.add_argument("--filter", default=None, help="关键词（逗号分隔；默认内置 AI 关键词）")
