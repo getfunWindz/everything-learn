@@ -17,6 +17,7 @@ DEFAULT_CONFIG = {
         "weibo": {"min_interval": 6.0, "jitter": 1.5},
         "wechat_mp": {"min_interval": 6.0, "jitter": 1.5},
         "x_twitter": {"min_interval": 10.0, "jitter": 2.0},
+        "xiaohongshu": {"min_interval": 12.0, "jitter": 2.0},
         "medium": {"min_interval": 10.0, "jitter": 2.0},
         "bilibili": {"min_interval": 1.5, "jitter": 0.5},
         "youtube": {"min_interval": 1.5, "jitter": 0.5}
