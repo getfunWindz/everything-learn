@@ -23,6 +23,7 @@ _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
 _ID_RE = re.compile(r"xiaohongshu\.com/(?:explore|discovery/item)/([0-9a-f]{24})")
 _USER_RE = re.compile(r"xiaohongshu\.com/user/profile/([0-9a-f]{24})")
 _COLLECT_PAGE_API = re.compile(r"/api/sns/web/v2/note/collect/page")   # 取证确认（见 m12-ladder2-dd）
+_USER_POSTED_API = re.compile(r"/api/sns/web/v1/user_posted")   # 主页笔记分页（滚动触发）
 _SHORT_RE = re.compile(r"https?://xhslink\.(?:cn|com)/[A-Za-z0-9/]+")
 _TOKEN_IN_EXPLORE = r"/explore/{nid}\?xsec_token=([A-Za-z0-9_\-=]+)"
 _EXPLORE_URL = "https://www.xiaohongshu.com/explore"
@@ -191,22 +192,33 @@ class XiaohongshuAdapter:
                                         "token": n["token"]}))
         return items
 
-    def _list_user_notes(self, ref, limit=20):
-        """主页笔记首屏（SSR 解析）；?tab=collect 时枚举「我的收藏」（拦截 collect/page）"""
+    def _list_user_notes(self, ref, limit=60, scroll_times=4):
+        """主页笔记：SSR 首屏 + 滚动分页（user_posted 拦截）；?tab=collect 时枚举收藏"""
         if (ref.extra or {}).get("tab") == "collect":
             return self._list_collect(ref, limit=limit)
         with browserfetch.BrowserSession("xiaohongshu") as s:
             s.goto(ref.url)
             html = s.html()
-        user = ((extract_initial_state(html) or {}).get("user") or {})
-        if not user.get("loggedIn"):
-            raise XhsError("小红书未登录：请先在本机自动化浏览器中登录小红书（可见窗口扫码）")
+            user = ((extract_initial_state(html) or {}).get("user") or {})
+            if not user.get("loggedIn"):
+                raise XhsError("小红书未登录：请先在本机自动化浏览器中登录小红书（可见窗口扫码）")
+
+            def act():
+                s.pause(1200)
+                s.scroll_wheel(scroll_times)
+
+            payloads = s.tap_json(_USER_POSTED_API.pattern, action=act, min_results=0)
         notes = parse_user_notes(html)
+        seen = {n["note_id"] for n in notes}
+        for n in parse_collect_payload(payloads):
+            if n["note_id"] not in seen:
+                seen.add(n["note_id"])
+                notes.append(n)
         if not notes:
             raise XhsError("未解析到主页笔记（可能页面结构变化或该用户无公开笔记）")
         return self._notes_to_items(notes, limit)
 
-    def _list_collect(self, ref, limit=20, scroll_times=2):
+    def _list_collect(self, ref, limit=60, scroll_times=3):
         """我的收藏列表（collect/page 拦截；需登录）"""
         with browserfetch.BrowserSession("xiaohongshu") as s:
             s.goto(ref.url)
@@ -220,7 +232,7 @@ class XiaohongshuAdapter:
                     if s.evaluate(_click_tab_js("收藏")) == "clicked":
                         break
                     s.pause(500)
-                s.scroll(scroll_times)
+                s.scroll_wheel(scroll_times)
 
             payloads = s.tap_json(_COLLECT_PAGE_API.pattern, action=act)
         notes = parse_collect_payload(payloads)

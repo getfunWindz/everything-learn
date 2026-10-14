@@ -199,6 +199,10 @@ def test_list_items_user_notes(monkeypatch):
         {"noteCard": {"noteId": nid, "displayTitle": "我的笔记", "type": "normal"},
          "xsecToken": "tokX"}]]}}
     html = _note_html(state)
+    page_payload = {"data": {"notes": [
+        {"note_id": nid, "display_title": "重复", "type": "normal", "xsec_token": "tokZ"},
+        {"note_id": "d" * 24, "display_title": "第二页", "type": "normal", "xsec_token": "tokW"},
+    ], "has_more": False}}
     calls = {}
 
     class FakeSession:
@@ -217,14 +221,30 @@ def test_list_items_user_notes(monkeypatch):
         def html(self):
             return html
 
+        def pause(self, ms):
+            calls.setdefault("pauses", []).append(ms)
+
+        def scroll_wheel(self, n):
+            calls["wheel"] = n
+
+        def tap_json(self, pattern, action=None, **kw):
+            calls["pattern"] = pattern
+            calls["min_results"] = kw.get("min_results")
+            if action:
+                action()
+            return [page_payload]
+
     monkeypatch.setattr(xhs.browserfetch, "BrowserSession", FakeSession)
     a = xhs.XiaohongshuAdapter()
     ref = a.resolve("https://www.xiaohongshu.com/user/profile/" + nid)
     items = a.list_items(ref)
     assert calls["platform"] == "xiaohongshu"
-    assert len(items) == 1
+    assert calls["pattern"] == r"/api/sns/web/v1/user_posted"
+    assert calls["min_results"] == 0                    # 无分页页时静默回退首屏
+    assert len(items) == 2                               # SSR 1 条 + 拦截页新增 1 条（重复去重）
     assert items[0].url == (f"https://www.xiaohongshu.com/explore/{nid}"
                             "?xsec_token=tokX&xsec_source=pc_user")
+    assert items[1].title == "第二页"
     assert items[0].extra["kind"] == "note"
 
 
@@ -306,8 +326,8 @@ def test_parse_collect_payload_and_list_items(monkeypatch):
         def pause(self, ms):
             calls.setdefault("pauses", []).append(ms)
 
-        def scroll(self, n):
-            calls["scroll"] = n
+        def scroll_wheel(self, n):
+            calls["wheel"] = n
 
         def tap_json(self, pattern, action=None, **kw):
             calls["pattern"] = pattern
@@ -320,7 +340,7 @@ def test_parse_collect_payload_and_list_items(monkeypatch):
     ref = a.resolve("https://www.xiaohongshu.com/user/profile/" + "f" * 24 + "?tab=collect")
     items = a.list_items(ref)
     assert calls["pattern"] == r"/api/sns/web/v2/note/collect/page"
-    assert calls["scroll"] == 2
+    assert calls["wheel"] == 3
     assert calls["pauses"][0] == 1500                       # 先等页面水合
     assert any("收藏" in js for js in calls["evals"])       # 点击 JS 含目标 tab
     assert len(items) == 2
