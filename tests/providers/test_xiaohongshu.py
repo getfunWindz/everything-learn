@@ -3,7 +3,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts"
 import json
 import pytest
 from core.adapter import SearchNeeded
-from providers.xiaohongshu import XiaohongshuAdapter
+from providers.xiaohongshu import XiaohongshuAdapter, parse_user_notes
 from tests.contract.harness import run_contract
 
 
@@ -165,3 +165,95 @@ def test_sec404_readable():
     ref = a.resolve("https://www.xiaohongshu.com/explore/6acde40b000000001b02c980?xsec_token=OLD")
     res = a.fetch_content(ref)
     assert res.status == "empty" and "重新分享" in res.reason
+
+
+def test_match_and_resolve_user_profile():
+    a = XiaohongshuAdapter()
+    assert a.match("https://www.xiaohongshu.com/user/profile/" + "a" * 24) is True
+    ref = a.resolve("https://www.xiaohongshu.com/user/profile/" + "a" * 24)
+    assert ref.extra["kind"] == "user_notes"
+    assert ref.extra["user_id"] == "a" * 24
+
+
+def test_parse_user_notes_from_ssr():
+    nid_a, nid_b = "a" * 24, "b" * 24
+    state = {"user": {"loggedIn": True, "notes": [[
+        {"noteCard": {"noteId": nid_a, "displayTitle": "第一篇", "type": "normal"},
+         "xsecToken": "tok1"},
+        {"noteCard": {"noteId": nid_b, "displayTitle": "", "type": "video"},
+         "xsecToken": "tok2"},
+        {"noteCard": {"noteId": nid_a, "displayTitle": "重复", "type": "normal"},
+         "xsecToken": "tok3"},
+    ]]}}
+    html = _note_html(state)
+    out = parse_user_notes(html)
+    assert [o["note_id"] for o in out] == [nid_a, nid_b]
+    assert out[0]["title"] == "第一篇" and out[0]["token"] == "tok1"
+    assert out[1]["title"].startswith("小红书笔记")
+
+
+def test_list_items_user_notes(monkeypatch):
+    import providers.xiaohongshu as xhs
+    nid = "c" * 24
+    state = {"user": {"loggedIn": True, "notes": [[
+        {"noteCard": {"noteId": nid, "displayTitle": "我的笔记", "type": "normal"},
+         "xsecToken": "tokX"}]]}}
+    html = _note_html(state)
+    calls = {}
+
+    class FakeSession:
+        def __init__(self, platform, **kw):
+            calls["platform"] = platform
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def goto(self, url, **kw):
+            calls["goto"] = url
+
+        def html(self):
+            return html
+
+    monkeypatch.setattr(xhs.browserfetch, "BrowserSession", FakeSession)
+    a = xhs.XiaohongshuAdapter()
+    ref = a.resolve("https://www.xiaohongshu.com/user/profile/" + nid)
+    items = a.list_items(ref)
+    assert calls["platform"] == "xiaohongshu"
+    assert len(items) == 1
+    assert items[0].url == (f"https://www.xiaohongshu.com/explore/{nid}"
+                            "?xsec_token=tokX&xsec_source=pc_user")
+    assert items[0].extra["kind"] == "note"
+
+
+def test_list_items_user_notes_not_logged_in(monkeypatch):
+    import providers.xiaohongshu as xhs
+    state = {"user": {"loggedIn": False, "notes": [[]]}}
+    html = _note_html(state)
+
+    class FakeSession:
+        def __init__(self, platform, **kw):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def goto(self, url, **kw):
+            pass
+
+        def html(self):
+            return html
+
+    monkeypatch.setattr(xhs.browserfetch, "BrowserSession", FakeSession)
+    a = xhs.XiaohongshuAdapter()
+    ref = a.resolve("https://www.xiaohongshu.com/user/profile/" + "d" * 24)
+    try:
+        a.list_items(ref)
+        assert False
+    except ValueError as e:
+        assert "未登录" in str(e)

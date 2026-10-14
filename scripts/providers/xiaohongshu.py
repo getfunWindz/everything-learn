@@ -11,6 +11,7 @@ from urllib.parse import parse_qs, urlparse
 
 import requests
 
+from core import browserfetch
 from core import config
 from core.adapter import SearchNeeded
 from core.models import ContentResult, ItemMeta, ItemRef
@@ -20,6 +21,7 @@ from core.throttle import ThrottledSession
 _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
        "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
 _ID_RE = re.compile(r"xiaohongshu\.com/(?:explore|discovery/item)/([0-9a-f]{24})")
+_USER_RE = re.compile(r"xiaohongshu\.com/user/profile/([0-9a-f]{24})")
 _SHORT_RE = re.compile(r"https?://xhslink\.(?:cn|com)/[A-Za-z0-9/]+")
 _TOKEN_IN_EXPLORE = r"/explore/{nid}\?xsec_token=([A-Za-z0-9_\-=]+)"
 _EXPLORE_URL = "https://www.xiaohongshu.com/explore"
@@ -74,6 +76,25 @@ def parse_note(note: dict) -> dict:
                       "comment": interact.get("commentCount")}}
 
 
+def parse_user_notes(html: str) -> list:
+    """个人页 SSR → [{note_id,title,type,token}]（首屏；去重保序）"""
+    user = ((extract_initial_state(html) or {}).get("user") or {})
+    pages = user.get("notes") or []
+    first = pages[0] if pages and isinstance(pages[0], list) else []
+    out, seen = [], set()
+    for it in first:
+        nc = (it or {}).get("noteCard") or {}
+        nid = nc.get("noteId")
+        if not nid or nid in seen:
+            continue
+        seen.add(nid)
+        title = (nc.get("displayTitle") or "").strip()
+        out.append({"note_id": nid, "title": title or f"小红书笔记 {nid}",
+                    "type": nc.get("type") or "",
+                    "token": (it or {}).get("xsecToken") or ""})
+    return out
+
+
 @register
 class XiaohongshuAdapter:
     name = "xiaohongshu"
@@ -96,7 +117,7 @@ class XiaohongshuAdapter:
 
     def match(self, url: str) -> bool:
         url = url or ""
-        return bool(_ID_RE.search(url) or _SHORT_RE.match(url))
+        return bool(_ID_RE.search(url) or _SHORT_RE.match(url) or _USER_RE.search(url))
 
     def resolve(self, q: str) -> ItemRef:
         q = (q or "").strip()
@@ -109,6 +130,13 @@ class XiaohongshuAdapter:
                 q = getattr(r, "url", q)
             except requests.RequestException as e:
                 raise XhsError(f"短链展开失败：{str(e)[:80]}")
+        mu = _USER_RE.search(q)
+        if mu:
+            uid = mu.group(1)
+            return ItemRef(platform="xiaohongshu", item_id=f"user-{uid}",
+                           url=f"https://www.xiaohongshu.com/user/profile/{uid}",
+                           sub_id="1",
+                           extra={"kind": "user_notes", "user_id": uid})
         if m:
             nid = m.group(1)
             token = (parse_qs(urlparse(q).query).get("xsec_token") or [""])[0]
@@ -118,7 +146,31 @@ class XiaohongshuAdapter:
         raise SearchNeeded(q)
 
     def list_items(self, ref):
+        if (ref.extra or {}).get("kind") == "user_notes":
+            return self._list_user_notes(ref)
         return [ref]
+
+    def _list_user_notes(self, ref, limit=20):
+        """主页笔记首屏（SSR 解析；需登录）"""
+        with browserfetch.BrowserSession("xiaohongshu") as s:
+            s.goto(ref.url)
+            html = s.html()
+        user = ((extract_initial_state(html) or {}).get("user") or {})
+        if not user.get("loggedIn"):
+            raise XhsError("小红书未登录：请先在本机自动化浏览器中登录小红书（可见窗口扫码）")
+        notes = parse_user_notes(html)
+        if not notes:
+            raise XhsError("未解析到主页笔记（可能页面结构变化或该用户无公开笔记）")
+        items = []
+        for i, n in enumerate(notes[:limit], 1):
+            url = f"https://www.xiaohongshu.com/explore/{n['note_id']}"
+            if n["token"]:
+                url += f"?xsec_token={n['token']}&xsec_source=pc_user"
+            items.append(ItemRef(platform="xiaohongshu", item_id=f"xhs-{n['note_id']}",
+                                 url=url, sub_id=str(i), title=n["title"],
+                                 extra={"kind": "note", "note_id": n["note_id"],
+                                        "token": n["token"]}))
+        return items
 
     # ---------------- 数据获取（token 现取现用 + explore 兜底） ----------------
 
