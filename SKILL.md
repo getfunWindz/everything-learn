@@ -22,7 +22,7 @@ description: 将多平台学习内容（视频/音频/图文/帖子）总结为�
 | Medium | `document`（图文） | 🟡 实现完成（双通道：浏览器辅助正文 + feed 解析）；Cloudflare 高风控，真实冒烟待冷却复跑 |
 | 微博 | `document`（帖子） | ✅ 可用（单帖：正文/长文/图片/转发；用户时间线需 cookie：`el.py cookie weibo`） |
 | 微信公众号 | `document`（图文） | ✅ 可用（单篇链接直连，无需 cookie；搜狗搜索实验性：`el.py search --platform wechat`） |
-| X（Twitter） | `document`（推文） | ✅ 可用（单推文：正文/图片；视频推文附 Whisper 口播转写；无需 cookie；时间线/搜索不做） |
+| X（Twitter） | `document`（推文） | ✅ 可用（单推文：正文/图片/口播转写；主页时间线 scan（需登录 + 浏览器代理）；搜索不做） |
 | 小红书 | `document`（笔记） | ✅ 可用（单笔记：正文/图片；视频笔记附口播转写；链接需含短时效 token；主页/收藏枚举：`scan`，需登录） |
 | 抖音 | `timeline`（视频） | ✅ 可用（单视频：访客 cookie + yt-dlp + Whisper；主页作品/收藏/喜欢列表：浏览器辅助 scan（收藏/喜欢需登录），不逆向签名） |
 | 名单外平台 | — | 走「自进化」流程（见 §3） |

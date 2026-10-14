@@ -16,9 +16,9 @@
 - **微博**：单条微博（正文/长文/图片/转发）→ 章节式报告；用户主页时间线批量（需 cookie，`el.py cookie weibo`）；432 风控给出可读提示
 - **抖音**：视频链接 / 短链 → yt-dlp（访客 cookie，一键导出）→ 无平台字幕 → Whisper 转写 → 时间轴报告
 - **微信公众号**：单篇文章（短链/长链）→ 无需 cookie 直连 → 章节式报告 + 图片入 `assets/`；搜狗搜索实验性（`el.py search --platform wechat`，结果会话绑定）
-- **X（Twitter）**：单推文（x.com/twitter.com，含 /i/status 与 t.co 短链）→ 无需 cookie → 正文/图片；视频推文自动取 mp4 → Whisper → 「视频口播内容」小节（多语自动检测）
+- **X（Twitter）**：单推文（x.com/twitter.com，含 /i/status 与 t.co 短链）→ 无需 cookie → 正文/图片；视频推文自动取 mp4 → Whisper → 「视频口播内容」小节（多语自动检测）；主页时间线：`scan "https://x.com/home"`（需登录 + `browser_proxy` 配置）
 - **小红书**：单笔记（xhslink 短链 / explore / discovery 链接）→ 正文/图片入 `assets/`；视频笔记 → Whisper → 「视频口播内容」；依赖短时效 `xsec_token`（分享链自带或 explore 兜底现取，实验性）
-- **账号级扫描（M11/M12）**：微博用户时间线全量（`since_id` 翻页）、知乎用户回答/收藏夹 items、YouTube 频道列表、抖音主页/收藏/喜欢、小红书主页（含滚动分页）/收藏（浏览器辅助，收藏/喜欢需登录）→ `el.py scan <链接>` 枚举筛选 + `el.py run <链接> --all` 批量报告；B站账号数据：`el.py toview / history / following`（需 cookie）
+- **账号级扫描（M11/M12）**：微博用户时间线全量（`since_id` 翻页）、知乎用户回答/收藏夹 items、YouTube 频道列表、抖音主页/收藏/喜欢、小红书主页（含滚动分页）/收藏（浏览器辅助，收藏/喜欢需登录）、X 主页时间线（需登录+代理）→ `el.py scan <链接>` 枚举筛选 + `el.py run <链接> --all` 批量报告；B站账号数据：`el.py toview / history / following`（需 cookie）
 - **知乎**：专栏文章 / 单个回答 / 问题（`--all` 展开首屏 5 条回答）→ SSR 正文 → 章节式报告骨架 + 图片入 `assets/`；需要浏览器 cookie（可用内置导出器）
 - **架构**：`core/`（内容契约、注册表、配置、缓存、重试、流水线、产物、HTML→块转换、图片下载）+ `providers/`（平台适配器）；B 站为参考实现
 - **产物三件套**：`content_info.json` / `content.txt` / `report_template.md`
@@ -52,6 +52,9 @@ python scripts/el.py run "https://x.com/NASA/status/2108563438901350773" --out "
 
 # 小红书单笔记（xhslink 分享链；链接需含 xsec_token 或让工具现取）
 python scripts/el.py run "https://xhslink.cn/o/xxxx" --out "D:/学习笔记"
+
+# X 主页时间线扫描（需登录 + 浏览器代理：config.json 的 browser_proxy 或 EL_BROWSER_PROXY）
+python scripts/el.py scan "https://x.com/home" --limit 20
 
 # 账号级扫描（枚举列表→过滤/优先级→批量抓取；支持微博/知乎/YouTube/抖音与小红书；收藏类需登录）
 python scripts/el.py scan "https://www.zhihu.com/collection/xxxx" --priority
@@ -87,6 +90,6 @@ python -m pytest tests/ -q    # 403 passed（全部 mock 网络，离线可跑�
 | 抖音 | timeline（视频） | ✅ 可用（单视频 + 主页/收藏/喜欢扫描；访客 cookie + yt-dlp/browserfetch；收藏/喜欢需登录） |
 | 微博 | document（帖子） | ✅ 可用（单帖；时间线需 cookie） |
 | 微信公众号 | document（图文） | ✅ 可用（单篇链接直连，无需 cookie；搜狗搜索实验性） |
-| X（Twitter） | document（推文） | ✅ 可用（单推文 + 视频口播转写；无需 cookie；时间线/搜索不做） |
+| X（Twitter） | document（推文） | ✅ 可用（单推文 + 视频口播转写；主页时间线 scan（需登录+代理）；搜索不做） |
 | 小红书 | document（笔记） | ✅ 可用（单笔记 + 视频口播转写；token 现取现用；主页（含分页）/收藏枚举（scan，需登录）） |
 | 名单外平台 | — | 自进化流程现场接入 |
