@@ -133,6 +133,13 @@ def test_fetch_content_from_fixture():
         "https://mmbiz.qpic.cn/mmbiz_png/9aKOAbMEQ5qcotFGPMS0qazbMibmnluxObCrSQCw3yVmnEOjcvRrSq95NbiaesvqfWKccRx4KOicUIpYtxP5MLWcw/640"]
 
 
+def test_ts_to_cn_date_forced_timezone():
+    """微信/搜狗时间戳一律按中国时区（UTC+8）转日期；不受机器时区影响（CI=UTC 也曾翻车）"""
+    from providers.wechat_mp import _ts_to_cn_date
+    assert _ts_to_cn_date(1630882800) == "2021-09-06"   # UTC 下为 09-05
+    assert _ts_to_cn_date("bad") == ""
+
+
 def test_fetch_meta_from_fixture():
     a = WeChatMpAdapter(session=_FakeSession(_fx("article.html")))
     ref = a.resolve("https://mp.weixin.qq.com/s/-cThzr5N2w3IEYYf-duCDA")

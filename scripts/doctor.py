@@ -77,9 +77,11 @@ def check_whisper() -> dict:
 
 
 def check_models() -> dict:
-    """Whisper 模型缓存（huggingface hub）"""
+    """Whisper 模型缓存（huggingface hub；目录不存在时返回空）"""
     cache = os.path.expanduser(r"~\.cache\huggingface\hub")
-    models = [d for d in os.listdir(cache) if d.startswith("models--Systran--faster-whisper")]
+    models = []
+    if os.path.isdir(cache):
+        models = [d for d in os.listdir(cache) if d.startswith("models--Systran--faster-whisper")]
     return {"models": [m.replace("models--Systran--faster-whisper-", "") for m in models],
             "cache_dir": cache}
 

@@ -66,6 +66,14 @@ def test_check_cookie_handles_exception():
     assert doctor.check_cookie(BoomClient()) is False
 
 
+def test_check_models_missing_cache(monkeypatch, tmp_path):
+    """HF 缓存目录不存在时 doctor 不崩溃（CI runner 上实测踩过）"""
+    missing = str(tmp_path / "nope" / "hub")
+    monkeypatch.setattr(doctor.os.path, "expanduser", lambda p: missing)
+    r = doctor.check_models()
+    assert r["models"] == [] and r["cache_dir"] == missing
+
+
 def test_check_whisper_version_compat():
     """faster-whisper 可用且 transcribe 支持 log_progress（≥1.2 API）"""
     pytest.importorskip("faster_whisper")

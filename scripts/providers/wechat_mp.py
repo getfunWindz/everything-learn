@@ -8,7 +8,7 @@ import hashlib
 import html as html_mod
 import re
 import urllib.parse
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlparse
 
 import requests
@@ -44,18 +44,24 @@ def _find(html: str, pat: str) -> str:
     return html_mod.unescape(m.group(1).strip()) if m else ""
 
 
+_CN_TZ = timezone(timedelta(hours=8))    # 微信/搜狗时间戳均按中国时区展示
+
+
+def _ts_to_cn_date(ts) -> str:
+    """Unix 时间戳 → 北京时间 YYYY-MM-DD（显式时区，不受机器时区影响；非法值返回空）"""
+    try:
+        return datetime.fromtimestamp(int(ts), tz=_CN_TZ).strftime("%Y-%m-%d")
+    except (TypeError, ValueError, OSError, OverflowError):
+        return ""
+
+
 def parse_meta(html: str) -> dict:
     """页面元信息：title/account（公众号名）/author（文章作者）/published/canonical"""
     title = _find(html, r'og:title"\s*content="([^"]*)"') or _find(html, r"var msg_title = '([^']*)'")
     account = _find(html, r'id="js_name"[^>]*>\s*([^<]{1,40}?)\s*<') or _find(html, r"nick_name:\s*'([^']+)'")
     author = _find(html, r'var author = "([^"]*)"') or account
     ct = _find(html, r'var ct = "(\d+)"')
-    published = ""
-    if ct:
-        try:
-            published = datetime.fromtimestamp(int(ct)).strftime("%Y-%m-%d")
-        except (ValueError, OSError, OverflowError):
-            published = ""
+    published = _ts_to_cn_date(ct) if ct else ""
     return {"title": title, "account": account, "author": author,
             "published": published, "canonical": _find(html, r'var msg_link = "([^"]+)"')}
 
@@ -128,7 +134,7 @@ def parse_sogou_results(html: str, limit: int = 5) -> list:
             continue
         acc = re.search(r'<span class="all-time-y2">(.*?)</span>', b, re.S)
         ts = re.search(r"timeConvert\('(\d+)'\)", b)
-        date = datetime.fromtimestamp(int(ts.group(1))).strftime("%Y-%m-%d") if ts else ""
+        date = _ts_to_cn_date(ts.group(1)) if ts else ""
         snip = re.search(r'<p class="txt-info">(.*?)</p>', b, re.S)
         out.append({
             "title": strip_tags(m.group(2)),
