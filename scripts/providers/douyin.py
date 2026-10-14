@@ -7,6 +7,7 @@ import os
 import re
 import tempfile
 
+from core import browserfetch
 from core.adapter import SearchNeeded
 from core.models import ContentResult, ItemMeta, ItemRef
 from core.registry import register
@@ -17,6 +18,7 @@ _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
 _VIDEO_RE = re.compile(r"douyin\.com/video/(\d+)")
 _SHORT_RE = re.compile(r"v\.douyin\.com/([0-9A-Za-z]+)")
 _USER_RE = re.compile(r"douyin\.com/user/([A-Za-z0-9_\-]+)")
+_USER_POST_API = re.compile(r"/aweme/v1/web/aweme/post/")   # 取证确认（见 docs/plans/2026-10-14-m12-browserfetch.md）
 _COOKIE_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".douyin_cookie")
 
 # cookie 一键导出规格（el.py cookie douyin；见 ADAPTER_SPEC §4）——访客 cookie 即可，无需登录
@@ -91,6 +93,30 @@ def to_netscape(cookie_str: str, domain: str = ".douyin.com") -> str:
     return "\n".join(lines) + "\n"
 
 
+def parse_user_post_payload(payloads: list) -> list:
+    """主页作品接口响应 → 归一化 [{aweme_id,title,desc,create_time,view,like,duration}]（去重保序）"""
+    out, seen = [], set()
+    for p in (payloads or []):
+        for aw in ((p or {}).get("aweme_list") or []):
+            vid = str(aw.get("aweme_id") or "")
+            if not vid or vid in seen:
+                continue
+            seen.add(vid)
+            stats = aw.get("statistics") or {}
+            desc = (aw.get("desc") or "").strip()
+            first = (desc.splitlines() or [""])[0].strip()
+            out.append({
+                "aweme_id": vid,
+                "title": (first[:60] if first else f"抖音视频 {vid}"),
+                "desc": desc,
+                "create_time": int(aw.get("create_time") or 0),
+                "view": int(stats.get("play_count") or 0),
+                "like": int(stats.get("digg_count") or 0),
+                "duration": int((aw.get("video") or {}).get("duration") or 0),
+            })
+    return out
+
+
 @register
 class DouyinAdapter:
     name = "douyin"
@@ -139,7 +165,27 @@ class DouyinAdapter:
         raise SearchNeeded(q)
 
     def list_items(self, ref):
+        if (ref.extra or {}).get("kind") == "user_posts":
+            return self._list_user_posts(ref)
         return [ref]
+
+    def _list_user_posts(self, ref, limit=20, scroll_times=3):
+        """主页作品列表（browserfetch 拦截；签名由页面完成，不逆向）"""
+        with browserfetch.BrowserSession("douyin") as s:
+            s.goto(ref.url)
+            payloads = s.tap_json(_USER_POST_API.pattern,
+                                  action=lambda: s.scroll(scroll_times))
+        posts = parse_user_post_payload(payloads)
+        if not posts:
+            raise DouyinError("未解析到作品（可能无公开作品或页面结构变化）")
+        items = []
+        for i, it in enumerate(posts[:limit], 1):
+            items.append(ItemRef(platform="douyin", item_id=it["aweme_id"],
+                                 url=f"https://www.douyin.com/video/{it['aweme_id']}",
+                                 sub_id=str(i), title=it["title"], duration=it["duration"],
+                                 extra={"desc": it["desc"], "view": it["view"],
+                                        "like": it["like"]}))
+        return items
 
     # ---------------- yt-dlp 封装 ----------------
 

@@ -1,6 +1,6 @@
 import sys, os, json
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts"))
-from providers.douyin import DouyinAdapter, to_netscape, load_cookie
+from providers.douyin import DouyinAdapter, to_netscape, load_cookie, parse_user_post_payload
 from core.models import ItemRef
 from tests.contract.harness import run_contract
 
@@ -119,3 +119,65 @@ def test_resolve_user_page():
     assert ref.extra["kind"] == "user_posts"
     assert ref.extra["sec_uid"] == "MS4wLjABAAAAxyz123"
     assert ref.url == "https://www.douyin.com/user/MS4wLjABAAAAxyz123"
+
+
+def test_parse_user_post_payload_normalize_and_dedup():
+    payloads = [{"aweme_list": [
+        {"aweme_id": "111", "desc": "第一条\n详情", "create_time": 1700000000,
+         "statistics": {"play_count": 1000, "digg_count": 50},
+         "video": {"duration": 12000}},
+        {"aweme_id": "111", "desc": "重复项", "statistics": {}},
+        {"aweme_id": "222", "desc": "", "statistics": {}},
+    ]}]
+    out = parse_user_post_payload(payloads)
+    assert [o["aweme_id"] for o in out] == ["111", "222"]
+    assert out[0]["title"].startswith("第一条") and out[0]["view"] == 1000
+    assert out[0]["duration"] == 12000
+    assert out[1]["title"] == "抖音视频 222"
+
+
+def test_list_items_user_posts_uses_browser_session(monkeypatch):
+    import providers.douyin as douyin
+    fx = os.path.join(os.path.dirname(__file__), "..", "fixtures", "douyin",
+                      "user_posts_sample.json")
+    payload = json.load(open(fx, encoding="utf-8"))
+    calls = {}
+
+    class FakeSession:
+        def __init__(self, platform, **kw):
+            calls["platform"] = platform
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def goto(self, url, **kw):
+            calls["goto"] = url
+
+        def scroll(self, n):
+            calls["scroll"] = n
+
+        def tap_json(self, pattern, action=None, **kw):
+            calls["pattern"] = pattern
+            if action:
+                action()
+            return [payload]
+
+    monkeypatch.setattr(douyin.browserfetch, "BrowserSession", FakeSession)
+    a = douyin.DouyinAdapter()
+    ref = a.resolve("https://www.douyin.com/user/MS4wLjABAAAAxyz123")
+    items = a.list_items(ref)
+    assert calls["platform"] == "douyin"
+    assert calls["goto"] == ref.url
+    assert len(items) == 2
+    assert items[0].url.startswith("https://www.douyin.com/video/")
+    assert isinstance(items[0].extra.get("view"), int)
+    assert items[0].sub_id == "1" and items[1].sub_id == "2"
+
+
+def test_list_items_video_ref_unchanged():
+    a = DouyinAdapter()
+    ref = a.resolve("https://www.douyin.com/video/7279377986187431202")
+    assert a.list_items(ref) == [ref]
