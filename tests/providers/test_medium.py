@@ -118,6 +118,14 @@ def test_match_and_resolve():
     assert fref.extra["kind"] == "feed"
 
 
+def test_match_and_resolve_list_page():
+    a = MediumAdapter()
+    assert a.match("https://medium.com/@someone/list/reading-list")
+    assert a.match("https://medium.com/me/list/reading-list")
+    ref = a.resolve("https://medium.com/@someone/list/reading-list?source=x")
+    assert ref.extra["kind"] == "list" and ref.extra["slug"] == "reading-list"
+
+
 def test_fetch_content_uses_feed_content():
     """feed 通道：不需要浏览器（extra 里带全文 HTML）"""
     a = MediumAdapter(session=object())

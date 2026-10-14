@@ -23,6 +23,7 @@ _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
        "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
 _ARTICLE_RE = re.compile(r"medium\.com/(?!feed/)[^\s?#]+-[0-9a-f]{6,}(?:[?#]|$)", re.I)
 _FEED_RE = re.compile(r"medium\.com/feed/", re.I)
+_LIST_RE = re.compile(r"medium\.com/(?:@[^/]+|me)/list/([A-Za-z0-9-]+)", re.I)
 _HASH_RE = re.compile(r"-([0-9a-f]{6,})(?:[?#]|$)", re.I)
 _IMG_BASE = "https://miro.medium.com/v2/resize:fit:1400/{id}"
 
@@ -195,9 +196,15 @@ class MediumAdapter:
     # ---------------- 路由 ----------------
 
     def match(self, url: str) -> bool:
-        return bool(_ARTICLE_RE.search(url or "") or _FEED_RE.search(url or ""))
+        return bool(_ARTICLE_RE.search(url or "") or _FEED_RE.search(url or "")
+                    or _LIST_RE.search(url or ""))
 
     def resolve(self, q: str) -> ItemRef:
+        lm = _LIST_RE.search(q or "")
+        if lm:
+            url = (q or "").split("?")[0].split("#")[0].rstrip("/")
+            return ItemRef(platform="medium", item_id=f"list-{lm.group(1)}", url=url, sub_id="1",
+                           extra={"kind": "list", "slug": lm.group(1)})
         if _FEED_RE.search(q or ""):
             url = (q or "").split("?")[0].rstrip("/")
             slug = url.rsplit("/", 1)[-1] or "feed"
