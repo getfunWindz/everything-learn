@@ -313,3 +313,26 @@ def test_tap_json_min_results_zero_returns_empty():
     out = s.tap_json(r"/never/", action=lambda: None, settle_ms=0, min_results=0)
     assert out == []
     assert page.handlers == []
+
+
+def test_atexit_shutdown_on_interpreter_exit(tmp_path):
+    """护栏：解释器退出（含异常路径）时应自动 shutdown（关闭浏览器，防残留进程）"""
+    import subprocess
+    marker = tmp_path / "closed.txt"
+    code = (
+        "import sys\n"
+        "sys.path.insert(0, 'scripts')\n"
+        "from core import browserfetch as bf\n"
+        "class Ctx:\n"
+        "    def close(self):\n"
+        f"        open(r'{marker}', 'w').write('closed')\n"
+        "class Page:\n"
+        "    def evaluate(self, js, *a):\n"
+        "        return {'status': 200, 'text': '{}'}\n"
+        "def launcher(browser, interactive):\n"
+        "    return {'pw': None, 'context': Ctx(), 'page': Page()}\n"
+        "bf.BrowserSession('t', launcher=launcher).page\n"
+    )
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    subprocess.run([sys.executable, "-c", code], cwd=repo, check=True, timeout=60)
+    assert marker.read_text(encoding="utf-8") == "closed"

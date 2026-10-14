@@ -11,6 +11,7 @@ import json
 import os
 import sys
 import time
+import atexit
 
 from core import throttle
 
@@ -242,3 +243,6 @@ def shutdown():
     except Exception:
         pass
     _ctx.update(pw=None, context=None, page=None, interactive=None)
+
+
+atexit.register(shutdown)   # 护栏：解释器退出/异常退出时自动关闭浏览器，避免残留
