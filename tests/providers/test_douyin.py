@@ -104,3 +104,18 @@ def test_media_headers():
     a = DouyinAdapter()
     h = a.media_headers()
     assert "douyin.com" in h["Referer"] and h["User-Agent"].startswith("Mozilla/5.0")
+
+
+def test_match_user_page():
+    a = DouyinAdapter()
+    assert a.match("https://www.douyin.com/user/MS4wLjABAAAAxyz123") is True
+    assert a.match("https://www.douyin.com/video/7279377986187431202") is True
+    assert a.match("https://example.com/user/abc") is False
+
+
+def test_resolve_user_page():
+    a = DouyinAdapter()
+    ref = a.resolve("https://www.douyin.com/user/MS4wLjABAAAAxyz123?from_tab_name=main")
+    assert ref.extra["kind"] == "user_posts"
+    assert ref.extra["sec_uid"] == "MS4wLjABAAAAxyz123"
+    assert ref.url == "https://www.douyin.com/user/MS4wLjABAAAAxyz123"

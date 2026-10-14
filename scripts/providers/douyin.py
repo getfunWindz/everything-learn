@@ -16,6 +16,7 @@ _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
        "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
 _VIDEO_RE = re.compile(r"douyin\.com/video/(\d+)")
 _SHORT_RE = re.compile(r"v\.douyin\.com/([0-9A-Za-z]+)")
+_USER_RE = re.compile(r"douyin\.com/user/([A-Za-z0-9_\-]+)")
 _COOKIE_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".douyin_cookie")
 
 # cookie 一键导出规格（el.py cookie douyin；见 ADAPTER_SPEC §4）——访客 cookie 即可，无需登录
@@ -110,7 +111,8 @@ class DouyinAdapter:
     # ---------------- 路由 ----------------
 
     def match(self, url: str) -> bool:
-        return bool(_VIDEO_RE.search(url or "") or _SHORT_RE.search(url or ""))
+        return bool(_VIDEO_RE.search(url or "") or _SHORT_RE.search(url or "")
+                    or _USER_RE.search(url or ""))
 
     def resolve(self, q: str) -> ItemRef:
         q = (q or "").strip()
@@ -124,11 +126,17 @@ class DouyinAdapter:
             except Exception:
                 pass
         m = _VIDEO_RE.search(q)
-        if not m:
-            raise SearchNeeded(q)
-        vid = m.group(1)
-        return ItemRef(platform="douyin", item_id=vid,
-                       url=f"https://www.douyin.com/video/{vid}", sub_id="1")
+        if m:
+            vid = m.group(1)
+            return ItemRef(platform="douyin", item_id=vid,
+                           url=f"https://www.douyin.com/video/{vid}", sub_id="1")
+        mu = _USER_RE.search(q)
+        if mu:
+            sec = mu.group(1)
+            return ItemRef(platform="douyin", item_id=f"user-{sec}",
+                           url=f"https://www.douyin.com/user/{sec}", sub_id="1",
+                           extra={"kind": "user_posts", "sec_uid": sec})
+        raise SearchNeeded(q)
 
     def list_items(self, ref):
         return [ref]
