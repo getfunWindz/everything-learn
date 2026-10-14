@@ -3,7 +3,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts"
 import json
 import pytest
 from core.adapter import SearchNeeded
-from providers.xiaohongshu import XiaohongshuAdapter, parse_user_notes
+from providers.xiaohongshu import XiaohongshuAdapter, parse_user_notes, parse_collect_payload
 from tests.contract.harness import run_contract
 
 
@@ -257,3 +257,66 @@ def test_list_items_user_notes_not_logged_in(monkeypatch):
         assert False
     except ValueError as e:
         assert "未登录" in str(e)
+
+
+def test_resolve_user_profile_collect_tab():
+    a = XiaohongshuAdapter()
+    ref = a.resolve("https://www.xiaohongshu.com/user/profile/" + "e" * 24 + "?tab=collect")
+    assert ref.extra["kind"] == "user_notes"
+    assert ref.extra["tab"] == "collect"
+
+
+def test_parse_collect_payload_and_list_items(monkeypatch):
+    import providers.xiaohongshu as xhs
+    payload = {"code": 0, "data": {"notes": [
+        {"note_id": "f" * 24, "display_title": "收藏一", "type": "normal",
+         "xsec_token": "tokC"},
+        {"note_id": "g" * 24, "display_title": "", "type": "video",
+         "xsec_token": "tokD"},
+        {"note_id": "f" * 24, "display_title": "重复", "type": "normal",
+         "xsec_token": "tokE"},
+    ], "cursor": "c1", "has_more": True}}
+    out = parse_collect_payload([payload])
+    assert [o["note_id"] for o in out] == ["f" * 24, "g" * 24]
+    assert out[0]["title"] == "收藏一" and out[0]["token"] == "tokC"
+
+    state_html = _note_html({"user": {"loggedIn": True}})
+    calls = {}
+
+    class FakeSession:
+        def __init__(self, platform, **kw):
+            calls["platform"] = platform
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def goto(self, url, **kw):
+            calls["goto"] = url
+
+        def html(self):
+            return state_html
+
+        def evaluate(self, js, *args):
+            calls["evaluate"] = js[:60]
+
+        def scroll(self, n):
+            calls["scroll"] = n
+
+        def tap_json(self, pattern, action=None, **kw):
+            calls["pattern"] = pattern
+            if action:
+                action()
+            return [payload]
+
+    monkeypatch.setattr(xhs.browserfetch, "BrowserSession", FakeSession)
+    a = xhs.XiaohongshuAdapter()
+    ref = a.resolve("https://www.xiaohongshu.com/user/profile/" + "f" * 24 + "?tab=collect")
+    items = a.list_items(ref)
+    assert calls["pattern"] == r"/api/sns/web/v2/note/collect/page"
+    assert calls["scroll"] == 2
+    assert len(items) == 2
+    assert "xsec_token=tokC" in items[0].url
+    assert items[0].sub_id == "1"
