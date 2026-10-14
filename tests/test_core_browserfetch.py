@@ -280,3 +280,36 @@ def test_session_pause():
     s = _session_with_page(page)
     s.pause(400)
     assert page.timeouts == [400]
+
+
+class FakeWheelPage(FakeScrollPage):
+    def __init__(self):
+        super().__init__()
+        self.mouse = self
+        self.moves = []
+        self.wheels = []
+
+    def move(self, x, y):
+        self.moves.append((x, y))
+
+    def wheel(self, dx, dy):
+        self.wheels.append((dx, dy))
+
+
+def test_scroll_wheel_steps_and_throttle(monkeypatch):
+    calls = []
+    monkeypatch.setattr(bf.throttle, "wait", lambda platform: calls.append(platform))
+    page = FakeWheelPage()
+    s = _session_with_page(page)
+    s.scroll_wheel(times=3, step_px=3000)
+    assert page.moves == [(640, 500)]
+    assert page.wheels == [(0, 3000)] * 3
+    assert calls == ["douyin"] * 3
+
+
+def test_tap_json_min_results_zero_returns_empty():
+    page = FakeEventPage()
+    s = _session_with_page(page)
+    out = s.tap_json(r"/never/", action=lambda: None, settle_ms=0, min_results=0)
+    assert out == []
+    assert page.handlers == []

@@ -150,7 +150,7 @@ class BrowserSession:
                 time.sleep(retry_wait)
         raise last
 
-    def tap_json(self, url_pattern, action=None, limit=50, settle_ms=1500) -> list:
+    def tap_json(self, url_pattern, action=None, limit=50, settle_ms=1500, min_results=1) -> list:
         """旁路拦截：监听网络响应，执行 action（滚动/切页签/等待），收集 URL 匹配的 JSON。
 
         签名请求由页面自身发出（不逆向签名）；未捕获到任何匹配响应时抛
@@ -175,7 +175,7 @@ class BrowserSession:
             self.page.wait_for_timeout(settle_ms)
         finally:
             self.page.remove_listener("response", _on_response)
-        if not collected:
+        if len(collected) < max(0, min_results):
             raise BrowserFetchError(
                 f"未捕获到匹配 {url_pattern} 的 JSON 响应（可能未登录/接口变化/风控）",
                 kind="structure_changed")
@@ -185,6 +185,16 @@ class BrowserSession:
         """人类化滚动：每次滚动后按平台缓速间隔等待（间隔含抖动）"""
         for _ in range(max(0, times)):
             self.page.evaluate(f"window.scrollBy(0, {int(step_px)})")
+            throttle.wait(self.platform)
+
+    def scroll_wheel(self, times=1, step_px=3000, x=640, y=500):
+        """真实滚轮滚动（对虚拟化列表/懒加载可靠，能触发页面自身分页请求）"""
+        try:
+            self.page.mouse.move(int(x), int(y))
+        except Exception:
+            pass
+        for _ in range(max(0, times)):
+            self.page.mouse.wheel(0, int(step_px))
             throttle.wait(self.platform)
 
     def click(self, selector, timeout=5000):
