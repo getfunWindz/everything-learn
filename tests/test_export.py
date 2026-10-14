@@ -32,6 +32,7 @@ def test_md_to_html_escape():
     assert "&lt;script&gt;" in html
 
 def test_export_docx(tmp_path):
+    pytest.importorskip("docx")
     out = tmp_path / "r.docx"
     export_docx(SAMPLE_MD, str(out))
     assert out.exists()

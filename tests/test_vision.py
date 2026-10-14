@@ -4,7 +4,10 @@ import pytest
 import vision
 
 def _make_test_video(path, seconds=2, fps=10, size=(64, 64)):
-    """用 PyAV 生成纯色测试视频"""
+    """用 PyAV 生成纯色测试视频（未装 av/numpy 时自动 skip）"""
+    pytest.importorskip("av")
+    pytest.importorskip("numpy")
+    pytest.importorskip("PIL")
     import av
     container = av.open(path, mode="w")
     stream = container.add_stream("mpeg4", rate=fps)

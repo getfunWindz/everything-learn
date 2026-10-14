@@ -351,6 +351,7 @@ def test_output_archived_by_owner(tmp_path):
     assert os.path.exists(up_dir / sub / "content.txt")
 
 def test_export_command(tmp_path):
+    pytest.importorskip("docx")
     out = tmp_path / "out"
     client = FakeClient()
     el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),

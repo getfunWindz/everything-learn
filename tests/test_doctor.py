@@ -4,6 +4,8 @@ import os
 import sys
 import threading
 
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
 from transcriber import _ensure_nvidia_paths
@@ -66,6 +68,7 @@ def test_check_cookie_handles_exception():
 
 def test_check_whisper_version_compat():
     """faster-whisper 可用且 transcribe 支持 log_progress（≥1.2 API）"""
+    pytest.importorskip("faster_whisper")
     status = doctor.check_whisper()
     assert status["installed"] is True
     assert status["compatible"] is True, "faster-whisper 应兼容 log_progress API"
@@ -115,6 +118,7 @@ def test_doctor_main_survives_gbk_console(monkeypatch):
 
 
 def test_check_ytdlp_installed():
+    pytest.importorskip("yt_dlp")
     r = doctor.check_ytdlp()
     assert r["installed"] is True and r["version"]
 
