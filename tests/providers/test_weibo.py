@@ -36,6 +36,13 @@ def test_resolve_favorites_page():
     assert ref.platform == "weibo"
 
 
+def test_resolve_following_page():
+    a = WeiboAdapter()
+    assert a.match("https://weibo.com/u/page/follow/1234567")
+    ref = a.resolve("https://weibo.com/u/page/follow/1234567")
+    assert ref.extra["kind"] == "followings" and ref.extra["uid"] == "1234567"
+
+
 def test_strip_html():
     raw = '亲爱的罐妈，<br/>    投票告急<span class="url-icon"><img src="//x.png"></span>&amp; 加油'
     out = strip_html(raw)
@@ -282,3 +289,32 @@ def test_fetch_root_meta_favorites():
     meta = a.fetch_root_meta(ref, [])
     assert meta.title == "我的微博收藏"
     assert meta.author == "我"
+
+
+def _u(i):
+    return {"id": 1000 + i, "idstr": str(1000 + i), "screen_name": f"用户{i}",
+            "description": f"简介{i}", "followers_count": i * 100,
+            "profile_url": f"u/{1000 + i}"}
+
+
+def test_list_items_followings_pagination(monkeypatch):
+    a = WeiboAdapter(session=object())
+    pages = [
+        {"users": [_u(i) for i in range(1, 21)], "total_number": 25, "next_cursor": 0},
+        {"users": [_u(i) for i in range(21, 26)], "total_number": 25, "next_cursor": 0},
+    ]
+    calls = []
+    monkeypatch.setattr(WeiboAdapter, "_get_json_desktop",
+                        lambda self, url: calls.append(url) or pages.pop(0))
+    refs = a.list_items(a.resolve("https://weibo.com/u/page/follow/1234567"))
+    assert len(refs) == 25
+    assert "page=2" in calls[1] and "uid=1234567" in calls[0]
+    assert refs[0].title == "用户1" and refs[0].sub_id == "1"
+    assert refs[0].extra["desc"] == "简介1" and refs[0].extra["view"] == 100
+
+
+def test_list_items_followings_empty(monkeypatch):
+    a = WeiboAdapter(session=object())
+    monkeypatch.setattr(WeiboAdapter, "_get_json_desktop",
+                        lambda self, url: {"users": None, "total_number": 0})
+    assert a.list_items(a.resolve("https://weibo.com/u/page/follow/1234567")) == []

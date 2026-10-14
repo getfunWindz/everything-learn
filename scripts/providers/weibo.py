@@ -25,6 +25,9 @@ _FAVS_RE = re.compile(r"weibo\.com/u/favorites")
 _FAVS_PAGE = "https://weibo.com/u/favorites?page=1"
 _FAV_API = "https://weibo.com/ajax/favorites/all_fav?page={page}&with_total=true"
 _FAV_MAX_PAGES = 50           # 安全上限（约 1000 条），防无限翻页
+_FOLLOW_RE = re.compile(r"weibo\.com/u/page/follow/(\d{6,})")
+_FOLLOW_API = "https://weibo.com/ajax/friendships/friends?page={page}&uid={uid}"
+_FOLLOW_MAX_PAGES = 50        # 安全上限（约 1000 人）
 _DESKTOP_HEADERS = {
     "User-Agent": _UA,
     "Accept": "application/json, text/plain, */*",
@@ -194,9 +197,16 @@ class WeiboAdapter:
 
     def match(self, url: str) -> bool:
         return bool(_POST_RE.search(url or "") or _WEB_POST_RE.search(url or "")
-                    or _FAVS_RE.search(url or "") or _USER_RE.search(url or ""))
+                    or _FAVS_RE.search(url or "") or _FOLLOW_RE.search(url or "")
+                    or _USER_RE.search(url or ""))
 
     def resolve(self, q: str) -> ItemRef:
+        fm = _FOLLOW_RE.search(q or "")
+        if fm:
+            uid = fm.group(1)
+            return ItemRef(platform="weibo", item_id=f"followings-{uid}",
+                           url=f"https://weibo.com/u/page/follow/{uid}", sub_id="1",
+                           extra={"kind": "followings", "uid": uid})
         if _FAVS_RE.search(q or ""):
             return ItemRef(platform="weibo", item_id="favorites-self",
                            url=_FAVS_PAGE, sub_id="1",
@@ -367,8 +377,45 @@ class WeiboAdapter:
                                title=strip_html(m.get("text") or "")[:40], extra=extra))
         return out
 
+    def _list_followings(self, ref) -> list:
+        """关注列表：桌面 friendships/friends 分页（需登录 cookie；users 空即止）"""
+        uid = ref.extra["uid"]
+        users, seen = [], set()
+        for page in range(1, _FOLLOW_MAX_PAGES + 1):
+            try:
+                d = self._get_json_desktop(_FOLLOW_API.format(page=page, uid=uid))
+            except WeiboError:
+                if users:
+                    break
+                raise
+            page_users = d.get("users") or []
+            new = [u for u in page_users
+                   if str(u.get("idstr") or u.get("id") or "") not in seen]
+            for u in new:
+                seen.add(str(u.get("idstr") or u.get("id") or ""))
+            users.extend(new)
+            if not page_users or len(page_users) < 20:
+                break
+            total = d.get("total_number")
+            if total is not None and len(users) >= total:
+                break
+        out = []
+        for i, u in enumerate(users, 1):
+            uu = str(u.get("idstr") or u.get("id") or "")
+            if not uu:
+                continue
+            out.append(ItemRef(platform="weibo", item_id=f"user-{uu}",
+                               url=f"https://m.weibo.cn/u/{uu}", sub_id=str(i),
+                               title=(u.get("screen_name") or "").strip(),
+                               extra={"kind": "user", "uid": uu,
+                                      "desc": (u.get("description") or "")[:200],
+                                      "view": u.get("followers_count") or 0}))
+        return out
+
     def list_items(self, ref):
         kind = (ref.extra or {}).get("kind")
+        if kind == "followings":
+            return self._list_followings(ref)
         if kind == "favorites":
             return self._list_favorites(ref)
         if kind != "user":
