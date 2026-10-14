@@ -1,6 +1,17 @@
 # everything-learn
 
+[![tests](https://github.com/getfunWindz/everything-learn/actions/workflows/tests.yml/badge.svg)](https://github.com/getfunWindz/everything-learn/actions/workflows/tests.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 > **bilibili-learn 的全量进化版**：多平台学习内容总结技能 —— 视频 / 音频 / 图文 / 社媒短内容聚合。
+
+## 安装
+
+```bash
+pip install -r requirements.txt   # 核心：requests + pytest（faster-whisper 行按需保留）
+pip install yt-dlp                # 可选：YouTube / 抖音 取流与字幕
+pip install playwright            # 可选：cookie 一键导出 + browserfetch（无需 playwright install）
+```
 
 - 🚧 状态：**M0–M12 完成** —— B 站、YouTube、播客、知乎、TED、微博、抖音、公众号、X、小红书 + **账号级扫描**（微博收藏/关注、知乎、YouTube、抖音、小红书、X、Medium 列表、公众号合集、B站 UP主；浏览器辅助/需登录的已标注）可用（含反爬缓速基座与 cookie 导出标配）；更多平台按路线接入
 - 🧬 上游项目：[bilibili-learn](https://github.com/getfunWindz/bilibili-learn)（轻量版，只做 B 站，保持原样）

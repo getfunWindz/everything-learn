@@ -1,3 +1,7 @@
 requests>=2.28
 pytest>=7.0
 faster-whisper>=1.0    # optional: whisper fallback for videos without subtitles
+
+# --- 可选依赖（按需安装；不装也可跑全部离线测试）---
+# yt-dlp>=2024.0       # YouTube / 抖音：取流、元数据、字幕
+# playwright>=1.40     # cookie 一键导出 + browserfetch（Cloudflare / 签名平台）
