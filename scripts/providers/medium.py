@@ -3,8 +3,10 @@
 尽调（2026-10-08）：单篇的页面与 `?format=json` 均在 Cloudflare 后，headless 被拒、
 `cf_clearance` 无法迁移给 requests → 必须走 core.browserfetch（有头+持久化 profile）；
 feed（medium.com/feed/...）可用 requests 直取（content:encoded 含全文）。
-段落类型：1=P / 3=大标题 / 13=次级标题 / 9=代码 / 4=图片（metadata.id → miro CDN）。
-付费墙字段：isSubscriptionLocked / isMarkedPaywallOnly / isLockedResponse → suspect。
+⚠️ 2026-10-14 实测：上游已停用 `?format=json`（导航被重定向回正文页、fetch 被 CF 403）
+→ 文章通道改为浏览器内 SSR 块抽取（`_ARTICLE_JS`：h1-h6/p/li/blockquote/pre + figure img），
+绕开 SSR 深层包装 div（html_to_blocks 在多层 wrapper 下会丢失段落）。
+付费墙：SSR 正文过短时置 suspect。
 """
 import re
 
@@ -30,7 +32,11 @@ class MediumError(ValueError):
 
 
 def medium_to_blocks(payload: dict):
-    """bodyModel.paragraphs → (blocks, images)；标题去重、代码/图注保留"""
+    """bodyModel.paragraphs → (blocks, images)；标题去重、代码/图注保留。
+
+    说明：`?format=json` 通道 2026-10-14 实测已被上游停用（导航重定向/fetch CF 403），
+    运行路径改用浏览器 SSR 抽取（`_ARTICLE_JS` + article_items_to_blocks）；本函数保留供解析复用/单测。
+    """
     v = ((payload or {}).get("payload") or {}).get("value") or {}
     paras = ((v.get("content") or {}).get("bodyModel") or {}).get("paragraphs") or []
     title = v.get("title") or ""
@@ -70,6 +76,81 @@ def payload_status(payload: dict):
     return "ok", ""
 
 
+def normalize_image_url(url: str) -> str:
+    """Medium 图片 URL → resize:fit:1400 规范形（去 format:webp 等中间段）；非 miro 原样返回"""
+    u = (url or "").strip()
+    if not u or "miro.medium.com" not in u:
+        return u
+    m = re.search(r"/v2/(?:resize:[^/]+/)+(?:format:[^/]+/)?([^/?#]+)", u)
+    return _IMG_BASE.format(id=m.group(1)) if m else u
+
+
+def article_items_to_blocks(items: list, images: list):
+    """浏览器抽取块序列 [{tag,text}] → (blocks, images)：h1（文章标题）跳过；
+    h2-h6 开新节，其余归当前节；32x32 头像/图标（resize:fill:）剔除；图片规范化 + 去重。"""
+    blocks, cur = [], {"heading": "", "paras": []}
+
+    def flush():
+        if cur["heading"] or cur["paras"]:
+            blocks.append({"heading": cur["heading"], "text": "\n\n".join(cur["paras"]).strip()})
+        cur["heading"], cur["paras"] = "", []
+
+    for it in items or []:
+        tag = (it.get("tag") or "").lower()
+        text = (it.get("text") or "").strip()
+        if not text or tag == "h1":           # h1 = 文章标题（meta 已含）
+            continue
+        if tag in ("h2", "h3", "h4", "h5", "h6"):
+            flush()
+            cur["heading"] = text
+        else:
+            cur["paras"].append(text)
+    flush()
+    out_images = []
+    for u in images or []:
+        if not u or "resize:fill:" in u:     # 头像/图标
+            continue
+        nu = normalize_image_url(u)
+        if nu and nu not in out_images:
+            out_images.append(nu)
+    return blocks, out_images
+
+
+_ARTICLE_JS = """
+() => {
+  const meta = (sel, attr) => { const e = document.querySelector(sel); return e ? (e.getAttribute(attr) || e.content || '') : ''; };
+  const head = {
+    title: meta('meta[property="og:title"]', 'content'),
+    author: meta('meta[name="author"]', 'content'),
+    published: meta('meta[property="article:published_time"]', 'content'),
+    desc: meta('meta[property="og:description"]', 'content')
+  };
+  const art = document.querySelector('article');
+  if (!art) return Object.assign({items: [], images: []}, head);
+  const items = [], seen = new Set();
+  for (const el of art.querySelectorAll('h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,figcaption')) {
+    const text = (el.innerText || '').trim();
+    if (!text) continue;
+    let dup = false;
+    for (let a = el.parentElement; a && a !== art; a = a.parentElement) {
+      if (seen.has(a)) { dup = true; break; }
+    }
+    if (dup) continue;
+    seen.add(el);
+    items.push({tag: el.tagName.toLowerCase(), text});
+  }
+  const images = [];
+  for (const img of art.querySelectorAll('figure img, p img')) {
+    const src = img.currentSrc || img.src || '';
+    if (src && !images.includes(src)) images.push(src);
+  }
+  const h1 = art.querySelector('h1');
+  if (!head.title && h1) head.title = h1.innerText.trim();
+  return Object.assign({items, images}, head);
+}
+"""
+
+
 def parse_feed(xml_text: str) -> list:
     """RSS → [{title, link, published, author, content}]（content=content:encoded 全文）"""
     import xml.etree.ElementTree as ET
@@ -95,14 +176,6 @@ def parse_feed(xml_text: str) -> list:
     return out
 
 
-def _ms_to_date(v) -> str:
-    try:
-        from datetime import datetime, timezone
-        return datetime.fromtimestamp(int(v) / 1000.0, tz=timezone.utc).strftime("%Y-%m-%d")
-    except Exception:
-        return ""
-
-
 @register
 class MediumAdapter:
     name = "medium"
@@ -110,6 +183,7 @@ class MediumAdapter:
 
     def __init__(self, session: requests.Session = None):
         self._session = session
+        self._article_cache = {}
 
     @property
     def session(self) -> requests.Session:
@@ -166,9 +240,19 @@ class MediumAdapter:
             raise MediumError(f"feed 不可达（HTTP {r.status_code}；若被 CF 拦截请稍后重试）")
         return r.text
 
-    def _fetch_payload(self, ref) -> dict:
-        """单篇：浏览器内取 ?format=json（CF 平台）"""
-        return browserfetch.fetch_json(f"{ref.url}?format=json", warm_url=ref.url)
+    def _extract_article(self, ref) -> dict:
+        """浏览器内抽取文章块 + meta（上游已停用 ?format=json：导航重定向、fetch 被 CF 挑战）"""
+        with browserfetch.BrowserSession("medium") as s:
+            s.goto(ref.url)
+            s.pause(4000)
+            return s.evaluate(_ARTICLE_JS) or {}
+
+    def _article_data(self, ref) -> dict:
+        """文章数据（抽取 + 实例内缓存：meta/content 两次调用只加载一次页面）"""
+        key = ref.item_id or ref.url
+        if key not in self._article_cache:
+            self._article_cache[key] = self._extract_article(ref)
+        return self._article_cache[key]
 
     # ---------------- 元信息 / 内容 ----------------
 
@@ -179,18 +263,11 @@ class MediumAdapter:
                             author=extra.get("feed_author", ""), url=ref.url,
                             published=extra.get("feed_published", ""),
                             page=ref.sub_id or "1", page_part="")
-        payload = self._fetch_payload(ref)
-        v = ((payload.get("payload") or {}).get("value") or {})
-        author = v.get("displayAuthor") or ""
-        if isinstance(author, dict):
-            author = author.get("name") or ""
-        if not author:
-            uid = v.get("creatorId") or ""
-            refs = (payload.get("payload") or {}).get("references") or {}
-            author = ((refs.get("User") or {}).get(uid) or {}).get("name") or ""
-        return ItemMeta(title=v.get("title") or ref.title, author=author, url=ref.url,
-                        published=_ms_to_date(v.get("latestPublishedAt")),
-                        desc=v.get("socialDek") or "",
+        data = self._article_data(ref)
+        return ItemMeta(title=data.get("title") or ref.title,
+                        author=data.get("author") or "", url=ref.url,
+                        published=(data.get("published") or "")[:10],
+                        desc=data.get("desc") or "",
                         page=ref.sub_id or "1", page_part="")
 
     def fetch_content(self, ref) -> ContentResult:
@@ -204,15 +281,18 @@ class MediumAdapter:
             return ContentResult(kind="document", status="ok", blocks=blocks,
                                  images=images, label="正文(feed)")
         try:
-            payload = self._fetch_payload(ref)
+            data = self._article_data(ref)
         except browserfetch.BrowserFetchError as e:
             return ContentResult(kind="document", status="empty", reason=str(e)[:120], label="正文")
-        blocks, images = medium_to_blocks(payload)
+        blocks, images = article_items_to_blocks(data.get("items"), data.get("images"))
         if not blocks:
             return ContentResult(kind="document", status="empty", reason="正文为空", label="正文")
-        status, reason = payload_status(payload)
-        return ContentResult(kind="document", status=status, blocks=blocks,
-                             images=images, reason=reason, label="正文")
+        text_len = sum(len(b["text"]) + len(b["heading"]) for b in blocks)
+        if text_len < 120:
+            return ContentResult(kind="document", status="suspect", blocks=blocks, images=images,
+                                 reason=f"正文过短（{text_len} 字，可能付费墙/未完整加载）", label="正文")
+        return ContentResult(kind="document", status="ok", blocks=blocks,
+                             images=images, label="正文")
 
     def fetch_media_url(self, ref, media="audio", lowest=False):
         return None
