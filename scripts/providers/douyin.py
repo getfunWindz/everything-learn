@@ -19,6 +19,8 @@ _VIDEO_RE = re.compile(r"douyin\.com/video/(\d+)")
 _SHORT_RE = re.compile(r"v\.douyin\.com/([0-9A-Za-z]+)")
 _USER_RE = re.compile(r"douyin\.com/user/([A-Za-z0-9_\-]+)")
 _USER_POST_API = re.compile(r"/aweme/v1/web/aweme/post/")   # 取证确认（见 docs/plans/2026-10-14-m12-browserfetch.md）
+_SELF_RE = re.compile(r"douyin\.com/user/self")
+_COLLECT_API = re.compile(r"/aweme/v1/web/aweme/listcollection/")   # 取证确认（见 m12-ladder2-dd）
 _COOKIE_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".douyin_cookie")
 
 # cookie 一键导出规格（el.py cookie douyin；见 ADAPTER_SPEC §4）——访客 cookie 即可，无需登录
@@ -117,6 +119,14 @@ def parse_user_post_payload(payloads: list) -> list:
     return out
 
 
+def post_to_itemref(it: dict, index: int) -> ItemRef:
+    """归一化条目 → ItemRef（作品/收藏共用）"""
+    return ItemRef(platform="douyin", item_id=it["aweme_id"],
+                   url=f"https://www.douyin.com/video/{it['aweme_id']}",
+                   sub_id=str(index), title=it["title"], duration=it["duration"],
+                   extra={"desc": it["desc"], "view": it["view"], "like": it["like"]})
+
+
 @register
 class DouyinAdapter:
     name = "douyin"
@@ -138,7 +148,7 @@ class DouyinAdapter:
 
     def match(self, url: str) -> bool:
         return bool(_VIDEO_RE.search(url or "") or _SHORT_RE.search(url or "")
-                    or _USER_RE.search(url or ""))
+                    or _USER_RE.search(url or "") or _SELF_RE.search(url or ""))
 
     def resolve(self, q: str) -> ItemRef:
         q = (q or "").strip()
@@ -156,6 +166,10 @@ class DouyinAdapter:
             vid = m.group(1)
             return ItemRef(platform="douyin", item_id=vid,
                            url=f"https://www.douyin.com/video/{vid}", sub_id="1")
+        if _SELF_RE.search(q):
+            return ItemRef(platform="douyin", item_id="self-collect",
+                           url="https://www.douyin.com/user/self", sub_id="1",
+                           extra={"kind": "self_collect"})
         mu = _USER_RE.search(q)
         if mu:
             sec = mu.group(1)
@@ -165,8 +179,11 @@ class DouyinAdapter:
         raise SearchNeeded(q)
 
     def list_items(self, ref):
-        if (ref.extra or {}).get("kind") == "user_posts":
+        kind = (ref.extra or {}).get("kind")
+        if kind == "user_posts":
             return self._list_user_posts(ref)
+        if kind == "self_collect":
+            return self._list_self_collect(ref)
         return [ref]
 
     def _list_user_posts(self, ref, limit=20, scroll_times=3):
@@ -178,14 +195,25 @@ class DouyinAdapter:
         posts = parse_user_post_payload(payloads)
         if not posts:
             raise DouyinError("未解析到作品（可能无公开作品或页面结构变化）")
-        items = []
-        for i, it in enumerate(posts[:limit], 1):
-            items.append(ItemRef(platform="douyin", item_id=it["aweme_id"],
-                                 url=f"https://www.douyin.com/video/{it['aweme_id']}",
-                                 sub_id=str(i), title=it["title"], duration=it["duration"],
-                                 extra={"desc": it["desc"], "view": it["view"],
-                                        "like": it["like"]}))
-        return items
+        return [post_to_itemref(it, i) for i, it in enumerate(posts[:limit], 1)]
+
+    def _list_self_collect(self, ref, limit=20, scroll_times=3):
+        """自己账号的收藏列表（浏览器拦截；需登录）"""
+        with browserfetch.BrowserSession("douyin") as s:
+            if not s.has_cookie("sessionid"):
+                raise DouyinError("抖音未登录：请先在本机自动化浏览器中登录抖音"
+                                  "（el.py cookie douyin 打开窗口后扫码）")
+            s.goto(ref.url)
+
+            def act():
+                s.click("text=收藏", timeout=8000)
+                s.scroll(scroll_times)
+
+            payloads = s.tap_json(_COLLECT_API.pattern, action=act)
+        posts = parse_user_post_payload(payloads)
+        if not posts:
+            raise DouyinError("收藏列表为空或解析失败（可能结构变化）")
+        return [post_to_itemref(it, i) for i, it in enumerate(posts[:limit], 1)]
 
     # ---------------- yt-dlp 封装 ----------------
 

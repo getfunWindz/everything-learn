@@ -181,3 +181,84 @@ def test_list_items_video_ref_unchanged():
     a = DouyinAdapter()
     ref = a.resolve("https://www.douyin.com/video/7279377986187431202")
     assert a.list_items(ref) == [ref]
+
+
+def test_match_and_resolve_self_page():
+    a = DouyinAdapter()
+    assert a.match("https://www.douyin.com/user/self") is True
+    ref = a.resolve("https://www.douyin.com/user/self?showTab=collection")
+    assert ref.extra["kind"] == "self_collect"
+    assert ref.url == "https://www.douyin.com/user/self"
+
+
+def test_list_items_self_collect(monkeypatch):
+    import providers.douyin as douyin
+    fx = os.path.join(os.path.dirname(__file__), "..", "fixtures", "douyin",
+                      "user_posts_sample.json")
+    payload = json.load(open(fx, encoding="utf-8"))
+    calls = {}
+
+    class FakeSession:
+        def __init__(self, platform, **kw):
+            calls["platform"] = platform
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def has_cookie(self, name):
+            calls["cookie"] = name
+            return True
+
+        def goto(self, url, **kw):
+            calls["goto"] = url
+
+        def click(self, selector, timeout=5000):
+            calls["click"] = selector
+
+        def scroll(self, n):
+            calls["scroll"] = n
+
+        def tap_json(self, pattern, action=None, **kw):
+            calls["pattern"] = pattern
+            if action:
+                action()
+            return [payload]
+
+    monkeypatch.setattr(douyin.browserfetch, "BrowserSession", FakeSession)
+    a = douyin.DouyinAdapter()
+    ref = a.resolve("https://www.douyin.com/user/self")
+    items = a.list_items(ref)
+    assert calls["cookie"] == "sessionid"
+    assert calls["goto"] == "https://www.douyin.com/user/self"
+    assert calls["click"] == "text=收藏"
+    assert calls["pattern"] == r"/aweme/v1/web/aweme/listcollection/"
+    assert len(items) == 2 and items[0].sub_id == "1"
+
+
+def test_list_items_self_collect_not_logged_in(monkeypatch):
+    import providers.douyin as douyin
+
+    class FakeSession:
+        def __init__(self, platform, **kw):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def has_cookie(self, name):
+            return False
+
+    monkeypatch.setattr(douyin.browserfetch, "BrowserSession", FakeSession)
+    a = douyin.DouyinAdapter()
+    ref = a.resolve("https://www.douyin.com/user/self")
+    try:
+        a.list_items(ref)
+        assert False
+    except ValueError as e:
+        assert "未登录" in str(e)
