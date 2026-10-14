@@ -181,8 +181,13 @@ _LIST_JS = r"""
     const author = links.find(href => href.startsWith('/@'));
     return {title: h ? h.textContent.trim() : '', story: story || '', author: author || ''};
   }).filter(x => x.story);
-  const h1 = document.querySelector('h1');
-  return {listTitle: h1 ? h1.textContent.trim() : '', items};
+  const t = document.title || '';
+  const tm = t.match(/^List:\s*(.+?)\s*\|/);
+  const am = t.match(/Curated by\s+(.+?)\s*\|/);
+  let listTitle = tm ? tm[1] : '';
+  let listAuthor = am ? am[1] : '';
+  if (!listTitle) { const h1 = document.querySelector('h1'); listTitle = h1 ? h1.textContent.trim() : ''; }
+  return {listTitle, author: listAuthor, items};
 }
 """
 
@@ -329,8 +334,9 @@ class MediumAdapter:
     def fetch_root_meta(self, ref, refs) -> ItemMeta:
         """合集根元信息：列表页用列表自身标题；其余沿用首条（默认行为）"""
         if (ref.extra or {}).get("kind") == "list":
-            return ItemMeta(title=self._list_data(ref).get("listTitle") or "Medium 列表",
-                            author="", url=ref.url, page="1")
+            data = self._list_data(ref)
+            return ItemMeta(title=data.get("listTitle") or "Medium 列表",
+                            author=data.get("author") or "", url=ref.url, page="1")
         return self.fetch_meta(refs[0])
 
     # ---------------- 元信息 / 内容 ----------------

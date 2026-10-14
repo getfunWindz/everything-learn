@@ -143,7 +143,7 @@ def test_list_cards_to_refs():
 
 def test_list_items_uses_extraction(monkeypatch):
     a = MediumAdapter(session=object())
-    data = {"listTitle": "Reading list",
+    data = {"listTitle": "Reading list", "author": "getfunWindz",
             "items": [{"title": "S1", "story": "/illumination/s1-b12973c28d25?source=x",
                        "author": "/@a"}]}
     monkeypatch.setattr(MediumAdapter, "_extract_list", lambda self, ref: data)
@@ -151,7 +151,7 @@ def test_list_items_uses_extraction(monkeypatch):
     refs = a.list_items(ref)
     assert len(refs) == 1 and refs[0].title == "S1"
     meta = a.fetch_root_meta(ref, refs)
-    assert meta.title == "Reading list"
+    assert meta.title == "Reading list" and meta.author == "getfunWindz"
 
 
 def test_list_items_empty(monkeypatch):
