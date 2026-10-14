@@ -45,7 +45,9 @@
 #         ...
 #
 #     def fetch_media_url(self, ref, media: str = "audio", lowest: bool = False):
-#         """media=audio → Whisper 用；media=video → 抽帧复检用；无媒体返回 None"""
+#         """统一多模态复检通道（必接）：media=audio → Whisper 用；media=video → core 抽帧复检用。
+#         有画面平台返回可抽帧视频流（lowest=True 取最低码率）；无画面返回 None（core 自动跳过）。
+#         复检逻辑一律复用 core，不要在适配器内自建。"""
 #         return None
 #
 #     # ---- 可选钩子（按需）----

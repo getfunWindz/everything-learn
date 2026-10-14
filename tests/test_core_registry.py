@@ -91,3 +91,14 @@ def test_sniff_url_skips_exceptions():
         def fetch_media_url(self, ref, media="audio", lowest=False): return None
     registry.register(Boom)
     assert registry.sniff_url("https://x.example/y") is None
+
+
+def test_all_registered_adapters_pass_contract():
+    """所有内置适配器（含未来自进化的）都必须接入统一契约（含多模态复检通道签名）"""
+    from tests.contract.harness import run_contract
+    registry.reset()
+    registry.load_providers()
+    problems = {a.name: run_contract(a) for a in registry.all()}
+    bad = {k: v for k, v in problems.items() if v}
+    assert bad == {}, f"契约不合格：{bad}"
+    assert set(problems) >= {"bilibili", "weibo", "medium", "wechat_mp"}

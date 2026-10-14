@@ -20,3 +20,12 @@ def test_contract_rejects_incomplete():
     assert any("name" in p for p in problems)
     assert any("kinds" in p for p in problems)
     assert any("match" in p for p in problems)
+
+
+def test_contract_requires_media_channel_kwargs():
+    """统一多模态复检通道：fetch_media_url 必须接受 media/lowest（core 用它们取画面/音轨）"""
+    class NoKwargs(FakeAdapter):
+        def fetch_media_url(self, ref):        # 缺 media/lowest → 通道不可用
+            return None
+    problems = run_contract(NoKwargs())
+    assert any("fetch_media_url" in p for p in problems)

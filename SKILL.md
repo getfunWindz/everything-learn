@@ -68,7 +68,7 @@ python scripts/el.py run <链接/名称> [--page N | --pages "1-10" | --all] --o
 
 1. **不要直接拒绝**，先询问用户：「这个平台还没有适配器，是否按规范现场搭建一个？」
 2. 用户确认后，按 `docs/ADAPTER_SPEC.md` 完成**可行性尽调**（内容形态/获取方式/鉴权/风控/可得性/结论），把结论表展示给用户；
-3. 用户确认「可自动化」后，按 `docs/ADAPTER_TEMPLATE.md` + `scripts/providers/_template.py` 现场实现，并完成测试三件套（fixture 单测 + 契约测试 + 真实链接冒烟）；
+3. 用户确认「可自动化」后，按 `docs/ADAPTER_TEMPLATE.md` + `scripts/providers/_template.py` 现场实现，并完成测试三件套（fixture 单测 + 契约测试 + 真实链接冒烟）；其中**多模态复检通道为必接项**（实现 `fetch_media_url(media="video", lowest=True)`，复检逻辑复用 core，禁止适配器内自建；契约测试会校验签名）。
 4. 冒烟不通过不合入；尽调判定不可达则停止并说明原因与替代方案。
 
 > CLI 行为：`run`/`scan` 遇到**未识别 URL** 会直接给出本流程提示（不再兜底成 B 站名称搜索）；`python scripts/el.py platforms` 可查当前已注册名单。
