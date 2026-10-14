@@ -24,6 +24,10 @@ class PipelineError(Exception):
     """流水线级错误（无法路由/无法定位等）"""
 
 
+class UnsupportedUrlError(PipelineError):
+    """名单外平台 URL（自进化入口）：需先尽调再搭建适配器，不得兜底成名称搜索"""
+
+
 @dataclass
 class RunOptions:
     out_root: str = ""
@@ -361,7 +365,11 @@ def run_input(input_str: str, opts: RunOptions, adapter=None, client=None):
     registry.load_providers()
     a = adapter or registry.match_url(input_str)
     if a is None:
-        a = registry.sniff_url(input_str) or registry.default()
+        a = registry.sniff_url(input_str)
+    if a is None and (input_str or "").startswith(("http://", "https://")):
+        raise UnsupportedUrlError(f"未识别的平台链接：{input_str}\n{registry.SELF_EVOLUTION_HINT}")
+    if a is None:
+        a = registry.default()
     if a is None:
         raise PipelineError(f"没有适配器能处理该输入：{input_str}")
     if client is not None and a.name == "bilibili":

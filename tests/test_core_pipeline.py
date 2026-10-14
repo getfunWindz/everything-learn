@@ -6,7 +6,7 @@ from core import cache as cache_mod
 from core import config as core_config
 from core import pipeline as pipeline_mod
 from core.models import ContentResult, ItemRef, ItemMeta
-from core.pipeline import RunOptions, PipelineError, process_item, run_input
+from core.pipeline import RunOptions, PipelineError, UnsupportedUrlError, process_item, run_input
 
 
 class FakeAdapter:
@@ -269,3 +269,29 @@ def test_run_input_uses_adapter_root_meta_hook(tmp_path):
     base = os.path.join(out, "合集作者")
     coll = [d for d in os.listdir(base) if d.endswith("_合集")]
     assert coll and "合集根标题" in coll[0]
+
+
+def test_run_input_unknown_url_raises_unsupported(tmp_path, monkeypatch):
+    """名单外平台 URL：不得兜底成 B 站搜索，必须给自进化提示"""
+    from core import registry
+    monkeypatch.setattr(registry, "match_url", lambda u: None)
+    monkeypatch.setattr(registry, "sniff_url", lambda u: None)
+    with pytest.raises(UnsupportedUrlError) as ei:
+        run_input("https://vimeo.com/12345", RunOptions(out_root=str(tmp_path / "out")))
+    assert "自进化" in str(ei.value)
+
+
+def test_run_input_name_still_falls_back_to_default(tmp_path, monkeypatch):
+    """名称类输入仍走默认适配器（B 站搜索）"""
+    from core import registry
+    from core.adapter import SearchNeeded
+
+    class _Namer:
+        def resolve(self, q):
+            raise SearchNeeded(q)
+
+    monkeypatch.setattr(registry, "match_url", lambda u: None)
+    monkeypatch.setattr(registry, "sniff_url", lambda u: None)
+    monkeypatch.setattr(registry, "default", lambda: _Namer())
+    with pytest.raises(SearchNeeded):
+        run_input("某个视频名", RunOptions(out_root=str(tmp_path / "out")))

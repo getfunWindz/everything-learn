@@ -10,7 +10,7 @@ from datetime import datetime
 
 from core import config, pipeline
 from core.adapter import SearchNeeded
-from core.pipeline import RunOptions, PipelineError
+from core.pipeline import RunOptions, PipelineError, UnsupportedUrlError
 from providers.bilibili import ApiClient, BiliError, resolve_input
 
 VERSION = "0.1.0"
@@ -158,7 +158,9 @@ def cmd_scan(args, client: ApiClient = None):
         sys.exit(2)
     adapter = _scan_adapter(args.input)
     if adapter is None:
+        from core import registry
         print(f"没有适配器能处理：{args.input}", file=sys.stderr)
+        print(registry.SELF_EVOLUTION_HINT, file=sys.stderr)
         sys.exit(2)
     try:
         ref = adapter.resolve(args.input)
@@ -184,6 +186,16 @@ def cmd_scan(args, client: ApiClient = None):
     if args.snapshot:
         path = scan_core.make_snapshot(items, out_dir=args.out or "", prefix=adapter.name)
         print(f"快照已保存：{path}")
+
+
+def cmd_platforms(args, client: ApiClient = None):
+    """列出已注册平台适配器（名单）+ 自进化入口"""
+    from core import registry
+    registry.load_providers()
+    for a in sorted(registry.all(), key=lambda x: x.name):
+        print(f"{a.name:12s} kinds={','.join(sorted(a.kinds))}")
+    print("\n名单外平台走自进化流程（SKILL §3）：")
+    print(registry.SELF_EVOLUTION_HINT)
 
 
 def cmd_toview(args, client: ApiClient = None):
@@ -397,6 +409,9 @@ def cmd_run(args, client: ApiClient = None):
         except PipelineError as e:
             print(f"获取失败：{e}", file=sys.stderr)
             sys.exit(4)
+    except UnsupportedUrlError as e:
+        print(e, file=sys.stderr)
+        sys.exit(2)
     except ValueError as e:
         print(f"参数错误：{e}", file=sys.stderr)
         sys.exit(2)
@@ -471,6 +486,8 @@ def main(argv=None):
     def _cmd_doctor(args):
         import doctor
         return doctor.main()
+    pf = sub.add_parser("platforms", help="列出已注册平台适配器（名单）+ 自进化入口")
+    pf.set_defaults(func=cmd_platforms)
     doc = sub.add_parser("doctor", help="环境自检（cookie/GPU/whisper/模型缓存/vision）")
     doc.set_defaults(func=_cmd_doctor)
     run = sub.add_parser("run", help="获取内容（字幕/转写）并落盘")

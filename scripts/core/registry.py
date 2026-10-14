@@ -50,6 +50,15 @@ def default():
     return _ADAPTERS.get("bilibili")
 
 
+SELF_EVOLUTION_HINT = (
+    "该平台不在名单内——走「自进化」流程：\n"
+    "  1) 先按 docs/ADAPTER_SPEC.md §6 做可行性尽调（形态/获取/鉴权/风控/可得性/结论），结论给用户确认；\n"
+    "  2) 确认可自动化后：docs/ADAPTER_TEMPLATE.md + scripts/providers/_template.py 现场搭建；\n"
+    "  3) 三件套：fixture 单测 + 契约测试 + 真实链接冒烟（不通过不合入）。\n"
+    "  已注册平台可运行：python scripts/el.py platforms"
+)
+
+
 def reset():
     _ADAPTERS.clear()
 

@@ -749,3 +749,20 @@ def test_toview_history_following_commands(monkeypatch, capsys):
     assert "历史" in capsys.readouterr().out
     el.cmd_following(argparse.Namespace(limit=10), client=C())
     assert "小明" in capsys.readouterr().out
+
+
+def test_platforms_command(capsys):
+    el.cmd_platforms(argparse.Namespace())
+    out = capsys.readouterr().out
+    assert "bilibili" in out and "weibo" in out
+    assert "自进化" in out
+
+
+def test_scan_unknown_url_hint(monkeypatch, capsys):
+    monkeypatch.setattr(el, "_scan_adapter", lambda s: None)
+    args = argparse.Namespace(input="https://vimeo.com/1", limit=None, filter=None,
+                              priority=False, snapshot=False, out=None)
+    with pytest.raises(SystemExit) as ei:
+        el.cmd_scan(args)
+    assert ei.value.code == 2
+    assert "自进化" in capsys.readouterr().err
