@@ -281,3 +281,4 @@ def test_fetch_root_meta_favorites():
     ref = a.resolve("https://weibo.com/u/favorites")
     meta = a.fetch_root_meta(ref, [])
     assert meta.title == "我的微博收藏"
+    assert meta.author == "我"

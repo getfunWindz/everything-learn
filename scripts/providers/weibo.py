@@ -390,7 +390,7 @@ class WeiboAdapter:
     def fetch_root_meta(self, ref, refs) -> ItemMeta:
         """合集根元信息：收藏列表用列表自身 meta；其余沿用首条（默认行为）"""
         if (ref.extra or {}).get("kind") == "favorites":
-            return ItemMeta(title="我的微博收藏", author="", url=ref.url, page="1")
+            return ItemMeta(title="我的微博收藏", author="我", url=ref.url, page="1")
         return self.fetch_meta(refs[0])
 
     def fetch_meta(self, ref) -> ItemMeta:
