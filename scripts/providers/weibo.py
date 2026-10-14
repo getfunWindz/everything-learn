@@ -25,6 +25,13 @@ _FAVS_RE = re.compile(r"weibo\.com/u/favorites")
 _FAVS_PAGE = "https://weibo.com/u/favorites?page=1"
 _FAV_API = "https://weibo.com/ajax/favorites/all_fav?page={page}&with_total=true"
 _FAV_MAX_PAGES = 50           # 安全上限（约 1000 条），防无限翻页
+_DESKTOP_HEADERS = {
+    "User-Agent": _UA,
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "zh-CN,zh;q=0.9",
+    "Referer": "https://weibo.com/u/favorites",
+    "X-Requested-With": "XMLHttpRequest",
+}
 _SHOW = "https://m.weibo.cn/statuses/show?id={sid}"
 _EXTEND = "https://m.weibo.cn/statuses/extend?id={sid}"
 _TIMELINE = "https://m.weibo.cn/api/container/getIndex?type=uid&value={uid}&containerid=107603{uid}"
@@ -61,13 +68,19 @@ def _cookie_path() -> str:
     return _COOKIE_FILE
 
 
-def load_cookie(session: requests.Session) -> bool:
-    """从环境变量 WEIBO_COOKIE 或 cookie 文件注入；有则 True"""
+def _raw_cookie() -> str:
+    """原始 cookie 串：环境变量 WEIBO_COOKIE 优先，其次 cookie 文件"""
     raw = os.environ.get("WEIBO_COOKIE", "") or ""
     path = _cookie_path()
     if not raw and os.path.exists(path):
         with open(path, encoding="utf-8") as f:
             raw = f.read().strip()
+    return raw
+
+
+def load_cookie(session: requests.Session) -> bool:
+    """从环境变量 WEIBO_COOKIE 或 cookie 文件注入；有则 True"""
+    raw = _raw_cookie()
     if not raw:
         return False
     for part in raw.split(";"):
@@ -221,6 +234,30 @@ class WeiboAdapter:
         if r.status_code in (429, 500, 502, 503, 504):
             def once():
                 rr = self.session.get(url, timeout=25)
+                if rr.status_code == 432 or not (rr.text or "").strip():
+                    raise WeiboError("微博风控拦截（432/空响应，重试后仍失败）")
+                rr.raise_for_status()
+                return rr.json()
+            return retry_with_backoff(once, attempts=2, base_delay=3.0)
+        if r.status_code != 200:
+            raise WeiboError(f"微博接口异常（HTTP {r.status_code}）")
+        try:
+            return r.json()
+        except Exception:
+            raise WeiboError("微博接口返回非 JSON（可能被风控）")
+
+    def _get_json_desktop(self, url: str) -> dict:
+        """桌面域（weibo.com）JSON：原始 cookie 串 + 桌面头（收藏等接口；GET 免签名）"""
+        headers = dict(_DESKTOP_HEADERS)
+        raw = _raw_cookie()
+        if raw:
+            headers["Cookie"] = raw
+        r = self.session.get(url, headers=headers, timeout=25)
+        if r.status_code == 432 or not (r.text or "").strip():
+            raise WeiboError("微博风控拦截（432/空响应）：请稍后重试或重新导出 cookie")
+        if r.status_code in (429, 500, 502, 503, 504):
+            def once():
+                rr = self.session.get(url, headers=headers, timeout=25)
                 if rr.status_code == 432 or not (rr.text or "").strip():
                     raise WeiboError("微博风控拦截（432/空响应，重试后仍失败）")
                 rr.raise_for_status()

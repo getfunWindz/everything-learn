@@ -1,3 +1,4 @@
+import pytest
 import sys, os, json
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts"))
 from providers.weibo import (WeiboAdapter, WeiboError, strip_html, pics_to_urls,
@@ -166,3 +167,33 @@ def test_timeline_pagination_stops_on_risk(monkeypatch):
                   extra={"kind": "user", "uid": "1"})
     refs = a.list_items(ref)                   # 中途风控：已有内容优雅停止，不抛
     assert len(refs) == 10
+
+
+class _Resp:
+    status_code = 200
+    text = '{"ok":1}'
+
+    def json(self):
+        return {"ok": 1}
+
+
+def test_get_json_desktop_sends_raw_cookie(monkeypatch):
+    """桌面域请求必须带原始 cookie 串（session jar 只挂了 .weibo.cn 域）"""
+    sent = {}
+
+    class _S:
+        def get(self, url, headers=None, timeout=None):
+            sent.update(headers or {})
+            return _Resp()
+
+    a = WeiboAdapter(session=_S())
+    monkeypatch.setattr("providers.weibo._raw_cookie", lambda: "SUB=abc")
+    assert a._get_json_desktop("https://weibo.com/x") == {"ok": 1}
+    assert sent.get("Cookie") == "SUB=abc"
+    assert sent.get("Referer", "").startswith("https://weibo.com")
+
+
+def test_raw_cookie_prefers_env(monkeypatch):
+    monkeypatch.setenv("WEIBO_COOKIE", "SUB=env")
+    from providers.weibo import _raw_cookie
+    assert _raw_cookie() == "SUB=env"
