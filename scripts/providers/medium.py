@@ -152,6 +152,41 @@ _ARTICLE_JS = """
 """
 
 
+def list_cards_to_refs(cards: list):
+    """列表页卡片（浏览器抽取）→ ItemRef（story 链接规范化 + 去重，保序）"""
+    out, seen = [], set()
+    for c in cards or []:
+        href = (c.get("story") or "").strip()
+        if not href:
+            continue
+        url = href if href.startswith("http") else "https://medium.com" + href
+        url = url.split("?")[0].split("#")[0]
+        h = _HASH_RE.search(url)
+        if not h or url in seen:
+            continue
+        seen.add(url)
+        out.append(ItemRef(platform="medium", item_id=f"article-{h.group(1)}", url=url,
+                           sub_id=str(len(out) + 1), title=(c.get("title") or "").strip(),
+                           extra={"kind": "article", "hash": h.group(1),
+                                  "list_author": (c.get("author") or "").lstrip("/")}))
+    return out
+
+
+_LIST_JS = r"""
+() => {
+  const items = [...document.querySelectorAll('article')].map(a => {
+    const h = a.querySelector('h2,h3');
+    const links = [...a.querySelectorAll('a')].map(x => x.getAttribute('href') || '').filter(Boolean);
+    const story = links.find(href => /-[0-9a-f]{6,}(?:[?#]|$)/i.test(href));
+    const author = links.find(href => href.startsWith('/@'));
+    return {title: h ? h.textContent.trim() : '', story: story || '', author: author || ''};
+  }).filter(x => x.story);
+  const h1 = document.querySelector('h1');
+  return {listTitle: h1 ? h1.textContent.trim() : '', items};
+}
+"""
+
+
 def parse_feed(xml_text: str) -> list:
     """RSS → [{title, link, published, author, content}]（content=content:encoded 全文）"""
     import xml.etree.ElementTree as ET
@@ -185,6 +220,7 @@ class MediumAdapter:
     def __init__(self, session: requests.Session = None):
         self._session = session
         self._article_cache = {}
+        self._list_cache = {}
 
     @property
     def session(self) -> requests.Session:
@@ -221,6 +257,8 @@ class MediumAdapter:
                        extra={"kind": "article", "hash": h.group(1)})
 
     def list_items(self, ref):
+        if ref.extra.get("kind") == "list":
+            return list_cards_to_refs(self._list_data(ref).get("items"))
         if ref.extra.get("kind") != "feed":
             return [ref]
         xml = self._get_feed(ref.url)
@@ -260,6 +298,40 @@ class MediumAdapter:
         if key not in self._article_cache:
             self._article_cache[key] = self._extract_article(ref)
         return self._article_cache[key]
+
+    def _extract_list(self, ref) -> dict:
+        """浏览器内抽取列表页卡片（SSR DOM；未登录跳 signin 时给可读错误）"""
+        with browserfetch.BrowserSession("medium") as s:
+            s.goto(ref.url)
+            s.pause(5000)
+            if "/m/signin" in (s.page.url or ""):
+                raise MediumError("列表页需要登录 Medium：请先在自动化浏览器登录（browserfetch profile）")
+            data = s.evaluate(_LIST_JS) or {}
+            for _ in range(2):                      # 懒加载兜底（≤100 条上限）
+                items = data.get("items") or []
+                if len(items) >= 100:
+                    break
+                s.scroll(1)
+                s.pause(3000)
+                new = s.evaluate(_LIST_JS) or {}
+                if len(new.get("items") or []) <= len(items):
+                    break
+                data = new
+            return data
+
+    def _list_data(self, ref) -> dict:
+        """列表页数据（抽取 + 实例内缓存：list_items/根 meta 共用）"""
+        key = ref.item_id or ref.url
+        if key not in self._list_cache:
+            self._list_cache[key] = self._extract_list(ref)
+        return self._list_cache[key]
+
+    def fetch_root_meta(self, ref, refs) -> ItemMeta:
+        """合集根元信息：列表页用列表自身标题；其余沿用首条（默认行为）"""
+        if (ref.extra or {}).get("kind") == "list":
+            return ItemMeta(title=self._list_data(ref).get("listTitle") or "Medium 列表",
+                            author="", url=ref.url, page="1")
+        return self.fetch_meta(refs[0])
 
     # ---------------- 元信息 / 内容 ----------------
 

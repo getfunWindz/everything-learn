@@ -1,7 +1,7 @@
 import sys, os, json
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts"))
-from providers.medium import (MediumAdapter, article_items_to_blocks, medium_to_blocks,
-                             normalize_image_url, parse_feed, payload_status)
+from providers.medium import (MediumAdapter, article_items_to_blocks, list_cards_to_refs,
+                             medium_to_blocks, normalize_image_url, parse_feed, payload_status)
 from core.models import ItemRef
 from tests.contract.harness import run_contract
 
@@ -124,6 +124,40 @@ def test_match_and_resolve_list_page():
     assert a.match("https://medium.com/me/list/reading-list")
     ref = a.resolve("https://medium.com/@someone/list/reading-list?source=x")
     assert ref.extra["kind"] == "list" and ref.extra["slug"] == "reading-list"
+
+
+def test_list_cards_to_refs():
+    cards = [{"title": "Story One", "story": "/illumination/story-one-b12973c28d25?source=x",
+              "author": "/@sanfmark"},
+             {"title": "Wave", "story": "https://medium.com/zenite/wave-89227f0790a1?source=x",
+              "author": "/@mindystern"},
+             {"title": "No story", "story": None},
+             {"title": "Dup", "story": "https://medium.com/zenite/wave-89227f0790a1"}]
+    refs = list_cards_to_refs(cards)
+    assert len(refs) == 2
+    assert refs[0].url == "https://medium.com/illumination/story-one-b12973c28d25"
+    assert refs[0].title == "Story One" and refs[0].sub_id == "1"
+    assert refs[0].extra["kind"] == "article" and refs[0].extra["hash"] == "b12973c28d25"
+    assert refs[1].url == "https://medium.com/zenite/wave-89227f0790a1"   # 去重
+
+
+def test_list_items_uses_extraction(monkeypatch):
+    a = MediumAdapter(session=object())
+    data = {"listTitle": "Reading list",
+            "items": [{"title": "S1", "story": "/illumination/s1-b12973c28d25?source=x",
+                       "author": "/@a"}]}
+    monkeypatch.setattr(MediumAdapter, "_extract_list", lambda self, ref: data)
+    ref = a.resolve("https://medium.com/@someone/list/reading-list")
+    refs = a.list_items(ref)
+    assert len(refs) == 1 and refs[0].title == "S1"
+    meta = a.fetch_root_meta(ref, refs)
+    assert meta.title == "Reading list"
+
+
+def test_list_items_empty(monkeypatch):
+    a = MediumAdapter(session=object())
+    monkeypatch.setattr(MediumAdapter, "_extract_list", lambda self, ref: {"items": []})
+    assert a.list_items(a.resolve("https://medium.com/@someone/list/reading-list")) == []
 
 
 def test_fetch_content_uses_feed_content():
