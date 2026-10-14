@@ -215,7 +215,11 @@ class XiaohongshuAdapter:
                 raise XhsError("小红书未登录：请先在本机自动化浏览器中登录小红书（可见窗口扫码）")
 
             def act():
-                s.evaluate(_click_tab_js("收藏"))
+                s.pause(1500)                        # 等页面水合出 tab
+                for _ in range(10):
+                    if s.evaluate(_click_tab_js("收藏")) == "clicked":
+                        break
+                    s.pause(500)
                 s.scroll(scroll_times)
 
             payloads = s.tap_json(_COLLECT_PAGE_API.pattern, action=act)

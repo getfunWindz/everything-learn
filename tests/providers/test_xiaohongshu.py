@@ -300,7 +300,11 @@ def test_parse_collect_payload_and_list_items(monkeypatch):
             return state_html
 
         def evaluate(self, js, *args):
-            calls["evaluate"] = js[:60]
+            calls.setdefault("evals", []).append(js)
+            return "clicked"
+
+        def pause(self, ms):
+            calls.setdefault("pauses", []).append(ms)
 
         def scroll(self, n):
             calls["scroll"] = n
@@ -317,6 +321,8 @@ def test_parse_collect_payload_and_list_items(monkeypatch):
     items = a.list_items(ref)
     assert calls["pattern"] == r"/api/sns/web/v2/note/collect/page"
     assert calls["scroll"] == 2
+    assert calls["pauses"][0] == 1500                       # 先等页面水合
+    assert any("收藏" in js for js in calls["evals"])       # 点击 JS 含目标 tab
     assert len(items) == 2
     assert "xsec_token=tokC" in items[0].url
     assert items[0].sub_id == "1"
