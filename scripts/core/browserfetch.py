@@ -23,9 +23,25 @@ _VISIBLE = _STEALTH + ["--window-position=80,80", "--window-size=1280,900",
 _ctx = {"pw": None, "context": None, "page": None, "interactive": None}
 
 
-def _launch_args(interactive: bool) -> list:
-    """启动参数：可见模式必须显式给屏内位置——profile 会记忆上一次的离屏位置"""
-    return list(_VISIBLE) if interactive else list(_OFFSCREEN)
+def _launch_args(interactive: bool, proxy: str = "") -> list:
+    """启动参数：可见模式必须显式给屏内位置——profile 会记忆上一次的离屏位置；
+    proxy 非空时追加 --proxy-server（X 等平台需代理）"""
+    args = list(_VISIBLE) if interactive else list(_OFFSCREEN)
+    if proxy:
+        args.append(f"--proxy-server={proxy}")
+    return args
+
+
+def _resolve_proxy() -> str:
+    """浏览器代理：环境变量 EL_BROWSER_PROXY 优先，其次 config.browser_proxy；空=直连"""
+    p = (os.environ.get("EL_BROWSER_PROXY") or "").strip()
+    if p:
+        return p
+    try:
+        from core import config
+        return (config.load_config().get("browser_proxy") or "").strip()
+    except Exception:
+        return ""
 
 
 class BrowserFetchError(ValueError):
@@ -74,7 +90,7 @@ def _launch(browser: str, interactive: bool) -> dict:
     except ImportError:
         raise BrowserFetchError("未安装 playwright：pip install playwright（无需 playwright install）")
     profile = os.path.join(_HERE, f".browser_profile_{browser}")
-    args = _launch_args(interactive)
+    args = _launch_args(interactive, _resolve_proxy())
     pw = sync_playwright().start()
     try:
         ctx = pw.chromium.launch_persistent_context(profile, channel=browser, headless=False,

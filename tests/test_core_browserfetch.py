@@ -238,6 +238,24 @@ def test_launch_args_visible_vs_offscreen():
     assert "--disable-blink-features=AutomationControlled" in vis
 
 
+def test_launch_args_proxy():
+    """X 等平台需要代理：显式 --proxy-server（否则浏览器直连被重置）"""
+    with_proxy = bf._launch_args(False, proxy="http://127.0.0.1:7897")
+    assert "--proxy-server=http://127.0.0.1:7897" in with_proxy
+    assert not any(a.startswith("--proxy-server") for a in bf._launch_args(False))
+
+
+def test_resolve_proxy_env_and_config(monkeypatch):
+    import core.config as cc
+    monkeypatch.setenv("EL_BROWSER_PROXY", "http://env:1")
+    monkeypatch.setattr(cc, "load_config", lambda: {"browser_proxy": "http://cfg:2"})
+    assert bf._resolve_proxy() == "http://env:1"      # 环境变量优先
+    monkeypatch.delenv("EL_BROWSER_PROXY", raising=False)
+    assert bf._resolve_proxy() == "http://cfg:2"      # 退回配置
+    monkeypatch.setattr(cc, "load_config", lambda: {})
+    assert bf._resolve_proxy() == ""
+
+
 class FakeCtxCookies:
     def __init__(self, names):
         self._names = names

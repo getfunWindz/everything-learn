@@ -23,6 +23,7 @@ DEFAULT_CONFIG = {
         "youtube": {"min_interval": 1.5, "jitter": 0.5}
     },
     "hf_endpoint": "",          # HF 镜像（如 https://hf-mirror.com），空则用官方
+    "browser_proxy": "",       # 浏览器代理（如 http://127.0.0.1:7897；X 等平台必需）；也可用环境变量 EL_BROWSER_PROXY
     "hf_disable_xet": True,     # 禁用 HF xet 协议（镜像站必需）
     "auth": {},                 # 各平台凭据：{"bilibili": {...}, "zhihu": {...}}（按需）
     "vision": {                 # 多模态大模型 API（OpenAI 兼容）
