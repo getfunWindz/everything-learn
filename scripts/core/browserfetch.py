@@ -191,6 +191,10 @@ class BrowserSession:
         """点击元素（Playwright 自带等待；找不到抛异常由调用方转可读错误）"""
         self.page.click(selector, timeout=timeout)
 
+    def pause(self, ms):
+        """显式等待（页面水合/动画/轮询间隔用）"""
+        self.page.wait_for_timeout(int(ms))
+
     def html(self) -> str:
         """当前页面完整 HTML（SSR 解析用）"""
         return self.page.content()

@@ -264,3 +264,19 @@ def test_session_click_html_has_cookie():
     assert s.html() == "<html>ok</html>"
     assert s.has_cookie("sessionid") is True
     assert s.has_cookie("nope") is False
+
+
+class FakePausePage(FakeScrollPage):
+    def __init__(self):
+        super().__init__()
+        self.timeouts = []
+
+    def wait_for_timeout(self, ms):
+        self.timeouts.append(ms)
+
+
+def test_session_pause():
+    page = FakePausePage()
+    s = _session_with_page(page)
+    s.pause(400)
+    assert page.timeouts == [400]
