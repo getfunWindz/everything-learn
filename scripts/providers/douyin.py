@@ -6,6 +6,7 @@
 import os
 import re
 import tempfile
+from urllib.parse import parse_qs, urlparse
 
 from core import browserfetch
 from core.adapter import SearchNeeded
@@ -21,6 +22,7 @@ _USER_RE = re.compile(r"douyin\.com/user/([A-Za-z0-9_\-]+)")
 _USER_POST_API = re.compile(r"/aweme/v1/web/aweme/post/")   # 取证确认（见 docs/plans/2026-10-14-m12-browserfetch.md）
 _SELF_RE = re.compile(r"douyin\.com/user/self")
 _COLLECT_API = re.compile(r"/aweme/v1/web/aweme/listcollection/")   # 取证确认（见 m12-ladder2-dd）
+_FAVORITE_API = re.compile(r"/aweme/v1/web/aweme/favorite/")   # 喜欢列表（取证确认）
 _COOKIE_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".douyin_cookie")
 
 # cookie 一键导出规格（el.py cookie douyin；见 ADAPTER_SPEC §4）——访客 cookie 即可，无需登录
@@ -167,6 +169,11 @@ class DouyinAdapter:
             return ItemRef(platform="douyin", item_id=vid,
                            url=f"https://www.douyin.com/video/{vid}", sub_id="1")
         if _SELF_RE.search(q):
+            tab = (parse_qs(urlparse(q).query).get("tab") or [""])[0]
+            if tab == "favorite":
+                return ItemRef(platform="douyin", item_id="self-favorite",
+                               url="https://www.douyin.com/user/self", sub_id="1",
+                               extra={"kind": "self_favorite"})
             return ItemRef(platform="douyin", item_id="self-collect",
                            url="https://www.douyin.com/user/self", sub_id="1",
                            extra={"kind": "self_collect"})
@@ -184,6 +191,8 @@ class DouyinAdapter:
             return self._list_user_posts(ref)
         if kind == "self_collect":
             return self._list_self_collect(ref)
+        if kind == "self_favorite":
+            return self._list_self_favorite(ref)
         return [ref]
 
     def _list_user_posts(self, ref, limit=20, scroll_times=3):
@@ -213,6 +222,24 @@ class DouyinAdapter:
         posts = parse_user_post_payload(payloads)
         if not posts:
             raise DouyinError("收藏列表为空或解析失败（可能结构变化）")
+        return [post_to_itemref(it, i) for i, it in enumerate(posts[:limit], 1)]
+
+    def _list_self_favorite(self, ref, limit=20, scroll_times=3):
+        """自己账号的喜欢列表（浏览器拦截；需登录）"""
+        with browserfetch.BrowserSession("douyin") as s:
+            if not s.has_cookie("sessionid"):
+                raise DouyinError("抖音未登录：请先在本机自动化浏览器中登录抖音"
+                                  "（el.py cookie douyin 打开窗口后扫码）")
+            s.goto(ref.url)
+
+            def act():
+                s.click("text=喜欢", timeout=8000)
+                s.scroll(scroll_times)
+
+            payloads = s.tap_json(_FAVORITE_API.pattern, action=act)
+        posts = parse_user_post_payload(payloads)
+        if not posts:
+            raise DouyinError("喜欢列表为空或解析失败（可能结构变化）")
         return [post_to_itemref(it, i) for i, it in enumerate(posts[:limit], 1)]
 
     # ---------------- yt-dlp 封装 ----------------

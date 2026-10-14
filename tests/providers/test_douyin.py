@@ -262,3 +262,57 @@ def test_list_items_self_collect_not_logged_in(monkeypatch):
         assert False
     except ValueError as e:
         assert "未登录" in str(e)
+
+
+def test_resolve_self_favorite_tab():
+    a = DouyinAdapter()
+    ref = a.resolve("https://www.douyin.com/user/self?tab=favorite")
+    assert ref.extra["kind"] == "self_favorite"
+    assert ref.item_id == "self-favorite"
+    assert ref.url == "https://www.douyin.com/user/self"
+
+
+def test_list_items_self_favorite(monkeypatch):
+    import providers.douyin as douyin
+    fx = os.path.join(os.path.dirname(__file__), "..", "fixtures", "douyin",
+                      "user_posts_sample.json")
+    payload = json.load(open(fx, encoding="utf-8"))
+    calls = {}
+
+    class FakeSession:
+        def __init__(self, platform, **kw):
+            calls["platform"] = platform
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def has_cookie(self, name):
+            calls["cookie"] = name
+            return True
+
+        def goto(self, url, **kw):
+            calls["goto"] = url
+
+        def click(self, selector, timeout=5000):
+            calls["click"] = selector
+
+        def scroll(self, n):
+            calls["scroll"] = n
+
+        def tap_json(self, pattern, action=None, **kw):
+            calls["pattern"] = pattern
+            if action:
+                action()
+            return [payload]
+
+    monkeypatch.setattr(douyin.browserfetch, "BrowserSession", FakeSession)
+    a = douyin.DouyinAdapter()
+    ref = a.resolve("https://www.douyin.com/user/self?tab=favorite")
+    items = a.list_items(ref)
+    assert calls["cookie"] == "sessionid"
+    assert calls["click"] == "text=喜欢"
+    assert calls["pattern"] == r"/aweme/v1/web/aweme/favorite/"
+    assert len(items) == 2 and items[0].sub_id == "1"
