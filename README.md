@@ -16,7 +16,7 @@
 - **微信公众号**：单篇文章（短链/长链）→ 无需 cookie 直连 → 章节式报告 + 图片入 `assets/`；搜狗搜索实验性（`el.py search --platform wechat`，结果会话绑定）
 - **X（Twitter）**：单推文（x.com/twitter.com，含 /i/status 与 t.co 短链）→ 无需 cookie → 正文/图片；视频推文自动取 mp4 → Whisper → 「视频口播内容」小节（多语自动检测）；主页时间线：`scan "https://x.com/home"`（需登录 + `browser_proxy` 配置）
 - **小红书**：单笔记（xhslink 短链 / explore / discovery 链接）→ 正文/图片入 `assets/`；视频笔记 → Whisper → 「视频口播内容」；依赖短时效 `xsec_token`（分享链自带或 explore 兜底现取，实验性）
-- **账号级扫描（M11/M12）**：微博用户时间线全量（`since_id` 翻页）/**我的收藏**、知乎用户回答/收藏夹 items、YouTube 频道列表、抖音主页/收藏/喜欢、小红书主页（含滚动分页）/收藏（浏览器辅助，收藏/喜欢需登录）、X 主页时间线（需登录+代理）→ `el.py scan <链接>` 枚举筛选 + `el.py run <链接> --all` 批量报告；B站账号数据：`el.py toview / history / following`（需 cookie）
+- **账号级扫描（M11/M12）**：微博用户时间线全量（`since_id` 翻页）/**我的收藏**、知乎用户回答/收藏夹 items、YouTube 频道列表、抖音主页/收藏/喜欢、小红书主页（含滚动分页）/收藏（浏览器辅助，收藏/喜欢需登录）、X 主页时间线（需登录+代理）、Medium 书签/列表（`@handle/list/<slug>`，需登录）→ `el.py scan <链接>` 枚举筛选 + `el.py run <链接> --all` 批量报告；B站账号数据：`el.py toview / history / following`（需 cookie）
 - **知乎**：专栏文章 / 单个回答 / 问题（`--all` 展开首屏 5 条回答）→ SSR 正文 → 章节式报告骨架 + 图片入 `assets/`；需要浏览器 cookie（可用内置导出器）
 - **架构**：`core/`（内容契约、注册表、配置、缓存、重试、流水线、产物、HTML→块转换、图片下载）+ `providers/`（平台适配器）；B 站为参考实现
 - **产物三件套**：`content_info.json` / `content.txt` / `report_template.md`
@@ -64,6 +64,7 @@ python scripts/el.py scan "https://www.douyin.com/user/self?tab=favorite" --limi
 python scripts/el.py scan "https://www.douyin.com/user/self" --limit 20                 # 我的抖音收藏（需登录）
 python scripts/el.py scan "https://www.xiaohongshu.com/user/profile/xxxx" --limit 20    # 小红书主页（需登录）
 python scripts/el.py scan "https://www.xiaohongshu.com/user/profile/xxxx?tab=collect" --limit 20  # 我的小红书收藏（需登录）
+python scripts/el.py scan "https://medium.com/@<handle>/list/reading-list"                 # Medium 书签/列表（需登录）
 python scripts/el.py toview / history --limit 10 / following            # B站账号数据（需 cookie）
 
 # 环境自检 / 报告导出
@@ -86,7 +87,7 @@ python -m pytest tests/ -q    # 403 passed（全部 mock 网络，离线可跑�
 | 播客（RSS/Apple） | timeline（音频） | ✅ 可用 |
 | 知乎 | document（图文） | ✅ 可用（需 cookie；`scripts/cookie_export.py zhihu` 一键导出） |
 | TED | timeline（视频） | ✅ 可用（官网官方字幕，多语含简中） |
-| Medium | document（图文） | ✅ 可用（浏览器 SSR 抽取正文 + feed 双通道；CF 平台缓速） |
+| Medium | document（图文） | ✅ 可用（浏览器 SSR 抽取正文 + feed 双通道；书签/列表 scan 需登录；CF 平台缓速） |
 | 抖音 | timeline（视频） | ✅ 可用（单视频 + 主页/收藏/喜欢扫描；访客 cookie + yt-dlp/browserfetch；收藏/喜欢需登录） |
 | 微博 | document（帖子） | ✅ 可用（单帖；时间线/我的收藏 scan 需 cookie） |
 | 微信公众号 | document（图文） | ✅ 可用（单篇链接直连，无需 cookie；搜狗搜索实验性） |
