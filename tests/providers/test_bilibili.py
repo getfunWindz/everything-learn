@@ -1,7 +1,7 @@
 import sys, os, json
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts"))
 import pytest
-from providers.bilibili import ApiClient, BiliError, VideoInfo
+from providers.bilibili import ApiClient, BiliError, VideoInfo, BilibiliAdapter, _length_to_sec
 
 class FakeResponse:
     def __init__(self, payload, status_code=200):
@@ -409,3 +409,46 @@ def test_get_followings(monkeypatch):
                         if "followings" in path else {"mid": 42})
     items = c.get_followings(limit=10, ps=50)
     assert items[0]["uname"] == "小明"
+
+
+def test_length_to_sec():
+    assert _length_to_sec("12:34") == 754
+    assert _length_to_sec("1:02:03") == 3723
+    assert _length_to_sec("") == 0
+
+
+def test_resolve_space_page():
+    a = BilibiliAdapter()
+    ref = a.resolve("https://space.bilibili.com/946974/video")
+    assert ref.extra["kind"] == "space" and ref.extra["mid"] == "946974"
+
+
+def test_get_space_videos_signs(monkeypatch):
+    c = ApiClient()
+    monkeypatch.setattr("providers.bilibili._get_wbi_keys",
+                        lambda session, timeout: ("i" * 64, "s" * 64))
+    captured = {}
+    monkeypatch.setattr(ApiClient, "_get",
+                        lambda self, path, params=None, envelope=True:
+                        captured.update(params or {})
+                        or {"list": {"vlist": []}, "page": {"count": 0, "ps": 5}})
+    c.get_space_videos(946974, ps=5, pn=2)
+    assert captured["mid"] == 946974 and captured["pn"] == 2
+    assert "w_rid" in captured and "wts" in captured
+
+
+def test_list_items_space(monkeypatch):
+    def _v(i):
+        return {"bvid": f"BV{i}", "aid": i, "title": f"T{i}", "length": "12:34",
+                "play": i * 10, "description": "d" + str(i), "author": "UP", "created": 1700000000}
+
+    def fake(self, mid, ps=30, pn=1, order="pubdate"):
+        return {"videos": [_v(i) for i in range((pn - 1) * 30, min(pn * 30, 31))], "total": 31}
+
+    monkeypatch.setattr(ApiClient, "get_space_videos", fake)
+    a = BilibiliAdapter(client=ApiClient())
+    refs = a.list_items(a.resolve("https://space.bilibili.com/946974"))
+    assert len(refs) == 31
+    assert refs[0].item_id == "BV0" and refs[0].duration == 754 and refs[0].sub_id == "1"
+    assert refs[0].extra["owner"] == "UP" and refs[0].extra["view"] == 0
+    assert refs[30].item_id == "BV30"

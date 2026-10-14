@@ -124,6 +124,22 @@ def load_cookie(client) -> bool:
             client.session.cookies.set(k.strip(), v.strip(), domain=".bilibili.com")
     return True
 
+_SPACE_RE = re.compile(r"space\.bilibili\.com/(\d+)")
+
+
+def _length_to_sec(text: str) -> int:
+    """B站时长字符串（12:34 / 1:02:03）→ 秒"""
+    parts = [p for p in (text or "").strip().split(":") if p != ""]
+    try:
+        nums = [int(p) for p in parts]
+    except ValueError:
+        return 0
+    sec = 0
+    for n in nums:
+        sec = sec * 60 + n
+    return sec
+
+
 class ApiClient:
     def __init__(self, session: requests.Session = None, timeout: int = 15, warm: bool = True,
                  max_retries: int = 4, retry_base_delay: float = 1.5):
@@ -352,6 +368,21 @@ class ApiClient:
         return [SubtitleLine(float(l["from"]), float(l["to"]), l["content"])
                 for l in (payload.get("body") or [])]
 
+    def get_space_videos(self, mid, ps: int = 30, pn: int = 1, order: str = "pubdate") -> dict:
+        """UP 主视频列表（wbi 签名；基建与 search 同源）→ {videos, total, ps}"""
+        img_key, sub_key = _get_wbi_keys(self.session, self.timeout)
+        params = {"mid": int(mid), "ps": int(ps), "pn": int(pn), "order": order,
+                  "platform": "web", "web_location": 1550101}
+        params["wts"] = int(time.time())
+        params["w_rid"] = hashlib.md5(
+            (urllib.parse.urlencode(sorted(params.items()))
+             + get_mixin_key(img_key, sub_key)).encode()
+        ).hexdigest()
+        data = self._get("/x/space/wbi/arc/search", params)
+        page = data.get("page") or {}
+        return {"videos": ((data.get("list") or {}).get("vlist") or []),
+                "total": page.get("count") or 0, "ps": page.get("ps") or ps}
+
     def search(self, keyword: str, limit: int = 5) -> list:
         """搜索视频 → [{bvid,title,author,duration}]；需要登录 cookie（未登录搜索被风控）"""
         if not (self.session.cookies.get("SESSDATA") or load_cookie(self)):
@@ -530,14 +561,50 @@ class BilibiliAdapter:
                     or _BV_RE.fullmatch(u) or _AV_RE.fullmatch(u))
 
     def resolve(self, q: str) -> ItemRef:
+        sm = _SPACE_RE.search(q or "")
+        if sm and "/favlist" not in (q or ""):
+            mid = sm.group(1)
+            return ItemRef(platform="bilibili", item_id=f"space-{mid}",
+                           url=f"https://space.bilibili.com/{mid}", sub_id="1",
+                           extra={"kind": "space", "mid": mid})
         spec = resolve_input(q)
         return ItemRef(platform="bilibili", item_id=spec.bvid,
                        url=(f"https://www.bilibili.com/video/{spec.bvid}" if spec.bvid else ""),
                        sub_id=str(spec.page or 1),
                        extra={"aid": spec.aid, "page": spec.page, "spec": spec})
 
+    def _list_space(self, ref, limit: int = 300) -> list:
+        """UP 主视频列表：wbi 分页（≤limit 条）"""
+        mid = ref.extra["mid"]
+        items, pn, total = [], 1, None
+        while len(items) < limit:
+            d = self.client.get_space_videos(mid, ps=30, pn=pn)
+            vlist = d.get("videos") or []
+            total = d.get("total") if total is None else total
+            if not vlist:
+                break
+            for v in vlist:
+                bvid = (v.get("bvid") or "").strip()
+                if not bvid:
+                    continue
+                items.append(ItemRef(
+                    platform="bilibili", item_id=bvid,
+                    url=f"https://www.bilibili.com/video/{bvid}",
+                    sub_id=str(len(items) + 1), title=(v.get("title") or "").strip(),
+                    duration=_length_to_sec(v.get("length")),
+                    extra={"bvid": bvid, "aid": v.get("aid"),
+                           "owner": (v.get("author") or "").strip(),
+                           "desc": (v.get("description") or "")[:200],
+                           "view": v.get("play") or 0, "pubdate": v.get("created")}))
+            if (total and len(items) >= total) or len(vlist) < 30:
+                break
+            pn += 1
+        return items
+
     def list_items(self, ref):
         """多 P 展开：每个分P 一个 ItemRef（带上 info/cid 供后续复用，避免重复请求）"""
+        if (ref.extra or {}).get("kind") == "space":
+            return self._list_space(ref)
         info = self.client.get_video_info(bvid=ref.item_id, aid=ref.extra.get("aid") or 0)
         items = []
         for p in info.pages:
