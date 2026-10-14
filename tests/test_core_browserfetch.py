@@ -187,3 +187,42 @@ def test_tap_json_no_match_raises_structure_changed():
         s.tap_json(r"/never/", action=lambda: None, settle_ms=0)
     assert e.value.kind == "structure_changed"
     assert page.handlers == []
+
+
+class FakeScrollPage:
+    def __init__(self, html=""):
+        self.evals = []
+        self._html = html
+
+    def evaluate(self, js):
+        self.evals.append(js)
+
+    def content(self):
+        return self._html
+
+
+def test_scroll_steps_and_throttle(monkeypatch):
+    calls = []
+    monkeypatch.setattr(bf.throttle, "wait", lambda platform: calls.append(platform))
+    page = FakeScrollPage()
+    s = _session_with_page(page)
+    s.scroll(times=3, step_px=500)
+    assert page.evals == ["window.scrollBy(0, 500)"] * 3
+    assert calls == ["douyin"] * 3
+
+
+def test_scroll_zero_times(monkeypatch):
+    calls = []
+    monkeypatch.setattr(bf.throttle, "wait", lambda platform: calls.append(platform))
+    page = FakeScrollPage()
+    s = _session_with_page(page)
+    s.scroll(times=0)
+    assert page.evals == [] and calls == []
+
+
+def test_login_probe_markers():
+    s = _session_with_page(FakeScrollPage('<html><button>登录</button>ok</html>'))
+    assert s.login_probe(bad_marker="登录") is False        # 命中未登录标记
+    assert s.login_probe(ok_marker="ok") is True
+    assert s.login_probe(ok_marker="不存在") is False
+    assert s.login_probe() is True                          # 无标记 → 保守放行

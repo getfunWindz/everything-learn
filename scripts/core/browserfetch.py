@@ -159,6 +159,21 @@ class BrowserSession:
                 kind="structure_changed")
         return collected
 
+    def scroll(self, times=1, step_px=800):
+        """人类化滚动：每次滚动后按平台缓速间隔等待（间隔含抖动）"""
+        for _ in range(max(0, times)):
+            self.page.evaluate(f"window.scrollBy(0, {int(step_px)})")
+            throttle.wait(self.platform)
+
+    def login_probe(self, ok_marker=None, bad_marker=None) -> bool:
+        """登录态探针：bad_marker 命中 → False；ok_marker 未命中 → False；都不传 → True"""
+        html = self.page.content()
+        if bad_marker and bad_marker in html:
+            return False
+        if ok_marker and ok_marker not in html:
+            return False
+        return True
+
 
 def fetch_json(url: str, warm_url: str = None, attempts: int = 2, retry_wait: float = 8.0) -> dict:
     """兼容入口（Medium 用）：等价 BrowserSession('default').fetch_json(...)"""
