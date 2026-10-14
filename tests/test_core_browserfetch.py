@@ -236,3 +236,31 @@ def test_launch_args_visible_vs_offscreen():
     assert "--window-position=80,80" in vis
     assert not any(a.startswith("--window-position=-") for a in vis)
     assert "--disable-blink-features=AutomationControlled" in vis
+
+
+class FakeCtxCookies:
+    def __init__(self, names):
+        self._names = names
+
+    def cookies(self):
+        return [{"name": n, "value": "v"} for n in self._names]
+
+
+class FakeClickPage(FakeScrollPage):
+    def __init__(self, html=""):
+        super().__init__(html)
+        self.clicks = []
+
+    def click(self, selector, timeout=5000):
+        self.clicks.append((selector, timeout))
+
+
+def test_session_click_html_has_cookie():
+    page = FakeClickPage("<html>ok</html>")
+    page.context = FakeCtxCookies(["sessionid"])
+    s = _session_with_page(page)
+    s.click("text=收藏", timeout=8000)
+    assert page.clicks == [("text=收藏", 8000)]
+    assert s.html() == "<html>ok</html>"
+    assert s.has_cookie("sessionid") is True
+    assert s.has_cookie("nope") is False

@@ -187,6 +187,21 @@ class BrowserSession:
             self.page.evaluate(f"window.scrollBy(0, {int(step_px)})")
             throttle.wait(self.platform)
 
+    def click(self, selector, timeout=5000):
+        """点击元素（Playwright 自带等待；找不到抛异常由调用方转可读错误）"""
+        self.page.click(selector, timeout=timeout)
+
+    def html(self) -> str:
+        """当前页面完整 HTML（SSR 解析用）"""
+        return self.page.content()
+
+    def has_cookie(self, name) -> bool:
+        """cookie 存在性（httpOnly 可见；登录探针用）"""
+        try:
+            return any(c.get("name") == name for c in self.page.context.cookies())
+        except Exception:
+            return False
+
     def login_probe(self, ok_marker=None, bad_marker=None) -> bool:
         """登录态探针：bad_marker 命中 → False；ok_marker 未命中 → False；都不传 → True"""
         html = self.page.content()
