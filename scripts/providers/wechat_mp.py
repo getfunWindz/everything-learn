@@ -23,6 +23,11 @@ _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
        "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
 _HOST_RE = re.compile(r"mp\.weixin\.qq\.com/s\b")
 _SHORT_RE = re.compile(r"mp\.weixin\.qq\.com/s/([A-Za-z0-9_\-]{10,})")
+_ALBUM_RE = re.compile(r"mp\.weixin\.qq\.com/mp/appmsgalbum")
+_ALBUM_API = ("https://mp.weixin.qq.com/mp/appmsgalbum?action=getalbum&__biz={biz}"
+              "&scene=1&album_id={album_id}&f=json&count={count}")
+_ALBUM_COUNT = 10
+_ALBUM_MAX_PAGES = 30
 _SOGOU_SEARCH = "https://weixin.sogou.com/weixin?type=2&query={q}"
 
 
@@ -53,6 +58,41 @@ def parse_meta(html: str) -> dict:
             published = ""
     return {"title": title, "account": account, "author": author,
             "published": published, "canonical": _find(html, r'var msg_link = "([^"]+)"')}
+
+
+def parse_album(payload: dict) -> dict:
+    """getalbum_resp → {title, author, count, articles, continued, last}；
+    article_list 兼容单条（dict）与多条（list）（微信 PHP json 的老癖好）"""
+    resp = (payload or {}).get("getalbum_resp") or {}
+    bi = resp.get("base_info") or {}
+    al = resp.get("article_list")
+    raw = al if isinstance(al, list) else ([al] if isinstance(al, dict) and al else [])
+    arts = []
+    for it in raw:
+        url = (it.get("url") or "").strip()
+        if url.startswith("http://"):
+            url = "https://" + url[7:]
+        if not url:
+            continue
+        arts.append({"title": (it.get("title") or "").strip(), "url": url,
+                     "msgid": it.get("msgid"), "itemidx": it.get("itemidx")})
+    return {"title": (bi.get("title") or "").strip(),
+            "author": (bi.get("nickname") or bi.get("username") or "").strip(),
+            "count": int(bi.get("article_count") or 0),
+            "articles": arts,
+            "continued": bool(resp.get("continue_flag")),
+            "last": (arts[-1] if arts else None)}
+
+
+def _album_article_id(url: str) -> str:
+    qs = parse_qs(urlparse(url).query)
+    biz = (qs.get("__biz") or [""])[0]
+    mid = (qs.get("mid") or [""])[0]
+    idx = (qs.get("idx") or ["1"])[0]
+    if biz and mid:
+        slug = re.sub(r"[^A-Za-z0-9]+", "_", biz)[:24].strip("_")
+        return f"wx-{slug}_{mid}_{idx}"
+    return f"wx-{hashlib.md5(url.encode('utf-8')).hexdigest()[:12]}"
 
 
 def extract_article(html: str):
@@ -120,12 +160,23 @@ class WeChatMpAdapter:
 
     def match(self, url: str) -> bool:
         url = url or ""
+        if _ALBUM_RE.search(url):
+            return True
         if not _HOST_RE.search(url):
             return False
         return bool(_SHORT_RE.search(url) or ("?" in url))
 
     def resolve(self, q: str) -> ItemRef:
         q = (q or "").strip()
+        if _ALBUM_RE.search(q):
+            qs = parse_qs(urlparse(q).query)
+            biz = (qs.get("__biz") or [""])[0]
+            album_id = (qs.get("album_id") or [""])[0]
+            if biz and album_id:
+                return ItemRef(platform="wechat_mp", item_id=f"wx-album-{album_id}",
+                               url=q, sub_id="1",
+                               extra={"kind": "album", "biz": biz, "album_id": album_id})
+            raise SearchNeeded(q)
         m = _SHORT_RE.search(q)
         if m:
             token = m.group(1)
@@ -150,7 +201,63 @@ class WeChatMpAdapter:
                                       "referer": "https://weixin.sogou.com/"})
         raise SearchNeeded(q)
 
+    def _get_json(self, url: str) -> dict:
+        try:
+            r = self.session.get(url, headers={"Referer": "https://mp.weixin.qq.com/"}, timeout=25)
+        except requests.RequestException as e:
+            raise WeChatError(f"网络请求失败：{str(e)[:80]}")
+        if r.status_code != 200:
+            raise WeChatError(f"公众号合集接口异常（HTTP {r.status_code}）")
+        try:
+            d = r.json()
+        except Exception:
+            raise WeChatError("公众号合集接口返回非 JSON（可能被风控）")
+        ret = (d.get("base_resp") or {}).get("ret")
+        if ret:
+            raise WeChatError(f"公众号合集接口错误（ret={ret}）")
+        return d
+
+    def _album_data(self, ref) -> dict:
+        """合集数据（分页拼接 + 实例缓存：list_items/根 meta 共用）"""
+        key = ref.item_id or ref.url
+        cached = getattr(self, "_album_cache", None)
+        if cached and cached.get("key") == key:
+            return cached["data"]
+        biz, album_id = ref.extra["biz"], ref.extra["album_id"]
+        articles, title, author, last = [], "", "", None
+        for _ in range(_ALBUM_MAX_PAGES):
+            url = _ALBUM_API.format(biz=urllib.parse.quote(biz), album_id=album_id,
+                                    count=_ALBUM_COUNT)
+            if last:
+                url += f"&begin_msgid={last['msgid']}&begin_itemidx={last['itemidx']}"
+            d = parse_album(self._get_json(url))
+            title = title or d["title"]
+            author = author or d["author"]
+            seen = {a["url"] for a in articles}
+            new = [a for a in d["articles"] if a["url"] not in seen]
+            articles.extend(new)
+            last = d["last"]
+            if not d["continued"] or not new:
+                break
+        data = {"title": title, "author": author, "articles": articles}
+        self._album_cache = {"key": key, "data": data}
+        return data
+
+    def fetch_root_meta(self, ref, refs) -> ItemMeta:
+        """合集根元信息：公众号合集用 collection 自身标题/账号；其余沿用首条"""
+        if (ref.extra or {}).get("kind") == "album":
+            d = self._album_data(ref)
+            return ItemMeta(title=d["title"] or "公众号合集", author=d["author"] or "",
+                            url=ref.url, page="1")
+        return self.fetch_meta(refs[0])
+
     def list_items(self, ref):
+        if (ref.extra or {}).get("kind") == "album":
+            data = self._album_data(ref)
+            return [ItemRef(platform="wechat_mp", item_id=_album_article_id(a["url"]),
+                            url=a["url"], sub_id=str(i), title=a["title"],
+                            extra={"kind": "article"})
+                    for i, a in enumerate(data["articles"], 1)]
         return [ref]
 
     # ---------------- 内容 ----------------

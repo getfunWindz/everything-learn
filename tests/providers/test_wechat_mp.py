@@ -3,7 +3,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts"
 import pytest
 from core.adapter import SearchNeeded
 from providers.wechat_mp import (WeChatMpAdapter, WeChatError,
-                                 parse_sogou_results, parse_meta, extract_article)
+                                 parse_sogou_results, parse_meta, extract_article,
+                                 parse_album)
 from tests.contract.harness import run_contract
 
 
@@ -13,8 +14,56 @@ def test_match_short_and_long():
     assert a.match("https://mp.weixin.qq.com/s?__biz=MzI3MjY1ODI2Ng==&mid=2247484162&idx=1&sn=abc123")
     assert a.match("http://mp.weixin.qq.com/s/AbCdEf1234567890_-abc")
     assert not a.match("https://mp.weixin.qq.com/")
-    assert not a.match("https://mp.weixin.qq.com/mp/appmsgalbum?__biz=x")
+    assert a.match("https://mp.weixin.qq.com/mp/appmsgalbum?__biz=MzI3&action=getalbum&album_id=9")
+    assert not a.match("https://mp.weixin.qq.com/mp/other")
     assert not a.match("https://example.com/s/AbCdEf1234567890_-abc")
+
+
+def test_resolve_album():
+    a = WeChatMpAdapter(session=object())
+    ref = a.resolve("https://mp.weixin.qq.com/mp/appmsgalbum?__biz=MzI3&action=getalbum&album_id=9")
+    assert ref.extra["kind"] == "album" and ref.extra["album_id"] == "9"
+
+
+def test_parse_album_shapes():
+    single = {"base_resp": {"ret": 0}, "getalbum_resp": {
+        "base_info": {"title": "tcp", "nickname": "午夜抵达", "article_count": "1"},
+        "article_list": {"title": "A", "url": "http://mp.weixin.qq.com/s?__biz=x&mid=1&idx=1",
+                         "msgid": "1", "itemidx": "1"},
+        "continue_flag": 0}}
+    d = parse_album(single)
+    assert d["title"] == "tcp" and d["author"] == "午夜抵达" and len(d["articles"]) == 1
+    assert d["articles"][0]["url"].startswith("https://")
+    multi = {"getalbum_resp": {
+        "base_info": {"article_count": "2"},
+        "article_list": [{"title": "A", "url": "http://x/s?__biz=b&mid=1&idx=1",
+                          "msgid": "1", "itemidx": "1"},
+                         {"title": "B", "url": "http://x/s?__biz=b&mid=2&idx=1",
+                          "msgid": "2", "itemidx": "1"}],
+        "continue_flag": 1}}
+    d2 = parse_album(multi)
+    assert len(d2["articles"]) == 2 and d2["continued"] and d2["last"]["msgid"] == "2"
+
+
+def test_list_items_album_pagination(monkeypatch):
+    a = WeChatMpAdapter(session=object())
+    pages = [
+        {"getalbum_resp": {"base_info": {"title": "T", "nickname": "A", "article_count": "3"},
+                           "article_list": [{"title": "A1", "url": "http://mp.weixin.qq.com/s?__biz=b&mid=1&idx=1", "msgid": "1", "itemidx": "1"}],
+                           "continue_flag": 1}},
+        {"getalbum_resp": {"base_info": {"title": "T", "nickname": "A", "article_count": "3"},
+                           "article_list": [{"title": "A2", "url": "http://mp.weixin.qq.com/s?__biz=b&mid=2&idx=1", "msgid": "2", "itemidx": "1"}],
+                           "continue_flag": 0}},
+    ]
+    calls = []
+    monkeypatch.setattr(WeChatMpAdapter, "_get_json",
+                        lambda self, url: calls.append(url) or pages.pop(0))
+    ref = a.resolve("https://mp.weixin.qq.com/mp/appmsgalbum?__biz=b&action=getalbum&album_id=9")
+    refs = a.list_items(ref)
+    assert len(refs) == 2 and refs[0].sub_id == "1" and refs[0].title == "A1"
+    assert "begin_msgid=1" in calls[1]
+    meta = a.fetch_root_meta(ref, refs)
+    assert meta.title == "T" and meta.author == "A"
 
 
 def test_resolve_short_link():
