@@ -71,6 +71,8 @@ python scripts/el.py run <链接/名称> [--page N | --pages "1-10" | --all] --o
 3. 用户确认「可自动化」后，按 `docs/ADAPTER_TEMPLATE.md` + `scripts/providers/_template.py` 现场实现，并完成测试三件套（fixture 单测 + 契约测试 + 真实链接冒烟）；
 4. 冒烟不通过不合入；尽调判定不可达则停止并说明原因与替代方案。
 
+> CLI 行为：`run`/`scan` 遇到**未识别 URL** 会直接给出本流程提示（不再兜底成 B 站名称搜索）；`python scripts/el.py platforms` 可查当前已注册名单。
+
 ## 4. 撰写报告（agent 核心工作）
 
 读取产物目录中的三件套，补全 `report_template.md` → 另存为 `<标题>_学习报告.md`。**以下为硬性规则**：

@@ -71,6 +71,7 @@ python scripts/el.py scan "https://space.bilibili.com/<mid>" --limit 20         
 python scripts/el.py toview / history --limit 10 / following            # B站账号数据（需 cookie）
 
 # 环境自检 / 报告导出
+python scripts/el.py platforms                  # 列出已注册平台（名单）+ 自进化入口
 python scripts/el.py doctor
 python scripts/el.py export "<报告目录>" --format html
 ```

@@ -47,3 +47,23 @@
 #     def fetch_media_url(self, ref, media: str = "audio", lowest: bool = False):
 #         """media=audio → Whisper 用；media=video → 抽帧复检用；无媒体返回 None"""
 #         return None
+#
+#     # ---- 可选钩子（按需）----
+#     def sniff(self, url: str) -> bool:
+#         """match 全未命中时的网络探测兜底（仅 http(s)；仅看 content-type/首段字节，别做重活）"""
+#         return False
+#
+#     def media_headers(self):
+#         """媒体下载（Whisper/抽帧）请求头；平台 CDN 校验 UA/Referer 时必须"""
+#         return None
+#
+#     def fetch_root_meta(self, ref, refs):
+#         """合集根 meta（收藏夹/列表/频道等账号级列表用列表自身 meta；默认取 refs[0]）"""
+#         return self.fetch_meta(refs[0])
+#
+# # 需 cookie 的平台声明导出规格（见 docs/ADAPTER_SPEC.md §4）：
+# # COOKIE_EXPORT = {"url": "...", "read_url": "...", "required": [...], "ready": [...],
+# #                  "wanted": [...], "file": ".<platform>_cookie",
+# #                  "verify": {"url": "...", "expect": "..."}}   # 必要时加登录校验
+#
+# # 并指定平台缓速（越易触发风控越慢）：core.throttle 默认间隔 + config.rate_limits.<platform>
