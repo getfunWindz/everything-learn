@@ -27,4 +27,15 @@ jobs:
           python -X utf8 -c "import sys; sys.path.insert(0, 'scripts'); from core import config; config.ensure_config(); print('config ok')"
 
       - name: 运行测试
-        run: python -X utf8 -m pytest tests/ -q
+        run: |
+          python -V
+          python -X utf8 -m pytest tests/ -q --tb=line > pytest.log 2>&1
+          $code = $LASTEXITCODE
+          Get-Content pytest.log -Tail 30
+          if ($code -ne 0) {
+            Write-Host "::error::python=$(python -V 2>&1) exit=$code"
+            Get-Content pytest.log | Select-String -Pattern '^(FAILED|ERROR) ' | Select-Object -First 10 | ForEach-Object {
+              Write-Host "::error::$($_.Line)"
+            }
+            exit $code
+          }
