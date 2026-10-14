@@ -226,3 +226,13 @@ def test_login_probe_markers():
     assert s.login_probe(ok_marker="ok") is True
     assert s.login_probe(ok_marker="不存在") is False
     assert s.login_probe() is True                          # 无标记 → 保守放行
+
+
+def test_launch_args_visible_vs_offscreen():
+    """回归：可见模式必须显式指定屏内位置（profile 会记忆上一次的离屏位置）"""
+    off = bf._launch_args(False)
+    vis = bf._launch_args(True)
+    assert any(a.startswith("--window-position=-") for a in off)
+    assert "--window-position=80,80" in vis
+    assert not any(a.startswith("--window-position=-") for a in vis)
+    assert "--disable-blink-features=AutomationControlled" in vis

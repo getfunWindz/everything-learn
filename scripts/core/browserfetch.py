@@ -15,9 +15,16 @@ import time
 from core import throttle
 
 _HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # scripts/
-_OFFSCREEN = ["--window-position=-2600,-2600", "--window-size=1200,800",
-              "--disable-blink-features=AutomationControlled"]
+_STEALTH = ["--disable-blink-features=AutomationControlled"]
+_OFFSCREEN = _STEALTH + ["--window-position=-2600,-2600", "--window-size=1200,800"]
+_VISIBLE = _STEALTH + ["--window-position=80,80", "--window-size=1280,900",
+                       "--no-first-run", "--no-default-browser-check"]
 _ctx = {"pw": None, "context": None, "page": None, "interactive": None}
+
+
+def _launch_args(interactive: bool) -> list:
+    """启动参数：可见模式必须显式给屏内位置——profile 会记忆上一次的离屏位置"""
+    return list(_VISIBLE) if interactive else list(_OFFSCREEN)
 
 
 class BrowserFetchError(ValueError):
@@ -46,6 +53,19 @@ def parse_fetch_result(result: dict) -> dict:
         raise BrowserFetchError(f"响应不是 JSON：{str(e)[:80]}", kind="structure_changed")
 
 
+def _ensure_visible(page):
+    """CDP 强制窗口归位屏内（双保险：覆盖 profile 记忆的离屏位置）"""
+    try:
+        cdp = page.context.new_cdp_session(page)
+        win = cdp.send("Browser.getWindowForTarget")
+        cdp.send("Browser.setWindowBounds", {
+            "windowId": win["windowId"],
+            "bounds": {"left": 80, "top": 80, "width": 1280, "height": 900,
+                       "windowState": "normal"}})
+    except Exception:
+        pass
+
+
 def _launch(browser: str, interactive: bool) -> dict:
     """真实启动浏览器（测试可注入等价 launcher 替换）"""
     try:
@@ -53,7 +73,7 @@ def _launch(browser: str, interactive: bool) -> dict:
     except ImportError:
         raise BrowserFetchError("未安装 playwright：pip install playwright（无需 playwright install）")
     profile = os.path.join(_HERE, f".browser_profile_{browser}")
-    args = [] if interactive else list(_OFFSCREEN)
+    args = _launch_args(interactive)
     pw = sync_playwright().start()
     try:
         ctx = pw.chromium.launch_persistent_context(profile, channel=browser, headless=False,
@@ -62,6 +82,8 @@ def _launch(browser: str, interactive: bool) -> dict:
         pw.stop()
         raise BrowserFetchError(f"浏览器启动失败：{str(e)[:120]}")
     page = ctx.pages[0] if ctx.pages else ctx.new_page()
+    if interactive:
+        _ensure_visible(page)
     return {"pw": pw, "context": ctx, "page": page}
 
 
