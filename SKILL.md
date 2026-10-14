@@ -20,7 +20,7 @@ description: 将多平台学习内容（视频/音频/图文/帖子）总结为�
 | 知乎 | `document`（图文） | ✅ 可用（专栏文章/回答/问题首屏；cookie 可 `python scripts/el.py cookie zhihu` 一键导出） |
 | TED | `timeline`（视频） | ✅ 可用（官网官方字幕：多语含简中，zh-cn 优先；无字幕时 mp4→Whisper 兜底） |
 | Medium | `document`（图文） | 🟡 实现完成（双通道：浏览器辅助正文 + feed 解析）；Cloudflare 高风控，真实冒烟待冷却复跑 |
-| 微博 | `document`（帖子） | ✅ 可用（单帖：正文/长文/图片/转发；用户时间线需 cookie：`el.py cookie weibo`） |
+| 微博 | `document`（帖子） | ✅ 可用（单帖：正文/长文/图片/转发；用户时间线/**我的收藏** `scan` 需 cookie：`el.py cookie weibo`） |
 | 微信公众号 | `document`（图文） | ✅ 可用（单篇链接直连，无需 cookie；搜狗搜索实验性：`el.py search --platform wechat`） |
 | X（Twitter） | `document`（推文） | ✅ 可用（单推文：正文/图片/口播转写；主页时间线 scan（需登录 + 浏览器代理）；搜索不做） |
 | 小红书 | `document`（笔记） | ✅ 可用（单笔记：正文/图片；视频笔记附口播转写；链接需含短时效 token；主页/收藏枚举：`scan`，需登录） |
@@ -46,7 +46,7 @@ description: 将多平台学习内容（视频/音频/图文/帖子）总结为�
 - 链接 / 平台标识：`python scripts/el.py resolve <输入>` 确认平台与标识；
 - 名称类输入：走平台搜索（B 站 `el.py search <关键词>`），**列出候选让用户确认**后再继续；
 - **公众号搜索（实验性）**：`el.py search --platform wechat "<关键词>"` 列出候选；直接抓取用 `el.py run --platform wechat "<关键词>" --pick N`（搜狗结果链接**会话绑定**，必须同进程立即抓取，不能跨进程复用）。
-- **账号级扫描（M11）**：用户主页/收藏夹/频道等列表链接 → `el.py scan <链接> [--filter] [--priority] [--limit] [--snapshot]` 先枚举与筛选（命中项可 `--snapshot` 存档）；批量抓取用 `el.py run <链接> --all`（或 `--pages "1-10"`）；B站账号数据另有 `el.py toview|history|following`（需 cookie）。
+- **账号级扫描（M11/M12）**：用户主页/收藏夹/频道/我的收藏等列表链接 → `el.py scan <链接> [--filter] [--priority] [--limit] [--snapshot]` 先枚举与筛选（命中项可 `--snapshot` 存档）；批量抓取用 `el.py run <链接> --all`（或 `--pages "1-10"`）；微博收藏入口 `https://weibo.com/u/favorites`（需 cookie）；B站账号数据另有 `el.py toview|history|following`（需 cookie）。
 
 ## 2. 获取内容
 ```bash
