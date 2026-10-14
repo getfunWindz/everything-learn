@@ -113,3 +113,77 @@ def test_top_fetch_json_delegates_to_session(monkeypatch):
     monkeypatch.setattr(bf, "BrowserSession", FakeSession)
     assert bf.fetch_json("u", warm_url="w") == {"ok": 1}
     assert calls == {"platform": "default", "url": "u", "warm": "w"}
+
+
+class FakeResp:
+    def __init__(self, url, data=None, bad=False):
+        self.url = url
+        self._data = data
+        self._bad = bad
+
+    def json(self):
+        if self._bad:
+            raise ValueError("no body")
+        return self._data
+
+
+class FakeEventPage:
+    def __init__(self):
+        self.handlers = []
+        self.removed = []
+        self.timeouts = []
+
+    def on(self, event, handler):
+        self.handlers.append((event, handler))
+
+    def remove_listener(self, event, handler):
+        self.removed.append((event, handler))
+        self.handlers.remove((event, handler))
+
+    def wait_for_timeout(self, ms):
+        self.timeouts.append(ms)
+
+
+def _session_with_page(page):
+    s = bf.BrowserSession("douyin")
+    s._page = page
+    return s
+
+
+def test_tap_json_collects_and_filters():
+    page = FakeEventPage()
+    s = _session_with_page(page)
+
+    def action():
+        for _, h in list(page.handlers):
+            h(FakeResp("https://www.douyin.com/aweme/v1/web/aweme/post/?a=1",
+                       {"aweme_list": [{"aweme_id": "1"}]}))
+            h(FakeResp("https://other.example/api/feed", {"nope": True}))
+            h(FakeResp("https://www.douyin.com/aweme/v1/web/aweme/post/?a=2", bad=True))
+
+    out = s.tap_json(r"/aweme/v1/web/aweme/post/", action=action)
+    assert out == [{"aweme_list": [{"aweme_id": "1"}]}]
+    assert page.handlers == []                    # 监听器已移除
+    assert page.removed                        # remove_listener 被调用
+
+
+def test_tap_json_respects_limit():
+    page = FakeEventPage()
+    s = _session_with_page(page)
+
+    def action():
+        for i in range(3):
+            for _, h in list(page.handlers):
+                h(FakeResp(f"https://d.com/list?i={i}", {"i": i}))
+
+    out = s.tap_json(r"/list", action=action, limit=2)
+    assert len(out) == 2
+
+
+def test_tap_json_no_match_raises_structure_changed():
+    page = FakeEventPage()
+    s = _session_with_page(page)
+    with pytest.raises(BrowserFetchError) as e:
+        s.tap_json(r"/never/", action=lambda: None, settle_ms=0)
+    assert e.value.kind == "structure_changed"
+    assert page.handlers == []

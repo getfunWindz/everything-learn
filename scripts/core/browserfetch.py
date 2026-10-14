@@ -128,6 +128,37 @@ class BrowserSession:
                 time.sleep(retry_wait)
         raise last
 
+    def tap_json(self, url_pattern, action=None, limit=50, settle_ms=1500) -> list:
+        """旁路拦截：监听网络响应，执行 action（滚动/切页签/等待），收集 URL 匹配的 JSON。
+
+        签名请求由页面自身发出（不逆向签名）；未捕获到任何匹配响应时抛
+        structure_changed（未登录/接口路径变化/风控空转）。"""
+        import re as _re
+        collected = []
+
+        def _on_response(resp):
+            try:
+                if len(collected) >= limit:
+                    return
+                if not _re.search(url_pattern, getattr(resp, "url", "") or ""):
+                    return
+                collected.append(resp.json())
+            except Exception:
+                pass
+
+        self.page.on("response", _on_response)
+        try:
+            if action:
+                action()
+            self.page.wait_for_timeout(settle_ms)
+        finally:
+            self.page.remove_listener("response", _on_response)
+        if not collected:
+            raise BrowserFetchError(
+                f"未捕获到匹配 {url_pattern} 的 JSON 响应（可能未登录/接口变化/风控）",
+                kind="structure_changed")
+        return collected
+
 
 def fetch_json(url: str, warm_url: str = None, attempts: int = 2, retry_wait: float = 8.0) -> dict:
     """兼容入口（Medium 用）：等价 BrowserSession('default').fetch_json(...)"""
