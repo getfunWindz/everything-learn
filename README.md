@@ -86,7 +86,7 @@ python -m pytest tests/ -q    # 403 passed（全部 mock 网络，离线可跑�
 | 播客（RSS/Apple） | timeline（音频） | ✅ 可用 |
 | 知乎 | document（图文） | ✅ 可用（需 cookie；`scripts/cookie_export.py zhihu` 一键导出） |
 | TED | timeline（视频） | ✅ 可用（官网官方字幕，多语含简中） |
-| Medium | document（图文） | 🟡 实现完成（浏览器辅助 + feed）；CF 高风控，冒烟待冷却 |
+| Medium | document（图文） | ✅ 可用（浏览器 SSR 抽取正文 + feed 双通道；CF 平台缓速） |
 | 抖音 | timeline（视频） | ✅ 可用（单视频 + 主页/收藏/喜欢扫描；访客 cookie + yt-dlp/browserfetch；收藏/喜欢需登录） |
 | 微博 | document（帖子） | ✅ 可用（单帖；时间线/我的收藏 scan 需 cookie） |
 | 微信公众号 | document（图文） | ✅ 可用（单篇链接直连，无需 cookie；搜狗搜索实验性） |
