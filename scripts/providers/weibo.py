@@ -21,6 +21,10 @@ _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
 _POST_RE = re.compile(r"m\.weibo\.cn/(?:status|detail)/([0-9A-Za-z]+)")
 _WEB_POST_RE = re.compile(r"weibo\.com/\d+/([0-9A-Za-z]+)")
 _USER_RE = re.compile(r"(?:m\.weibo\.cn/u/|weibo\.com/u/|weibo\.com/)(\d{6,})")
+_FAVS_RE = re.compile(r"weibo\.com/u/favorites")
+_FAVS_PAGE = "https://weibo.com/u/favorites?page=1"
+_FAV_API = "https://weibo.com/ajax/favorites/all_fav?page={page}&with_total=true"
+_FAV_MAX_PAGES = 50           # 安全上限（约 1000 条），防无限翻页
 _SHOW = "https://m.weibo.cn/statuses/show?id={sid}"
 _EXTEND = "https://m.weibo.cn/statuses/extend?id={sid}"
 _TIMELINE = "https://m.weibo.cn/api/container/getIndex?type=uid&value={uid}&containerid=107603{uid}"
@@ -177,9 +181,13 @@ class WeiboAdapter:
 
     def match(self, url: str) -> bool:
         return bool(_POST_RE.search(url or "") or _WEB_POST_RE.search(url or "")
-                    or _USER_RE.search(url or ""))
+                    or _FAVS_RE.search(url or "") or _USER_RE.search(url or ""))
 
     def resolve(self, q: str) -> ItemRef:
+        if _FAVS_RE.search(q or ""):
+            return ItemRef(platform="weibo", item_id="favorites-self",
+                           url=_FAVS_PAGE, sub_id="1",
+                           extra={"kind": "favorites"})
         m = _POST_RE.search(q or "") or _WEB_POST_RE.search(q or "")
         if m:
             return ItemRef(platform="weibo", item_id=f"post-{m.group(1)}",

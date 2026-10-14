@@ -26,6 +26,15 @@ def test_match_and_resolve():
     assert wref.extra["kind"] == "post" and wref.extra["sid"] == "FFI520Hoj"
 
 
+def test_resolve_favorites_page():
+    a = WeiboAdapter()
+    assert a.match("https://weibo.com/u/favorites?page=1")
+    ref = a.resolve("https://weibo.com/u/favorites?page=1")
+    assert ref.extra["kind"] == "favorites"
+    assert ref.url.startswith("https://weibo.com/u/favorites")
+    assert ref.platform == "weibo"
+
+
 def test_strip_html():
     raw = '亲爱的罐妈，<br/>    投票告急<span class="url-icon"><img src="//x.png"></span>&amp; 加油'
     out = strip_html(raw)
