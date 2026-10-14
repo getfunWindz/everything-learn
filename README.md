@@ -2,9 +2,7 @@
 
 > **bilibili-learn 的全量进化版**：多平台学习内容总结技能 —— 视频 / 音频 / 图文 / 社媒短内容聚合。
 
-- 📄 设计文档（spec）：[docs/specs/2026-10-07-everything-learn-design.md](docs/specs/2026-10-07-everything-learn-design.md)
-- 🧩 适配器规范（自进化）：[docs/ADAPTER_SPEC.md](docs/ADAPTER_SPEC.md) · [开发指南](docs/ADAPTER_TEMPLATE.md)
-- 🚧 状态：**M0–M11 完成** —— B 站、YouTube、播客、知乎、TED、**微博（单帖）、抖音、微信公众号（单篇）、X（单推文）、小红书（单笔记）、账号级扫描**可用（含反爬缓速基座与 cookie 导出标配）；更多平台按路线接入
+- 🚧 状态：**M0–M12 完成** —— B 站、YouTube、播客、知乎、TED、微博、抖音、公众号、X、小红书 + **账号级扫描**（抖音主页/收藏/喜欢、小红书主页（含分页）/收藏、X 主页时间线；浏览器辅助）可用（含反爬缓速基座与 cookie 导出标配）；更多平台按路线接入
 - 🧬 上游项目：[bilibili-learn](https://github.com/getfunWindz/bilibili-learn)（轻量版，只做 B 站，保持原样）
 
 ## 当前能力（M0）
