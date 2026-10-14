@@ -197,3 +197,87 @@ def test_raw_cookie_prefers_env(monkeypatch):
     monkeypatch.setenv("WEIBO_COOKIE", "SUB=env")
     from providers.weibo import _raw_cookie
     assert _raw_cookie() == "SUB=env"
+
+
+def _fav(i, like=None):
+    m = {"id": str(5000 + i), "mblogid": f"F{i}", "bid": f"F{i}",
+         "text": f"收藏内容{i}", "user": {"screen_name": "收藏博主"},
+         "created_at": "Sat Sep 05 01:22:48 +0800 2020"}
+    if like is not None:
+        m["attitudes_count"] = like
+    return m
+
+
+def test_list_items_favorites_pagination(monkeypatch):
+    a = WeiboAdapter(session=object())
+    pages = [
+        {"ok": 1, "count": 20, "total_page": 2,
+         "data": {"status": [_fav(i) for i in range(1, 21)], "total_number": 25}},
+        {"ok": 1, "count": 20, "total_page": 2,
+         "data": {"status": [_fav(i) for i in range(21, 26)], "total_number": 25}},
+    ]
+    calls = []
+    monkeypatch.setattr(WeiboAdapter, "_get_json_desktop",
+                        lambda self, url: calls.append(url) or pages.pop(0))
+    refs = a.list_items(a.resolve("https://weibo.com/u/favorites"))
+    assert len(refs) == 25
+    assert "page=2" in calls[1]
+    assert refs[0].sub_id == "1" and refs[24].sub_id == "25"
+    assert refs[0].extra["mblog"]["text"] == "收藏内容1"
+    assert refs[0].url.endswith("/F1")
+
+
+def test_list_items_favorites_accepts_plain_list(monkeypatch):
+    """兼容不带 with_total 的旧形状（data 为纯数组）"""
+    a = WeiboAdapter(session=object())
+    monkeypatch.setattr(WeiboAdapter, "_get_json_desktop",
+                        lambda self, url: {"ok": 1, "count": 20, "data": [_fav(1), _fav(2)]})
+    refs = a.list_items(a.resolve("https://weibo.com/u/favorites"))
+    assert len(refs) == 2
+
+
+def test_favorites_items_carry_like_count(monkeypatch):
+    a = WeiboAdapter(session=object())
+    monkeypatch.setattr(WeiboAdapter, "_get_json_desktop",
+                        lambda self, url: {"ok": 1, "count": 20,
+                                           "data": {"status": [_fav(1, like=42)], "total_number": 1}})
+    refs = a.list_items(a.resolve("https://weibo.com/u/favorites"))
+    assert refs[0].extra["like"] == 42
+
+
+def test_list_items_favorites_empty(monkeypatch):
+    a = WeiboAdapter(session=object())
+    monkeypatch.setattr(WeiboAdapter, "_get_json_desktop",
+                        lambda self, url: {"ok": 1, "count": 20, "total_page": 0,
+                                           "data": {"status": [], "total_number": 0}})
+    assert a.list_items(a.resolve("https://weibo.com/u/favorites")) == []
+
+
+def test_list_items_favorites_not_logged_in(monkeypatch):
+    a = WeiboAdapter(session=object())
+    monkeypatch.setattr(WeiboAdapter, "_get_json_desktop",
+                        lambda self, url: {"ok": -100, "data": None})
+    with pytest.raises(WeiboError):
+        a.list_items(a.resolve("https://weibo.com/u/favorites"))
+
+
+def test_list_items_favorites_stops_on_risk(monkeypatch):
+    """中途风控：已有内容优雅停止，不抛"""
+    a = WeiboAdapter(session=object())
+
+    def gen(self, url):
+        if "page=2" in url:
+            raise WeiboError("微博风控拦截（432/空响应）")
+        return {"ok": 1, "count": 20, "total_page": 3,
+                "data": {"status": [_fav(i) for i in range(1, 21)], "total_number": 40}}
+
+    monkeypatch.setattr(WeiboAdapter, "_get_json_desktop", gen)
+    refs = a.list_items(a.resolve("https://weibo.com/u/favorites"))
+    assert len(refs) == 20
+
+
+def test_fetch_root_meta_favorites():
+    a = WeiboAdapter(session=object())
+    ref = a.resolve("https://weibo.com/u/favorites")
+    meta = a.fetch_root_meta(ref, [])
+    assert meta.title == "我的微博收藏"

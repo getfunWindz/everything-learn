@@ -324,8 +324,54 @@ class WeiboAdapter:
                 break
         return mblogs
 
+    def _list_favorites(self, ref) -> list:
+        """自己的收藏：桌面 all_fav 分页（需登录 cookie；with_total=true 形状）。
+        中途风控/未登录时：已有内容优雅停止，否则抛可读异常。"""
+        items, seen, total = [], set(), None
+        for page in range(1, _FAV_MAX_PAGES + 1):
+            try:
+                d = self._get_json_desktop(_FAV_API.format(page=page))
+            except WeiboError:
+                if items:
+                    break
+                raise
+            if d.get("ok") is not None and d.get("ok") <= 0:
+                if items:
+                    break
+                raise WeiboError("微博未登录或登录已失效：请先 "
+                                 "`python scripts/el.py cookie weibo` 重新导出 cookie")
+            data = d.get("data")
+            if isinstance(data, dict):
+                page_items, total = (data.get("status") or []), data.get("total_number")
+            else:                                # 兼容不带 with_total 的纯数组形状
+                page_items, total = (data or []), None
+            new = [m for m in page_items
+                   if str(m.get("id") or m.get("idstr")) not in seen]
+            for m in new:
+                seen.add(str(m.get("id") or m.get("idstr")))
+            items.extend(new)
+            if not page_items or len(page_items) < (d.get("count") or 20):
+                break
+            if total is not None and len(items) >= total:
+                break
+        out = []
+        for i, m in enumerate(items, 1):
+            sid = str(m.get("mblogid") or m.get("bid") or m.get("id") or m.get("idstr") or "")
+            if not sid:
+                continue
+            extra = {"kind": "post", "sid": sid, "mblog": m}
+            if m.get("attitudes_count") is not None:
+                extra["like"] = m.get("attitudes_count")
+            out.append(ItemRef(platform="weibo", item_id=f"post-{sid}",
+                               url=f"https://m.weibo.cn/status/{sid}", sub_id=str(i),
+                               title=strip_html(m.get("text") or "")[:40], extra=extra))
+        return out
+
     def list_items(self, ref):
-        if ref.extra.get("kind") != "user":
+        kind = (ref.extra or {}).get("kind")
+        if kind == "favorites":
+            return self._list_favorites(ref)
+        if kind != "user":
             return [ref]
         uid = ref.extra["uid"]
         mblogs = self._timeline_mblogs(uid)
@@ -340,6 +386,12 @@ class WeiboAdapter:
                                  title=strip_html(m.get("text") or "")[:40],
                                  extra={"kind": "post", "sid": bid, "mblog": m}))
         return items or [ref]
+
+    def fetch_root_meta(self, ref, refs) -> ItemMeta:
+        """合集根元信息：收藏列表用列表自身 meta；其余沿用首条（默认行为）"""
+        if (ref.extra or {}).get("kind") == "favorites":
+            return ItemMeta(title="我的微博收藏", author="", url=ref.url, page="1")
+        return self.fetch_meta(refs[0])
 
     def fetch_meta(self, ref) -> ItemMeta:
         if ref.extra.get("kind") != "post":
