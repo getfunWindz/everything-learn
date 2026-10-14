@@ -125,6 +125,28 @@ def test_fetch_content_download_error_falls_back_empty(monkeypatch):
     assert res.status == "empty" and "下载失败" in res.reason
 
 
+def test_fetch_content_falls_back_to_next_language(monkeypatch):
+    """首选语言轨 429 → 依次回退到链上其它语言（如 zh-Hans 挂→en 可用），而非直接放弃"""
+    info = {"duration": 14, "subtitles": {},
+            "automatic_captions": {"zh-Hans": [{"ext": "json3", "url": "http://x/zh.json3"}],
+                                   "en": [{"ext": "json3", "url": "http://x/en.json3"}]}}
+    a = YouTubeAdapter()
+    monkeypatch.setattr(a, "_extract", lambda *args, **kw: info)
+    calls = []
+
+    def dl(url):
+        calls.append(url)
+        if url.endswith("zh.json3"):
+            raise RuntimeError("HTTP 429")
+        return open(os.path.join(FIXT, "auto_rolling.json3"), encoding="utf-8").read()
+
+    monkeypatch.setattr(a, "_download", dl)
+    res = a.fetch_content(a.resolve("kCc8FmEb1nY"))
+    assert res.status == "ok"
+    assert calls == ["http://x/zh.json3", "http://x/en.json3"]
+    assert res.label == "字幕(自动)"
+
+
 # ---------------- T4：媒体直链 ----------------
 
 def test_pick_audio_best_m4a():

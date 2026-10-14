@@ -209,30 +209,58 @@ class YouTubeAdapter:
         subs = info.get("subtitles") or {}
         autos = info.get("automatic_captions") or {}
         chain = ([self.lang] if self.lang else []) + self._LANG_CHAIN
-        entry, label = self._pick_caption(subs, autos, chain)
-        if not entry:
+        candidates = self._caption_candidates(subs, autos, chain)
+        if not candidates:
             return ContentResult(kind="timeline", status="empty", reason="无字幕轨")
-        try:
-            text = self._download(entry["url"])
-        except Exception as e:
-            return ContentResult(kind="timeline", status="empty",
-                                 reason=f"字幕下载失败：{str(e)[:80]}")
-        ext = (entry.get("ext") or "").lower()
-        if ext == "json3":
-            segs = parse_json3(text)
-        elif ext == "vtt":
-            segs = parse_vtt(text)
-        else:
-            segs = parse_json3(text) or parse_vtt(text)
         duration = float(info.get("duration") or ref.duration or 0)
-        if not segs:
-            return ContentResult(kind="timeline", status="empty", reason="字幕解析为空", label=label)
-        last = segs[-1]["end"]
-        coverage = (last / duration) if duration else 1.0
-        if len(segs) < 10 or coverage < 0.5:
-            return ContentResult(kind="timeline", status="suspect", segments=segs, label=label,
-                                 reason=f"覆盖不足({len(segs)}段 末条{last:.0f}s)")
-        return ContentResult(kind="timeline", status="ok", segments=segs, label=label)
+        last_err = ""
+        for entry, label in candidates:
+            try:
+                text = self._download(entry["url"])
+            except Exception as e:
+                last_err = f"字幕下载失败：{str(e)[:80]}"   # 例如自动翻译轨 429 → 回退下一语言
+                continue
+            ext = (entry.get("ext") or "").lower()
+            if ext == "json3":
+                segs = parse_json3(text)
+            elif ext == "vtt":
+                segs = parse_vtt(text)
+            else:
+                segs = parse_json3(text) or parse_vtt(text)
+            if not segs:
+                last_err = "字幕解析为空"
+                continue
+            last = segs[-1]["end"]
+            coverage = (last / duration) if duration else 1.0
+            if len(segs) < 10 or coverage < 0.5:
+                return ContentResult(kind="timeline", status="suspect", segments=segs, label=label,
+                                     reason=f"覆盖不足({len(segs)}段 末条{last:.0f}s)")
+            return ContentResult(kind="timeline", status="ok", segments=segs, label=label)
+        return ContentResult(kind="timeline", status="empty", reason=last_err or "无字幕轨")
+
+    def _caption_candidates(self, subs, autos, chain):
+        """候选字幕轨（人工优先 → 自动；链上语言优先 → 其余兑底）；下载失败时依次回退"""
+        out, seen = [], set()
+
+        def add(table, lang, label):
+            entries = table.get(lang)
+            if not entries:
+                return
+            e = _pick_caption_entry(entries)
+            if e and e.get("url") and e["url"] not in seen:
+                seen.add(e["url"])
+                out.append((e, label))
+
+        langs = [l for l in chain if l]
+        for lang in langs:
+            add(subs, lang, "")
+        for lang in langs:
+            add(autos, lang, "字幕(自动)")
+        for table, label in ((subs, ""), (autos, "字幕(自动)")):
+            for lang in table:
+                if lang not in langs:
+                    add(table, lang, label)
+        return out
 
     def _pick_caption(self, subs, autos, chain):
         """人工字幕优先（按语言链）→ 自动字幕（按语言链）→ 任意人工 → 任意自动"""
