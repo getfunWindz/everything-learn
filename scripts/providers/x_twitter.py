@@ -11,6 +11,7 @@ from datetime import datetime
 
 import requests
 
+from core import browserfetch
 from core import config
 from core.adapter import SearchNeeded
 from core.models import ContentResult, ItemMeta, ItemRef
@@ -23,6 +24,8 @@ _STATUS_RE = re.compile(
     r"https?://(?:(?:mobile|www)\.)?(?:x|twitter)\.com/(?:[A-Za-z0-9_]+/)*(?:web/)?status/(\d+)")
 _TCO_RE = re.compile(r"https?://t\.co/([A-Za-z0-9]+)")
 _TWEET_API = "https://cdn.syndication.twimg.com/tweet-result"
+_HOME_RE = re.compile(r"(?:x|twitter)\.com/home")
+_HOME_TIMELINE_API = re.compile(r"/graphql/[^/]+/HomeTimeline")   # 操作名在路径，queryId 可轮换
 
 
 class XError(ValueError):
@@ -104,6 +107,31 @@ def parse_tweet(raw: dict) -> dict:
             "stats": {"like": raw.get("favorite_count"), "reply": raw.get("conversation_count")}}
 
 
+def parse_home_timeline_payload(payloads: list) -> list:
+    """HomeTimeline 载荷 → [{tweet_id,title,text}]（去重保序；兼容可见性包装）"""
+    out, seen = [], set()
+    for p in (payloads or []):
+        home = ((p or {}).get("data") or {}).get("home") or {}
+        urt = home.get("home_timeline_urt") or {}
+        for ins in (urt.get("instructions") or []):
+            for e in (ins.get("entries") or []):
+                if not str(e.get("entryId", "")).startswith("tweet-"):
+                    continue
+                tr = ((((e.get("content") or {}).get("itemContent") or {})
+                       .get("tweet_results") or {}).get("result") or {})
+                if tr.get("__typename") == "TweetWithVisibilityResults":
+                    tr = tr.get("tweet") or {}
+                tid = str(tr.get("rest_id") or "")
+                if not tid or tid in seen:
+                    continue
+                seen.add(tid)
+                text = ((tr.get("legacy") or {}).get("full_text") or "").strip()
+                first = (text.splitlines() or [""])[0].strip()
+                out.append({"tweet_id": tid, "text": text,
+                            "title": (first[:60] or f"推文 {tid}")})
+    return out
+
+
 @register
 class XTwitterAdapter:
     name = "x_twitter"
@@ -125,10 +153,14 @@ class XTwitterAdapter:
 
     def match(self, url: str) -> bool:
         url = url or ""
-        return bool(_STATUS_RE.search(url) or _TCO_RE.match(url))
+        return bool(_STATUS_RE.search(url) or _TCO_RE.match(url) or _HOME_RE.search(url))
 
     def resolve(self, q: str) -> ItemRef:
         q = (q or "").strip()
+        if _HOME_RE.search(q):
+            return ItemRef(platform="x_twitter", item_id="self-home",
+                           url="https://x.com/home", sub_id="1",
+                           extra={"kind": "home_timeline"})
         m = _STATUS_RE.search(q)
         if not m and _TCO_RE.match(q):
             try:
@@ -145,7 +177,34 @@ class XTwitterAdapter:
         raise SearchNeeded(q)
 
     def list_items(self, ref):
+        if (ref.extra or {}).get("kind") == "home_timeline":
+            return self._list_home_timeline(ref)
         return [ref]
+
+    def _list_home_timeline(self, ref, limit=20):
+        """主页时间线（拦截 HomeTimeline；受控单页；需登录 + 代理）"""
+        with browserfetch.BrowserSession("x_twitter") as s:
+            if not s.has_cookie("auth_token"):
+                raise XError("X 未登录：请先在本机自动化浏览器中登录 X"
+                             "（需配置 browser_proxy 或 EL_BROWSER_PROXY）")
+
+            def act():
+                s.goto(ref.url)
+                s.scroll_wheel(1)
+
+            payloads = s.tap_json(_HOME_TIMELINE_API.pattern, action=act,
+                                  min_results=0, settle_ms=8000)
+        tweets = parse_home_timeline_payload(payloads)
+        if not tweets:
+            raise XError("未解析到时间线条目（可能未登录/结构变化）")
+        items = []
+        for i, t in enumerate(tweets[:limit], 1):
+            items.append(ItemRef(platform="x_twitter", item_id=f"tw-{t['tweet_id']}",
+                                 url=f"https://x.com/i/status/{t['tweet_id']}",
+                                 sub_id=str(i), title=t["title"],
+                                 extra={"kind": "tweet", "tid": t["tweet_id"],
+                                        "desc": t["text"][:200]}))
+        return items
 
     # ---------------- 数据获取（一次请求 + 实例缓存） ----------------
 

@@ -3,7 +3,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts"
 import json
 import pytest
 from core.adapter import SearchNeeded
-from providers.x_twitter import XTwitterAdapter, tweet_token
+from providers.x_twitter import XTwitterAdapter, tweet_token, parse_home_timeline_payload
 from tests.contract.harness import run_contract
 
 
@@ -145,3 +145,108 @@ def test_404_readable():
     ref = a.resolve("https://x.com/NASA/status/2108563438901350773")
     res = a.fetch_content(ref)
     assert res.status == "empty" and "不存在" in res.reason
+
+
+def test_match_and_resolve_home():
+    a = XTwitterAdapter(session=object())
+    assert a.match("https://x.com/home") is True
+    assert a.match("https://twitter.com/home") is True
+    assert a.match("https://x.com/NASA/status/2108563438901350773") is True
+    ref = a.resolve("https://x.com/home")
+    assert ref.extra["kind"] == "home_timeline"
+    assert ref.item_id == "self-home"
+    assert ref.url == "https://x.com/home"
+
+
+def _home_payload():
+    return {"data": {"home": {"home_timeline_urt": {"instructions": [
+        {"type": "TimelineAddEntries", "entries": [
+            {"entryId": "tweet-111", "content": {"itemContent": {"tweet_results": {
+                "result": {"rest_id": "111", "legacy": {"full_text": "第一条\n详情"}}}}}},
+            {"entryId": "tweet-111", "content": {"itemContent": {"tweet_results": {
+                "result": {"rest_id": "111", "legacy": {"full_text": "重复"}}}}}},
+            {"entryId": "cursor-bottom-1", "content": {"value": "abc"}},
+            {"entryId": "tweet-222", "content": {"itemContent": {"tweet_results": {
+                "result": {"__typename": "TweetWithVisibilityResults", "tweet":
+                           {"rest_id": "222", "legacy": {"full_text": "第二条"}}}}}}},
+        ]}
+    ]}}}}
+
+
+def test_parse_home_timeline_payload():
+    out = parse_home_timeline_payload([_home_payload()])
+    assert [o["tweet_id"] for o in out] == ["111", "222"]
+    assert out[0]["title"].startswith("第一条")
+    assert out[1]["text"] == "第二条"          # 可见性包装兼容
+
+
+def test_list_items_home_timeline(monkeypatch):
+    import providers.x_twitter as xt
+    calls = {}
+
+    class FakeSession:
+        def __init__(self, platform, **kw):
+            calls["platform"] = platform
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def has_cookie(self, name):
+            calls["cookie"] = name
+            return True
+
+        def goto(self, url, **kw):
+            calls["goto"] = url
+
+        def scroll_wheel(self, n):
+            calls["wheel"] = n
+
+        def tap_json(self, pattern, action=None, **kw):
+            calls["pattern"] = pattern
+            calls["min_results"] = kw.get("min_results")
+            calls["settle_ms"] = kw.get("settle_ms")
+            if action:
+                action()
+            return [_home_payload()]
+
+    monkeypatch.setattr(xt.browserfetch, "BrowserSession", FakeSession)
+    a = xt.XTwitterAdapter(session=object())
+    ref = a.resolve("https://x.com/home")
+    items = a.list_items(ref)
+    assert calls["platform"] == "x_twitter"
+    assert calls["cookie"] == "auth_token"
+    assert calls["pattern"] == r"/graphql/[^/]+/HomeTimeline"
+    assert calls["min_results"] == 0
+    assert calls["wheel"] == 1
+    assert len(items) == 2
+    assert items[0].url == "https://x.com/i/status/111"
+    assert items[0].sub_id == "1" and items[1].sub_id == "2"
+
+
+def test_list_items_home_not_logged_in(monkeypatch):
+    import providers.x_twitter as xt
+
+    class FakeSession:
+        def __init__(self, platform, **kw):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def has_cookie(self, name):
+            return False
+
+    monkeypatch.setattr(xt.browserfetch, "BrowserSession", FakeSession)
+    a = xt.XTwitterAdapter(session=object())
+    ref = a.resolve("https://x.com/home")
+    try:
+        a.list_items(ref)
+        assert False
+    except ValueError as e:
+        assert "未登录" in str(e)
