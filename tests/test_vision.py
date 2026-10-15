@@ -329,34 +329,130 @@ def test_check_window_builds_prompt(monkeypatch):
 
 # ---------- 时间对齐多点视觉归属复检（无音频流兜底，spec §8.2） ----------
 
+def _stub_attribution_frames(monkeypatch):
+    """mock 抽帧：时间戳与真实 extract_frames_at 一致（int(round)）"""
+    monkeypatch.setattr(vision, "extract_frames_at",
+                        lambda p, ts: [(int(round(t)), b"jpeg") for t in ts])
+
+
+def _attribution_lines(n=20):
+    return [{"start": i, "end": i + 1, "text": "知识内容"} for i in range(n)]
+
+
 def test_check_attribution_aligned_pass(monkeypatch, tmp_path):
     v = _make_test_video(str(tmp_path / "t.mp4"), seconds=20, fps=10)
-    lines = [{"start": i, "end": i + 1, "text": "知识内容"} for i in range(20)]
-    monkeypatch.setattr(vision, "extract_frames_at",
-                        lambda p, ts: [(int(t), b"jpeg") for t in ts])
+    _stub_attribution_frames(monkeypatch)
     monkeypatch.setattr(vision, "describe_video", lambda cfg, frames, prompt=None:
-                        "[1] 一致\n[5] 一致\n[10] 一致\n[15] 一致\n[19] 一致")
-    r = vision.check_attribution_aligned({"enabled": True}, v, lines, 20)
+                        "\n".join(f"[{ts}] 一致" for ts, _ in frames))
+    r = vision.check_attribution_aligned({"enabled": True}, v, _attribution_lines(), 20)
     assert r["passed"] is True
-    assert len(r["verdicts"]) == 5
+    assert len(r["verdicts"]) == 5 and all(v["match"] for v in r["verdicts"])
+    assert r["checked"] is True
 
 
 def test_check_attribution_aligned_fail_when_mismatch(monkeypatch, tmp_path):
     v = _make_test_video(str(tmp_path / "t.mp4"), seconds=20, fps=10)
-    lines = [{"start": i, "end": i + 1, "text": "知识内容"} for i in range(20)]
-    monkeypatch.setattr(vision, "extract_frames_at",
-                        lambda p, ts: [(int(t), b"jpeg") for t in ts])
+    _stub_attribution_frames(monkeypatch)
     monkeypatch.setattr(vision, "describe_video", lambda cfg, frames, prompt=None:
                         "[1] 不一致：影视剧\n[5] 不一致：广告\n[10] 不一致：歌词")
-    r = vision.check_attribution_aligned({"enabled": True}, v, lines, 20)
-    assert r["passed"] is False
+    r = vision.check_attribution_aligned({"enabled": True}, v, _attribution_lines(), 20)
+    assert r["passed"] is False and r["checked"] is True
+    assert len(r["verdicts"]) == 3
+    assert all(v["match"] is False for v in r["verdicts"])
+
+
+def test_check_attribution_aligned_two_mismatches_fail(monkeypatch, tmp_path):
+    """边界：3 点中 2 点不一致（>1）→ 不通过（钉死 <=1 门槛）"""
+    v = _make_test_video(str(tmp_path / "t.mp4"), seconds=20, fps=10)
+    _stub_attribution_frames(monkeypatch)
+    monkeypatch.setattr(vision, "describe_video", lambda cfg, frames, prompt=None:
+                        "[1] 一致\n[5] 不一致：广告\n[10] 不一致：歌词")
+    r = vision.check_attribution_aligned({"enabled": True}, v, _attribution_lines(), 20)
+    assert r["checked"] is True and r["passed"] is False
+    assert sum(1 for v in r["verdicts"] if not v["match"]) == 2
 
 
 def test_check_attribution_aligned_parse_failure_is_failsafe(monkeypatch, tmp_path):
     v = _make_test_video(str(tmp_path / "t.mp4"), seconds=20, fps=10)
-    lines = [{"start": i, "end": i + 1, "text": "知识内容"} for i in range(20)]
-    monkeypatch.setattr(vision, "extract_frames_at",
-                        lambda p, ts: [(int(t), b"jpeg") for t in ts])
+    _stub_attribution_frames(monkeypatch)
     monkeypatch.setattr(vision, "describe_video", lambda cfg, frames, prompt=None: "无法解析的输出")
-    r = vision.check_attribution_aligned({"enabled": True}, v, lines, 20)
+    r = vision.check_attribution_aligned({"enabled": True}, v, _attribution_lines(), 20)
     assert r["passed"] is False and r["verdicts"] == []
+    assert r["checked"] is False and r["reason"] == "insufficient_verdicts"
+
+
+def test_check_attribution_aligned_duplicate_rows_not_counted(monkeypatch, tmp_path):
+    """同一采点重复 3 行不能顶替 3 个独立采点（去重后不足 3 → fail-safe）"""
+    v = _make_test_video(str(tmp_path / "t.mp4"), seconds=20, fps=10)
+    _stub_attribution_frames(monkeypatch)
+    monkeypatch.setattr(vision, "describe_video", lambda cfg, frames, prompt=None:
+                        "[5] 一致\n[5] 一致\n[5] 一致")
+    r = vision.check_attribution_aligned({"enabled": True}, v, _attribution_lines(), 20)
+    assert r["passed"] is False and r["checked"] is False
+    assert r["reason"] == "insufficient_verdicts"
+    assert len(r["verdicts"]) == 1
+
+
+def test_check_attribution_aligned_off_sample_timestamps_ignored(monkeypatch, tmp_path):
+    """时间戳全不在采样点 → 过滤后 0 点，不计入判定"""
+    v = _make_test_video(str(tmp_path / "t.mp4"), seconds=20, fps=10)
+    _stub_attribution_frames(monkeypatch)
+    monkeypatch.setattr(vision, "describe_video", lambda cfg, frames, prompt=None:
+                        "[100] 一致\n[101] 一致\n[102] 一致")
+    r = vision.check_attribution_aligned({"enabled": True}, v, _attribution_lines(), 20)
+    assert r["passed"] is False and r["checked"] is False
+    assert r["verdicts"] == [] and r["reason"] == "insufficient_verdicts"
+
+
+def test_check_attribution_aligned_insufficient_points(monkeypatch, tmp_path):
+    """有效点仅 2 个（<3）→ checked=False，不给出通过结论"""
+    v = _make_test_video(str(tmp_path / "t.mp4"), seconds=20, fps=10)
+    _stub_attribution_frames(monkeypatch)
+    monkeypatch.setattr(vision, "describe_video", lambda cfg, frames, prompt=None:
+                        "[10] 一致\n[14] 一致")
+    r = vision.check_attribution_aligned({"enabled": True}, v, _attribution_lines(), 20)
+    assert r["passed"] is False and r["checked"] is False
+    assert r["reason"] == "insufficient_verdicts" and len(r["verdicts"]) == 2
+
+
+@pytest.mark.parametrize("duration,lines", [
+    (0, [{"start": 0, "end": 1, "text": "内容"}]),
+    (20, []),
+])
+def test_check_attribution_aligned_invalid_input(monkeypatch, duration, lines):
+    """duration<=0 或 lines 空 → invalid_input（不抽帧）"""
+    def _boom(*a, **k):
+        raise AssertionError("无效输入不应抽帧")
+    monkeypatch.setattr(vision, "extract_frames_at", _boom)
+    r = vision.check_attribution_aligned({"enabled": True}, "missing.mp4", lines, duration)
+    assert r == {"passed": False, "verdicts": [], "checked": False,
+                 "reason": "invalid_input"}
+
+
+def test_check_attribution_aligned_empty_frames_raises(monkeypatch, tmp_path):
+    """空帧属于基础设施失败 → 上抛 VisionError（由调用方降级）"""
+    v = _make_test_video(str(tmp_path / "t.mp4"), seconds=20, fps=10)
+    monkeypatch.setattr(vision, "extract_frames_at", lambda p, ts: [])
+    with pytest.raises(vision.VisionError):
+        vision.check_attribution_aligned({"enabled": True}, v, _attribution_lines(), 20)
+
+
+def test_check_attribution_aligned_uniform_points_and_prompt(monkeypatch):
+    """points=3 时均匀采样（5%/50%/95%）且提示词写实际点数"""
+    captured = {}
+
+    def _extract(p, ts):
+        captured["times"] = list(ts)
+        return [(int(round(t)), b"jpeg") for t in ts]
+
+    def _describe(cfg, frames, prompt=None):
+        captured["prompt"] = prompt
+        return "\n".join(f"[{ts}] 一致" for ts, _ in frames)
+
+    monkeypatch.setattr(vision, "extract_frames_at", _extract)
+    monkeypatch.setattr(vision, "describe_video", _describe)
+    r = vision.check_attribution_aligned({"enabled": True}, "missing.mp4",
+                                         _attribution_lines(), 20, points=3)
+    assert captured["times"] == [1.0, 10.0, 19.0]
+    assert "3 个时间点" in captured["prompt"]
+    assert r["passed"] is True and r["checked"] is True
