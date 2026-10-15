@@ -229,11 +229,41 @@ def test_plan_frames_cap():
     assert p["wanted"] == 30000 and p["frames"] == 20000 and p["capped"] is True
 
 
+def test_plan_frames_float_precision_no_lost_frame():
+    from core import recheck
+    # 0.58*50 = 28.999999999999996：旧实现 int() 少算 1 帧
+    p = recheck.plan_frames([{"start": 0.0, "end": 0.58, "reason": "x", "score": 1.0}], fps=50)
+    assert p["wanted"] == 29 and p["frames"] == 29
+
+
 def test_select_regions_disputed_boost():
     from core import recheck
     lines = [{"start": i * 30, "end": i * 30 + 25, "text": "普通内容"} for i in range(20)]
     regions = recheck.select_regions(lines, 600, _cfg(), disputed=[(120, 150)])
     assert any("分歧" in r["reason"] for r in regions)
+
+
+def test_select_regions_gap_threshold_respects_gap_sec():
+    from core import recheck
+    # 仅 5s 停顿：不足以成为空档候选（gap_sec=20）
+    lines = [{"start": i * 30, "end": i * 30 + 25, "text": "普通内容"} for i in range(20)]
+    regions = recheck.select_regions(lines, 600, _cfg())
+    assert not any("空档" in r["reason"] for r in regions)
+    # 30s 真空档 (25,55)：必须出现
+    lines2 = [{"start": 0, "end": 25, "text": "普通内容"},
+              {"start": 55, "end": 80, "text": "普通内容"}]
+    regions2 = recheck.select_regions(lines2, 600, _cfg())
+    assert any("空档" in r["reason"] and r["start"] <= 30 <= r["end"] for r in regions2)
+
+
+def test_select_regions_top_n_and_invalid():
+    from core import recheck
+    cfg = _cfg()
+    cfg["recheck"]["region_top_n"] = 2
+    lines = [{"start": i * 30, "end": i * 30 + 25, "text": "定义 公式 步骤 定理"} for i in range(20)]
+    assert len(recheck.select_regions(lines, 600, cfg)) <= 2
+    cfg2 = _cfg(); cfg2["recheck"]["region_top_n"] = 0
+    assert recheck.select_regions(lines, 600, cfg2) == []
 
 
 def test_estimate_budget_and_needs_gate():
@@ -244,8 +274,20 @@ def test_estimate_budget_and_needs_gate():
     assert est["currency"] == "USD"
     assert est["low"] < est["amount"] < est["high"]
     assert est["input_tokens"] == 9000 * 600 + 100 * 600
+    assert est["output_tokens"] == 100 * 800
+    assert abs(est["high"] / est["amount"] - 1.3) < 1e-6
+    assert abs(est["low"] / est["amount"] - 0.7) < 1e-6
     cfg = {"recheck": {"auto_approve_amount": 0.3, "confirm_over_sec": 3600}}
     assert recheck.needs_gate(est, cfg, duration_sec=600) is True     # 金额超阈值
     cheap = dict(est, amount=0.01, low=0.007, high=0.013)
     assert recheck.needs_gate(cheap, cfg, duration_sec=600) is False
     assert recheck.needs_gate(cheap, cfg, duration_sec=4000) is True  # 超长
+
+
+def test_needs_gate_boundaries():
+    from core import recheck
+    cfg = {"recheck": {"auto_approve_amount": 0.3, "confirm_over_sec": 3600}}
+    assert recheck.needs_gate({"amount": 0.3}, cfg, 600) is False        # 恰好等于阈值：不触发
+    assert recheck.needs_gate({"amount": 0.3000001}, cfg, 600) is True
+    assert recheck.needs_gate({"amount": 0.01}, cfg, 3600) is True       # 恰好 3600s：触发
+    assert recheck.needs_gate({"amount": 0.01}, cfg, 3599) is False

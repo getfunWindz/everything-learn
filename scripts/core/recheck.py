@@ -200,11 +200,13 @@ def decide_tier(signals, cfg, provenance, has_video=True, policy=None):
 
 def select_regions(lines, duration_sec, cfg, disputed=None):
     """档1 候选区域：知识点密集区 + 无讲解空档 + 双 ASR 分歧区。
-    → [{start, end, reason, score}] 按 score 降序，Top N（重叠合并）。"""
+    → [{start, end, reason, score}] 按 score 降序，Top N（重叠去重：低分者丢弃）。"""
     rc = cfg.get("recheck", {})
     win = rc.get("region_window_sec", 60)
     gap_sec = rc.get("gap_sec", 20)
-    top_n = rc.get("region_top_n", 5)
+    top_n = int(rc.get("region_top_n", 5))
+    if top_n <= 0:
+        return []
     candidates = []
     for s, e, text in _windows(lines or [], duration_sec, win):
         sc, _ = score_window_text(text)
@@ -229,7 +231,7 @@ def select_regions(lines, duration_sec, cfg, disputed=None):
 
 def plan_frames(regions, fps=3, max_frames=20000):
     """区域 → 帧预算（含硬帽裁剪）"""
-    wanted = int(sum(max(0.0, r["end"] - r["start"]) for r in regions) * fps)
+    wanted = int(sum(max(0.0, r["end"] - r["start"]) for r in regions) * fps + 1e-9)
     return {"wanted": wanted, "frames": min(wanted, max_frames), "capped": wanted > max_frames}
 
 
