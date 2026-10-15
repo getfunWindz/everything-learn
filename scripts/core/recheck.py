@@ -253,3 +253,54 @@ def needs_gate(est, cfg, duration_sec):
     rc = cfg.get("recheck", {})
     return (est["amount"] > rc.get("auto_approve_amount", 0.3)
             or float(duration_sec or 0) >= rc.get("confirm_over_sec", 3600))
+
+
+_PUNCT_NORM = re.compile(r"[\s，。！？；：、,.!?;:\"'“”‘’()（）【】\[\]]+")
+
+
+def _norm_for_match(text: str) -> str:
+    """同源比对归一化：去标点空白；英文转小写（中文按字、英文按词的效果）"""
+    t = _PUNCT_NORM.sub(" ", text or "")
+    return "".join(ch.lower() if ch.isascii() else ch for ch in t)
+
+
+def _text_in_range(lines, start, end, pad=6.0):
+    return " ".join(l["text"] for l in (lines or [])
+                    if start - pad <= float(l["start"]) <= end + pad)
+
+
+def _similarity(a, b):
+    ta, tb = _norm_for_match(a), _norm_for_match(b)
+    if not ta or not tb:
+        return 0.0
+    return difflib.SequenceMatcher(None, ta, tb).ratio()
+
+
+def same_source_check(clips, subtitle_lines, cfg):
+    """同源判定：clips=[(start,end,asr_text)] → {checked, ratios, avg, passed, threshold}
+
+    仅统计「两侧都含文本」的可比对抽查点：字幕在该点无文本（正常说话空档/纯音乐段）
+    不是异源证据，若计 0 会把正常空档误判为串台；无任何可比对片段时 checked=False。
+    """
+    thr = cfg.get("recheck", {}).get("same_source_threshold", 0.45)
+    ratios = []
+    for s, e, asr in clips:
+        ref_text = _text_in_range(subtitle_lines, s, e)
+        if _norm_for_match(asr) and _norm_for_match(ref_text):
+            ratios.append(_similarity(asr, ref_text))
+    avg = sum(ratios) / len(ratios) if ratios else 0.0
+    return {"checked": bool(ratios), "ratios": [round(r, 3) for r in ratios],
+            "avg": round(avg, 3), "passed": bool(ratios) and avg >= thr,
+            "threshold": thr}
+
+
+def pick_spot_times(duration_sec, n=3):
+    """同源校验时间点：10%/50%/90%（避开首尾 5%）"""
+    dur = float(duration_sec or 0)
+    if dur <= 0:
+        return [(0.0, 12.0)]
+    pts = []
+    for frac in (0.1, 0.5, 0.9):
+        a = max(dur * 0.05, dur * frac - 6.0)
+        pts.append((round(a, 2), round(min(a + 12.0, dur - 1.0), 2)))
+    return pts

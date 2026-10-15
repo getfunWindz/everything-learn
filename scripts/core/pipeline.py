@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import sys
 import tempfile
 import time
@@ -411,3 +412,33 @@ def run_input(input_str: str, opts: RunOptions, adapter=None, client=None):
     if len(refs) == 1 and not opts.pages and not opts.all_:
         return process_item(a, refs[0], os.path.abspath(opts.out_root), opts, single=True)
     return run_batch(a, refs, root_meta, opts)
+
+
+# ---------------- 同源校验（音频抽查 + difflib 判定） ----------------
+
+def _same_source_verify(adapter, ref, lines, cfg):
+    """同源校验：音频抽查 3 点 → Whisper small → 相似度判定；
+    异常返回 checked=False（降级不阻塞）"""
+    import transcriber as tr
+    from core import recheck
+    url = adapter.fetch_media_url(ref, media="audio")
+    if not url:
+        return {"checked": False, "reason": "无可下载音频流"}
+    spots = recheck.pick_spot_times(ref.duration)
+    tmpdir = tempfile.mkdtemp(prefix="el_ss_")
+    try:
+        media_path = os.path.join(tmpdir, "audio.m4s")
+        tr.download_audio(url, media_path, headers=_media_headers(adapter))
+        clips = []
+        for s, e in spots:
+            samples, sr = tr.extract_audio_clip(media_path, s, e)
+            if len(samples) == 0:
+                continue
+            text = tr.transcribe_samples(
+                samples, sr, model_size=cfg.get("recheck", {}).get("same_source_model", "small"))
+            clips.append((s, e, text))
+        return recheck.same_source_check(clips, lines, cfg)
+    except Exception as e:
+        return {"checked": False, "reason": str(e)[:100]}
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)

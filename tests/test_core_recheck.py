@@ -291,3 +291,29 @@ def test_needs_gate_boundaries():
     assert recheck.needs_gate({"amount": 0.3000001}, cfg, 600) is True
     assert recheck.needs_gate({"amount": 0.01}, cfg, 3600) is True       # 恰好 3600s：触发
     assert recheck.needs_gate({"amount": 0.01}, cfg, 3599) is False
+
+
+def test_same_source_ratio_and_verdict():
+    from core import recheck
+    subs = [{"start": 0, "end": 10, "text": "今天讲注意力机制"},
+            {"start": 100, "end": 110, "text": "接下来是扩散模型"}]
+    clips_ok = [(0, 10, "今天讲注意力机制"), (100, 110, "接下来是扩散模型")]
+    r = recheck.same_source_check(clips_ok, subs, {"recheck": {"same_source_threshold": 0.45}})
+    assert r["passed"] is True and r["avg"] > 0.8
+    clips_bad = [(0, 10, "欢迎收看影视剧第九集"), (100, 110, "插播一段广告")]
+    r2 = recheck.same_source_check(clips_bad, subs, {"recheck": {"same_source_threshold": 0.45}})
+    assert r2["passed"] is False
+
+
+def test_same_source_no_clips_is_not_checked():
+    from core import recheck
+    r = recheck.same_source_check([], [{"start": 0, "end": 1, "text": "x"}], {"recheck": {}})
+    assert r["checked"] is False and r["passed"] is False
+
+
+def test_pick_spot_times_within_bounds():
+    from core import recheck
+    pts = recheck.pick_spot_times(600)
+    assert len(pts) == 3
+    for a, b in pts:
+        assert 0 <= a < b <= 600
