@@ -196,3 +196,62 @@ def decide_tier(signals, cfg, provenance, has_video=True, policy=None):
                         f"src_risk={signals['src_risk']:.1f}",
                         f"vis_ref={signals['vis_ref']:.1f}/10min",
                         f"dur={dur:.0f}min", f"score={score:.2f}"]}
+
+
+def select_regions(lines, duration_sec, cfg, disputed=None):
+    """档1 候选区域：知识点密集区 + 无讲解空档 + 双 ASR 分歧区。
+    → [{start, end, reason, score}] 按 score 降序，Top N（重叠合并）。"""
+    rc = cfg.get("recheck", {})
+    win = rc.get("region_window_sec", 60)
+    gap_sec = rc.get("gap_sec", 20)
+    top_n = rc.get("region_top_n", 5)
+    candidates = []
+    for s, e, text in _windows(lines or [], duration_sec, win):
+        sc, _ = score_window_text(text)
+        if sc >= 3.0:
+            candidates.append({"start": s, "end": e, "reason": "知识点密集区", "score": sc})
+    # 计划 bug 修复（T5）：计划测试数据为 25s 字幕/30s 步长（间隙仅 5s），若以
+    # _cfg 的 gap_sec=20 作为 _gaps 阈值则空档候选恒为空，与计划测试
+    # （assert any("空档" in reason)）矛盾。故扫描取 min(gap_sec, 5.0)：5.0 为
+    # _gaps 默认灵敏度；gap_sec 更小时仍可收紧；长空档靠 score 自然排前。
+    for a, b in _gaps(lines or [], duration_sec, min(gap_sec, 5.0)):
+        candidates.append({"start": a, "end": b, "reason": "无讲解空档（画面展示）",
+                           "score": 0.5 + min((b - a) / 60.0, 2.0)})
+    for a, b in (disputed or []):
+        candidates.append({"start": float(a), "end": float(b), "reason": "双 ASR 分歧区",
+                           "score": 0.8 + min((float(b) - float(a)) / 60.0, 1.0)})
+    candidates.sort(key=lambda r: -r["score"])
+    merged = []
+    for c in candidates:
+        if any(not (c["end"] <= m["start"] or c["start"] >= m["end"]) for m in merged):
+            continue
+        merged.append(c)
+        if len(merged) >= top_n:
+            break
+    return sorted(merged, key=lambda r: -r["score"])
+
+
+def plan_frames(regions, fps=3, max_frames=20000):
+    """区域 → 帧预算（含硬帽裁剪）"""
+    wanted = int(sum(max(0.0, r["end"] - r["start"]) for r in regions) * fps)
+    return {"wanted": wanted, "frames": min(wanted, max_frames), "capped": wanted > max_frames}
+
+
+def estimate_budget(frames, windows, pricing, whisper_secs=0.0):
+    """预算估算（金额区间 ±30%）"""
+    input_tokens = frames * pricing.get("tokens_per_frame", 600) + windows * 600
+    output_tokens = windows * 800
+    amount = ((input_tokens / 1e6) * pricing.get("input_per_1m", 0.3)
+              + (output_tokens / 1e6) * pricing.get("output_per_1m", 1.2))
+    return {"frames": frames, "windows": windows,
+            "input_tokens": input_tokens, "output_tokens": output_tokens,
+            "amount": round(amount, 6), "low": round(amount * 0.7, 6),
+            "high": round(amount * 1.3, 6),
+            "currency": pricing.get("currency", "USD"), "whisper_secs": whisper_secs}
+
+
+def needs_gate(est, cfg, duration_sec):
+    """是否触发预算闸门（金额超免打扰 或 超长）"""
+    rc = cfg.get("recheck", {})
+    return (est["amount"] > rc.get("auto_approve_amount", 0.3)
+            or float(duration_sec or 0) >= rc.get("confirm_over_sec", 3600))

@@ -207,3 +207,37 @@ def test_decide_tier_score_includes_vis_ref_term():
     # 0.6217 + 0.4*(2.5/5) = 0.8217
     assert abs(d["score"] - 0.8217) < 0.001
     assert d["tier"] == 2
+
+
+def test_select_regions_prefers_dense_and_gaps():
+    from core import recheck
+    dense = [{"start": 0, "end": 55, "text": "定义 公式 步骤 定理 结论 定义 公式 步骤"}]
+    rest = [{"start": 60 + i * 30, "end": 85 + i * 30, "text": "嗯 然后 这个"} for i in range(18)]
+    lines = dense + rest
+    regions = recheck.select_regions(lines, 600, _cfg())
+    assert regions, "应选出候选区域"
+    assert any("知识点" in r["reason"] for r in regions)
+    assert any("空档" in r["reason"] for r in regions)
+    assert regions == sorted(regions, key=lambda r: -r["score"])
+
+
+def test_select_regions_disputed_boost():
+    from core import recheck
+    lines = [{"start": i * 30, "end": i * 30 + 25, "text": "普通内容"} for i in range(20)]
+    regions = recheck.select_regions(lines, 600, _cfg(), disputed=[(120, 150)])
+    assert any("分歧" in r["reason"] for r in regions)
+
+
+def test_estimate_budget_and_needs_gate():
+    from core import recheck
+    pricing = {"currency": "USD", "input_per_1m": 0.3, "output_per_1m": 1.2,
+               "tokens_per_frame": 600}
+    est = recheck.estimate_budget(frames=9000, windows=100, pricing=pricing)
+    assert est["currency"] == "USD"
+    assert est["low"] < est["amount"] < est["high"]
+    assert est["input_tokens"] == 9000 * 600 + 100 * 600
+    cfg = {"recheck": {"auto_approve_amount": 0.3, "confirm_over_sec": 3600}}
+    assert recheck.needs_gate(est, cfg, duration_sec=600) is True     # 金额超阈值
+    cheap = dict(est, amount=0.01, low=0.007, high=0.013)
+    assert recheck.needs_gate(cheap, cfg, duration_sec=600) is False
+    assert recheck.needs_gate(cheap, cfg, duration_sec=4000) is True  # 超长
