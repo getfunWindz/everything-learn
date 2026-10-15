@@ -788,7 +788,9 @@ def test_window_recheck_budget_gate_b_keeps_capped_plan(monkeypatch):
 
 
 def test_budget_cap_forces_best_effort(monkeypatch):
-    """--budget 上限：估算超用户金额上限 → 直接 B（budget_cap），帧预算按金额上限裁剪"""
+    """--budget 上限：估算超用户金额上限 → 直接 B（budget_cap），帧预算按金额上限裁剪。
+    Q2：confirmed=False（自动约束，非用户确认）；Q3：estimate 回写裁剪后值 + pre_cap 留痕；
+    Q5：未覆盖窗口文案按原因（金额预算）。"""
     cfg = _rc_cfg()  # 默认免打扰阈值 0.3：本场景闸门不触发，仅金额上限生效
     ref = ItemRef(platform="demo", item_id="1", duration=60)
     monkeypatch.setattr(pipeline.recheck, "select_regions",
@@ -800,12 +802,104 @@ def test_budget_cap_forces_best_effort(monkeypatch):
     assert out["budget"]["user_choice"] == "B"
     assert out["budget"]["reason"] == "budget_cap"
     assert out["budget"]["cap"] == 0.02
-    assert out["budget"]["confirmed"] is None  # 未过闸门：上限是自动约束，无需询问
-    assert out["budget"]["estimate"]["frames"] == 180  # 估算保持超限原值
+    assert out["budget"]["confirmed"] is False          # Q2：自动约束未获用户确认
+    assert out["budget"]["estimate"]["frames"] == 111   # Q3：裁剪后估算回写
+    assert out["budget"]["estimate_pre_cap"]["frames"] == 180  # Q3：原估算留痕
+    assert out["budget"]["estimate_pre_cap"]["amount"] == pytest.approx(0.03468, abs=1e-6)
+    assert out["budget"]["spent_total"] == pytest.approx(0.02, abs=1e-6)
     assert seen["sample"] == [(0.0, 30.0, 3, True)]    # 90 ≤ 111 → 第 2 窗超上限不抽
     assert out["capped"] is True
     assert out["windows"] == [{"range": [30.0, 60.0], "kind": "uncovered",
-                               "text": "超出复检帧预算（max_check_frames）"}]
+                               "text": "超出复检金额预算（--budget）"}]  # Q5
+
+
+def test_budget_cap_skips_gate_no_fake_prompt(monkeypatch):
+    """Q2：超金额上限且同时满足 needs_gate → 不调用 _budget_gate（不弹假闸门），
+    直接 B / confirmed=False / reason=budget_cap，杜绝“选 A 被改 B 且 confirmed=True”。"""
+    cfg = _rc_cfg(auto_approve_amount=0.001)  # 免打扰阈值极低：闸门本会触发
+    ref = ItemRef(platform="demo", item_id="1", duration=60)
+    monkeypatch.setattr(pipeline.recheck, "select_regions",
+                        lambda *a, **k: [{"start": 0, "end": 60, "reason": "r", "score": 3.0}])
+    called = {"n": 0}
+
+    def _spy(*a, **k):
+        called["n"] += 1
+        return "A"  # 旧实现：先弹闸门拿到 A，再被 cap 改写成 B（confirmed=True）
+
+    monkeypatch.setattr(pipeline, "_budget_gate", _spy)
+    seen = _patch_window_io(monkeypatch, frames=[])
+    opts = pipeline.RunOptions(budget=0.001)  # est 0.03468 > 0.001 → cap 生效
+    out = pipeline._run_window_recheck(_VideoAdapter(), ref, [], cfg,
+                                       {"tier": 1}, opts)
+    assert called["n"] == 0                              # Q2：不弹假闸门
+    assert out["budget"]["user_choice"] == "B"
+    assert out["budget"]["confirmed"] is False
+    assert out["budget"]["reason"] == "budget_cap"
+    assert out["budget"]["estimate"]["frames"] == 5      # 0.001/0.00018 ≈ 5
+    assert out["capped"] is True and seen["sample"] == []
+
+
+def test_budget_cap_respects_smaller_frame_hard_cap(monkeypatch):
+    """Q6：金额允许帧数 > 硬帽时取小 —— frames == min(allowed, max_check_frames)
+    且硬帽外窗口全记 uncovered（capped=True）。"""
+    cfg = _rc_cfg(max_check_frames=30)  # 硬帽 30 < 金额允许 38
+    ref = ItemRef(platform="demo", item_id="1", duration=60)
+    monkeypatch.setattr(pipeline.recheck, "select_regions",
+                        lambda *a, **k: [{"start": 0, "end": 60, "reason": "r", "score": 3.0}])
+    seen = _patch_window_io(monkeypatch, frames=[])
+    opts = pipeline.RunOptions(budget=0.007)  # est(30帧/2窗)=0.00768 > 0.007；allowed=38
+    out = pipeline._run_window_recheck(_VideoAdapter(), ref, [], cfg,
+                                       {"tier": 1}, opts)
+    assert out["budget"]["estimate"]["frames"] == min(38, 30)
+    assert out["budget"]["estimate_pre_cap"]["frames"] == 30  # 初始 plan 已按硬帽裁剪
+    assert out["capped"] is True
+    assert seen["sample"] == []
+    assert out["windows"] == [
+        {"range": [0.0, 30.0], "kind": "uncovered",
+         "text": "超出复检金额预算（--budget）"},
+        {"range": [30.0, 60.0], "kind": "uncovered",
+         "text": "超出复检金额预算（--budget）"}]
+
+
+def test_budget_cap_zero_unit_price_forces_zero_frames(monkeypatch):
+    """Q1：单价边界（per_frame_price==0）→ 超限时帧预算置 0，全部窗口 uncovered。"""
+    cfg = _rc_cfg()
+    cfg["vision"] = dict(cfg["vision"],
+                         pricing={"currency": "USD", "tokens_per_frame": 600,
+                                  "input_per_1m": 0.0, "output_per_1m": 1.2})
+    ref = ItemRef(platform="demo", item_id="1", duration=60)
+    monkeypatch.setattr(pipeline.recheck, "select_regions",
+                        lambda *a, **k: [{"start": 0, "end": 60, "reason": "r", "score": 3.0}])
+    seen = _patch_window_io(monkeypatch, frames=[(0.0, b"jpg")])
+    opts = pipeline.RunOptions(budget=0.001)  # 输出侧估算 0.00192 > 0.001 → 超限
+    out = pipeline._run_window_recheck(_VideoAdapter(), ref, [], cfg,
+                                       {"tier": 1}, opts)
+    assert out["budget"]["reason"] == "budget_cap"
+    assert out["budget"]["estimate"]["frames"] == 0
+    assert seen["sample"] == []
+    assert out["capped"] is True
+    assert out["windows"] == [
+        {"range": [0.0, 30.0], "kind": "uncovered",
+         "text": "超出复检金额预算（--budget）"},
+        {"range": [30.0, 60.0], "kind": "uncovered",
+         "text": "超出复检金额预算（--budget）"}]
+
+
+def test_budget_negative_cap_displays_zero(monkeypatch):
+    """Q4：--budget -1 → 展示 cap 钳到 0.0（负值不泄漏），且不抽帧（全部 uncovered）。"""
+    cfg = _rc_cfg()
+    ref = ItemRef(platform="demo", item_id="1", duration=60)
+    monkeypatch.setattr(pipeline.recheck, "select_regions",
+                        lambda *a, **k: [{"start": 0, "end": 60, "reason": "r", "score": 3.0}])
+    seen = _patch_window_io(monkeypatch, frames=[(0.0, b"jpg")])
+    opts = pipeline.RunOptions(budget=-1)
+    out = pipeline._run_window_recheck(_VideoAdapter(), ref, [], cfg,
+                                       {"tier": 1}, opts)
+    assert out["budget"]["cap"] == 0.0
+    assert out["budget"]["reason"] == "budget_cap"
+    assert out["budget"]["estimate"]["frames"] == 0
+    assert seen["sample"] == []
+    assert out["capped"] is True
 
 
 def test_budget_cap_none_no_effect(monkeypatch):
@@ -823,6 +917,7 @@ def test_budget_cap_none_no_effect(monkeypatch):
     assert out["budget"]["confirmed"] is False
     assert out["budget"]["reason"] == "non_tty_default"       # 闸门原因保留
     assert out["budget"]["cap"] is None
+    assert "estimate_pre_cap" not in out["budget"]  # Q3：未裁剪 → 无 pre_cap
     assert seen["sample"] == [(0.0, 30.0, 3, True), (30.0, 60.0, 3, True)]  # 无上限裁剪
     assert out["capped"] is False
 
@@ -853,15 +948,18 @@ def test_budget_is_cumulative_across_items(monkeypatch):
     assert second["budget"]["spent_total"] > first["budget"]["spent_total"]
     assert second["budget"]["cap"] == first["budget"]["cap"] == 0.02
     assert second["budget"]["reason"] == "budget_cap"
+    assert second["budget"]["confirmed"] is False        # Q2：cap 自动约束未获用户确认
+    assert second["budget"]["estimate"]["frames"] == 14  # Q3：按剩余预算裁剪后回写
+    assert second["budget"]["estimate_pre_cap"]["frames"] == 180
     assert second["budget"]["spent_total"] == pytest.approx(0.02, abs=1e-6)
     assert len(seen["sample"]) == 1                      # 条目2：0 帧被抽（剩余预算截断）
     assert second["frames_used"] < first["frames_used"]    # 第二次 frames 更少
     assert second["capped"] is True
     assert second["windows"] == [
         {"range": [0.0, 30.0], "kind": "uncovered",
-         "text": "超出复检帧预算（max_check_frames）"},
+         "text": "超出复检金额预算（--budget）"},
         {"range": [30.0, 60.0], "kind": "uncovered",
-         "text": "超出复检帧预算（max_check_frames）"}]
+         "text": "超出复检金额预算（--budget）"}]
 
 
 def test_window_recheck_choice_c_downgrades_to_tier1_regions(monkeypatch):

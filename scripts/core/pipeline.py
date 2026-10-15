@@ -225,10 +225,13 @@ def _run_window_recheck(adapter, ref, lines, cfg, decision, opts):
     max_frames = rc.get("max_check_frames", 20000)
     dur = float(ref.duration or 0)
 
+    def _window_count(regions):
+        return sum(math.ceil((float(r["end"]) - float(r["start"])) / win) for r in regions)
+
     def _plan(regions):
         p = recheck.plan_frames(regions, fps=fps, max_frames=max_frames)
-        w = sum(math.ceil((float(r["end"]) - float(r["start"])) / win) for r in regions)
-        return p, recheck.estimate_budget(p["frames"], w, conf.get("pricing", {}) or {})
+        return p, recheck.estimate_budget(p["frames"], _window_count(regions),
+                                          conf.get("pricing", {}) or {})
 
     original_lines = [dict(l) for l in lines]  # Q3：执行前快照（外层异常时回滚）
     eff_dur = recheck._effective_duration(original_lines, ref.duration)  # Q2：统一分母
@@ -240,32 +243,45 @@ def _run_window_recheck(adapter, ref, lines, cfg, decision, opts):
         plan, est = _plan(regions)
         choice = "A"
         effective_tier = tier
+        est_used = est             # Q3：执行实际估算（cap 裁剪后回写 budget.estimate）
+        est_pre_cap = None         # Q3：金额裁剪前原估算（裁剪时留痕）
         budget_cap = getattr(opts, "budget", None)
         budget_remaining = None
         if budget_cap is not None:  # spec §11.2：运行级上限 = 上限 - 已累计消费
             budget_remaining = max(0.0, float(budget_cap)
                                    - float(getattr(opts, "_budget_spent", 0.0)))
         budget_reason = ""
-        budget_info = {"confirmed": None, "reason": ""}  # Q5：未过闸门=None；过闸门由 _budget_gate 回填
-        if recheck.needs_gate(est, cfg, dur):
+        budget_info = {"confirmed": None, "reason": ""}  # 未过闸门=None；闸门/金额裁剪回填
+        if budget_remaining is not None and (budget_remaining <= 0 or est["amount"] > budget_remaining):
+            # Q2：cap 检查前移——超运行剩余预算直接帽内尽力，不弹假闸门
+            choice = "B"
+            budget_reason = "budget_cap"
+            budget_info["confirmed"] = False  # 自动约束，未获用户确认
+            budget_info["reason"] = "budget_cap"
+            est_pre_cap = est
+            pricing = conf.get("pricing", {}) or {}
+            per_frame_price = ((pricing.get("tokens_per_frame", 600) / 1e6)
+                               * pricing.get("input_per_1m", 0.3))
+            if per_frame_price > 0:
+                allowed = int(budget_remaining / per_frame_price)
+                cap = min(rc.get("max_check_frames", 20000), max(0, allowed))
+            else:  # Q1：单价 <=0 无法换算帧数 → 帧预算置 0（全部窗口 uncovered）
+                cap = 0
+            plan = recheck.plan_frames(regions, fps=fps, max_frames=cap)
+            est_used = recheck.estimate_budget(plan["frames"], _window_count(regions),
+                                               pricing)  # Q3：按裁剪后 plan 回算
+        elif recheck.needs_gate(est, cfg, dur):
             choice = _budget_gate(est, cfg, opts, tier=tier, duration_sec=dur, info=budget_info)
             if choice == "A" and tier == 1:  # Q1：闸门 A → 档1 真正升级完整档2
                 regions = [{"start": 0.0, "end": dur, "reason": "用户选择完整档2", "score": 1.0}]
                 plan, est = _plan(regions)
+                est_used = est
                 effective_tier = 2
             elif choice == "C":  # 降档1：重选定向区域并重算预算（B 保持已裁剪 plan 不变）
                 regions = recheck.select_regions(lines, dur, cfg, disputed=None)
                 plan, est = _plan(regions)
+                est_used = est
                 effective_tier = 1
-        if budget_remaining is not None and (budget_remaining <= 0 or est["amount"] > budget_remaining):
-            choice = "B"                      # 超运行剩余预算 → 直接帽内尽力（不询问）
-            budget_reason = "budget_cap"
-            pricing = conf.get("pricing", {})
-            per_frame_price = (pricing.get("tokens_per_frame", 600) / 1e6) * pricing.get("input_per_1m", 0.3)
-            if per_frame_price > 0:
-                allowed = int(budget_remaining / per_frame_price)
-                cap = min(rc.get("max_check_frames", 20000), max(0, allowed))
-                plan = recheck.plan_frames(regions, fps=fps, max_frames=cap)
         # Q8：预先展平 planned windows；准入按理论帧数（去重前 ceil(时长×fps)）裁剪，
         # 统计另记实际去重后帧数（used_frames / frames_used）。
         planned_windows = []
@@ -290,13 +306,17 @@ def _run_window_recheck(adapter, ref, lines, cfg, decision, opts):
             vp = os.path.join(tmpdir, "video.m4s")
             transcriber.download_audio(url, vp, headers=_media_headers(adapter))
             admitted_theoretical = 0
+            # Q5：未覆盖原因文案——金额裁剪 vs 帧硬帽
+            uncovered_text = ("超出复检金额预算（--budget）"
+                              if budget_reason == "budget_cap"
+                              else "超出复检帧预算（max_check_frames）")
             for cursor, seg_end in planned_windows:
                 window_frames = max(1, int(math.ceil((seg_end - cursor) * fps)))
                 if admitted_theoretical + window_frames > plan["frames"]:
                     # 硬帽保护（spec §8.1）：A/B 均不得超 max_check_frames，超出部分标未复检
                     uncovered.append((cursor, seg_end))
                     reports.append({"range": [cursor, seg_end], "kind": "uncovered",
-                                    "text": "超出复检帧预算（max_check_frames）"})
+                                    "text": uncovered_text})
                     continue
                 admitted_theoretical += window_frames
                 try:
@@ -343,18 +363,21 @@ def _run_window_recheck(adapter, ref, lines, cfg, decision, opts):
                                         "text": it.get("text", "")})
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
-        if budget_remaining is not None:  # 执行后按估算累计（actual token 未知，用 est 代理）
+        if budget_remaining is not None:  # 执行后按估算累计（actual token 未知，用 est_used 代理）
             opts._budget_spent = (getattr(opts, "_budget_spent", 0.0)
-                                  + min(est["amount"], budget_remaining))
+                                  + min(est_used["amount"], budget_remaining))
         lines.extend(added)
         lines.sort(key=lambda x: float(x["start"]))
+        budget_meta = {"estimate": est_used, "user_choice": choice,
+                       "confirmed": budget_info.get("confirmed"),
+                       "reason": budget_reason or budget_info.get("reason", ""),
+                       "cap": (max(0.0, float(budget_cap)) if budget_cap is not None else None),
+                       "spent_total": round(getattr(opts, "_budget_spent", 0.0), 6)}
+        if est_pre_cap is not None:  # Q3：金额裁剪前原估算（信息保留）
+            budget_meta["estimate_pre_cap"] = est_pre_cap
         return {"coverage_pct": round(covered / eff_dur * 100, 1) if eff_dur > 0 else 0.0,
                 "windows": reports, "window_errors": window_errors,
-                "budget": {"estimate": est, "user_choice": choice,
-                           "confirmed": budget_info.get("confirmed"),
-                           "reason": budget_reason or budget_info.get("reason", ""),
-                           "cap": budget_cap,
-                           "spent_total": round(getattr(opts, "_budget_spent", 0.0), 6)},
+                "budget": budget_meta,
                 "effective_tier": effective_tier, "capped": bool(uncovered),
                 "frames_used": used_frames}
     except Exception as e:

@@ -490,6 +490,21 @@ def test_run_recheck_args_parsed(monkeypatch):
     assert captured["no_recheck"] is False
 
 
+def test_run_recheck_3_parsed_and_maps_none(monkeypatch):
+    """Q6：CLI --recheck 3 解析为 '3'，且 decide_tier 映射为 tier 3（不复检）"""
+    captured = {}
+    monkeypatch.setattr(el, "cmd_run", lambda args: captured.update(vars(args)))
+    el.main(["run", "BV1GJ411x7h7", "--recheck", "3"])
+    assert captured["recheck"] == "3"
+    from core import recheck as rc_mod
+    sig = {"dur_min": 1.0, "kp_density": 5.0, "kp_spread": 0.2, "src_risk": 1.0,
+           "vis_ref": 2.0, "gap_ratio": 0.1, "max_gap": 5.0}
+    d = rc_mod.decide_tier(sig, {"recheck": {"tier_policy": "auto"}},
+                           provenance="auto", has_video=True,
+                           policy=captured["recheck"])
+    assert d["tier"] == 3
+
+
 def _capture_run_opts(tmp_path, monkeypatch):
     """运行 cmd_run（mock pipeline.run_input）并返回捕获容器（含 RunOptions）"""
     captured = {}
