@@ -296,3 +296,32 @@ def test_sample_window_frames_respects_cap(tmp_path):
     v = _make_test_video(str(tmp_path / "t.mp4"), seconds=30, fps=10)
     frames = vision.sample_window_frames(v, 0, 30, fps=3, max_frames=20)
     assert len(frames) <= 20
+
+
+def test_parse_window_result_kinds():
+    text = ("[10] 补充：白板公式 E=mc^2\n"
+            "[12] 校正：原转写「梯度下降」→「梯度上升」\n"
+            "[15] 不确定：画面是纯口播，无法判断\n")
+    items = vision.parse_window_result(text)
+    kinds = [i["kind"] for i in items]
+    assert "supplement" in kinds and "correction" in kinds and "uncertain" in kinds
+    corr = [i for i in items if i["kind"] == "correction"][0]
+    assert corr["original"] == "梯度下降" and corr["text"] == "梯度上升"
+
+
+def test_parse_window_result_no_issue():
+    assert vision.parse_window_result("无遗漏") == []
+
+
+def test_check_window_builds_prompt(monkeypatch):
+    captured = {}
+    def fake_describe(cfg, frames, prompt=None):
+        captured["prompt"] = prompt
+        return "无遗漏"
+    monkeypatch.setattr(vision, "describe_video", fake_describe)
+    out = vision.check_window({"enabled": True}, [(0, b"jpeg")],
+                              transcript_text="这一秒在讲公式",
+                              secondary_text="可能另一份字幕")
+    assert out == []
+    assert "这一秒在讲公式" in captured["prompt"]
+    assert "仅参考" in captured["prompt"]

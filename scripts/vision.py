@@ -359,3 +359,43 @@ def sample_window_frames(video_path, start, end, fps=3, max_side=640,
             continue
         out.append((ts, data))
     return out
+
+
+WINDOW_CHECK_PROMPT = (
+    "你是学习报告工具的「画面保真复检」助手。以下是一个时间窗内的画面帧（每秒 3 帧：头/中/尾，"
+    "每帧标注时间戳）与同一窗口的转写文本。\n"
+    "请以画面为准，指出转写的问题：\n"
+    "- 画面有知识材料（公式/PPT/代码/图表/演示步骤）而转写未覆盖 → 输出 `[时间戳秒] 补充：内容`\n"
+    "- 转写字词明显错误（同音字/口误，且画面证据明确）→ 输出 `[时间戳秒] 校正：原转写「X」→「Y」`\n"
+    "- 画面不足以判断（如纯口播）→ 输出 `[时间戳秒] 不确定：原因`\n"
+    "- 没有任何问题 → 只输出四个字 `无遗漏`\n"
+    "只输出上述格式，用中文。"
+)
+
+
+def check_window(cfg_vision, frames, transcript_text="", secondary_text=""):
+    """单窗口复检 → [{ts, kind, text, original}]；失败空列表由调用方处理"""
+    prompt = WINDOW_CHECK_PROMPT + f"\n\n【本窗转写文本】\n{transcript_text or '（无）'}"
+    if secondary_text:
+        prompt += ("\n\n【另一份机器字幕（仅参考，可能有错，勿直接采信）】\n"
+                   + secondary_text[:2000])
+    text = describe_video(cfg_vision, frames, prompt=prompt)
+    return parse_window_result(text)
+
+
+def parse_window_result(text):
+    """解析窗口复检输出 → [{ts, kind, text, original}]"""
+    if not text or "无遗漏" in text:
+        return []
+    items = []
+    for m in re.finditer(r"\[(\d+(?:\.\d+)?)\]\s*(补充|校正|不确定)[：:]\s*(.+)", text):
+        ts = float(m.group(1))
+        kind = {"补充": "supplement", "校正": "correction", "不确定": "uncertain"}[m.group(2)]
+        body = m.group(3).strip()
+        original = ""
+        if kind == "correction":
+            cm = re.match(r"原转写[「\"](.+?)[」\"]\s*(?:→|->)\s*[「\"](.+?)[」\"]", body)
+            if cm:
+                original, body = cm.group(1), cm.group(2)
+        items.append({"ts": ts, "kind": kind, "text": body, "original": original})
+    return items
