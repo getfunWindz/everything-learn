@@ -333,6 +333,29 @@ def test_same_source_no_clips_is_not_checked():
     assert r["compared"] == 0 and r["reason_code"] == "insufficient"
 
 
+def test_norm_for_match_pure_punct_whitespace_empty():
+    """纯标点/空白归一化为空串（falsy）→ 不作为可比点/分歧证据"""
+    from core import recheck
+    assert recheck._norm_for_match("，。！") == ""
+    assert recheck._norm_for_match("   ") == ""
+    assert recheck._norm_for_match("\t\n") == ""
+    assert recheck._norm_for_match("") == ""
+    assert recheck._norm_for_match(None) == ""
+    assert recheck._norm_for_match(" Hello, 世界! ") == "hello 世界"
+
+
+def test_same_source_punct_only_points_counted_empty():
+    """空文本对齐：纯标点抽查点归入 empty，不计入 compared（旧行为误判 ratio=1.0）"""
+    from core import recheck
+    clips = [(0, 5, "，。！"), (30, 40, "今天讲注意力机制")]
+    subs = [{"start": 0, "end": 5, "text": "。。。！"},
+            {"start": 30, "end": 40, "text": "今天讲注意力机制"}]
+    r = recheck.same_source_check(clips, subs, {"recheck": {}})
+    assert r["compared"] == 1 and r["empty"] == 1
+    assert r["ratios"] == [1.0]
+    assert r["checked"] is False and r["reason_code"] == "insufficient"
+
+
 def test_pick_spot_times_within_bounds():
     from core import recheck
     pts = recheck.pick_spot_times(600)
@@ -418,3 +441,49 @@ def test_cross_check_nonpositive_window_no_hang():
     assert cc["compared"] == 4  # 仅主侧时长 4s 内的 4 个 1s 窗
     assert cc["agree_pct"] == 0.0
     assert cc["disputed"] == [[0.0, 4.0]]
+
+
+def test_cross_check_default_window_sec_15():
+    """无参默认窗 15s：行 start 0/12/20 → 两窗（10s 会切三窗、30s 并一窗）"""
+    from core import recheck
+    a, b = "x" * 13 + "y" * 7, "x" * 13 + "z" * 7
+    primary = [{"start": 0, "end": 5, "text": a},
+               {"start": 12, "end": 17, "text": "中段"},
+               {"start": 20, "end": 25, "text": "尾段"}]
+    secondary = [{"start": 0, "end": 5, "text": b},
+                 {"start": 12, "end": 17, "text": "中段"},
+                 {"start": 20, "end": 25, "text": "尾段"}]
+    cc = recheck.cross_check(primary, secondary)  # 无参 → 窗 15 / 阈值 0.65
+    assert cc == {"agree_pct": 1.0, "compared": 2, "disputed": []}
+
+
+def test_cross_check_default_threshold_065_boundary_ge():
+    """无参默认阈值 0.65：相似度恰 0.65 → agree（>= 边界）；恰低一档 → disputed"""
+    from core import recheck
+    a, b = "x" * 13 + "y" * 7, "x" * 13 + "z" * 7
+    assert recheck._similarity(a, b) == 0.65  # 构造核验：26/40
+    cc = recheck.cross_check([{"start": 0, "end": 5, "text": a}],
+                             [{"start": 0, "end": 5, "text": b}])
+    assert cc == {"agree_pct": 1.0, "compared": 1, "disputed": []}
+    # 阈值 0.66 > 0.65：同一对文本转分歧（边界另一侧）
+    cc2 = recheck.cross_check([{"start": 0, "end": 5, "text": a}],
+                              [{"start": 0, "end": 5, "text": b}],
+                              window_sec=15, threshold=0.66)
+    assert cc2["agree_pct"] == 0.0 and cc2["disputed"] == [[0.0, 5.0]]
+    # 恰低一档（258/398≈0.6482）：默认 0.65 下应判分歧
+    c, d = "x" * 129 + "y" * 70, "x" * 129 + "z" * 70
+    assert recheck._similarity(c, d) < 0.65
+    cc3 = recheck.cross_check([{"start": 0, "end": 5, "text": c}],
+                              [{"start": 0, "end": 5, "text": d}])
+    assert cc3["agree_pct"] == 0.0 and cc3["disputed"] == [[0.0, 5.0]]
+
+
+def test_cross_check_line_start_at_window_boundary_half_open():
+    """窗为半开区间 [t, t+win)：start 恰 == 窗尾归属下一窗，不落入前一窗"""
+    from core import recheck
+    primary = [{"start": 0, "end": 5, "text": "aaaa"},
+               {"start": 15, "end": 20, "text": "bbbb"}]
+    secondary = [{"start": 15, "end": 20, "text": "bbbb"}]  # 恰落窗尾 15
+    cc = recheck.cross_check(primary, secondary, window_sec=15)
+    # 窗 [0,15) 副侧为空 → 跳过；窗 [15,20] 两侧均为 "bbbb" → agree
+    assert cc == {"agree_pct": 1.0, "compared": 1, "disputed": []}

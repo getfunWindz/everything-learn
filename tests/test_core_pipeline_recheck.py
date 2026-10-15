@@ -535,7 +535,8 @@ _WIRING_SIGNALS = {"dur_min": 2.0, "kp_density": 4.0,
 def _run_wiring(monkeypatch, tmp_path, *, tier=1, vision_enabled=True,
                 no_vision_check=False, provenance="human", language_hint="zh",
                 window_meta=None, opts_extra=None, has_video=True, real_decide=False,
-                cfg_recheck=None, whisper_lines=None, segment_text="人工字幕内容"):
+                cfg_recheck=None, whisper_lines=None, segment_text="人工字幕内容",
+                ss_override=None):
     """process_item 档位接线测试：recheck 判决 mock，复检/落盘 mock。
     real_decide=True 走真实 decide_tier（仅 gather_signals 被 mock），锁定 policy/has_video 接线。
     → (process 结果, captured)：captured["info"]=build_info 关键字，captured["window_args"]=复检参数，
@@ -551,7 +552,7 @@ def _run_wiring(monkeypatch, tmp_path, *, tier=1, vision_enabled=True,
     cfg["out_dir"] = str(tmp_path)
     monkeypatch.setattr(pipeline.config, "load_config", lambda: cfg)
     monkeypatch.setattr(pipeline, "_same_source_verify",
-                        lambda a, r, lines, c: {"checked": True, "passed": True, "avg": 0.9})
+                        lambda a, r, lines, c: dict(ss_override or {"checked": True, "passed": True, "avg": 0.9}))
     monkeypatch.setattr(pipeline.recheck, "gather_signals", lambda *a, **k: dict(_WIRING_SIGNALS))
     captured = {}
     decide_calls = []
@@ -712,6 +713,33 @@ def test_process_item_cross_check_absent_when_subtitle_not_whisper(monkeypatch, 
     """T14.5：采信字幕（未跑 Whisper）→ 保持现状不写 cross_check"""
     out, cap = _run_wiring(monkeypatch, tmp_path, tier=1, provenance="human")
     assert out[1] == "字幕(人工)"
+    assert "cross_check" not in cap["info"]["recheck"]
+    assert cap["window_disputed"] == []
+
+
+def test_process_item_cross_check_absent_auto_no_whisper(monkeypatch, tmp_path):
+    """T14.5 三路径：auto + --no-whisper（采信未校验字幕）→ 不产生 cross_check"""
+    out, cap = _run_wiring(monkeypatch, tmp_path, tier=1, provenance="auto",
+                           opts_extra={"no_whisper": True})
+    assert out[0] == "ok" and "--no-whisper" in out[1]
+    assert "cross_check" not in cap["info"]["recheck"]
+    assert cap["window_disputed"] == []
+
+
+def test_process_item_cross_check_absent_auto_whisper_fallback(monkeypatch, tmp_path):
+    """T14.5 三路径：auto + Whisper 空结果回退字幕 → 不产生 cross_check"""
+    out, cap = _run_wiring(monkeypatch, tmp_path, tier=1, provenance="auto",
+                           whisper_lines=[])
+    assert out[0] == "ok" and out[1].startswith("whisper失败→字幕")
+    assert "cross_check" not in cap["info"]["recheck"]
+    assert cap["window_disputed"] == []
+
+
+def test_process_item_cross_check_absent_human_same_source_fail(monkeypatch, tmp_path):
+    """T14.5 三路径：human 同源失败 → Whisper（无第二 ASR 意见）→ 不产生 cross_check"""
+    out, cap = _run_wiring(monkeypatch, tmp_path, tier=1, provenance="human",
+                           ss_override={"checked": True, "passed": False, "avg": 0.1})
+    assert out[0] == "ok" and out[1] == "whisper"
     assert "cross_check" not in cap["info"]["recheck"]
     assert cap["window_disputed"] == []
 

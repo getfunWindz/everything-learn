@@ -296,9 +296,13 @@ _PUNCT_NORM = re.compile(r"[\s，。！？；：、,.!?;:\"'“”‘’()（）
 
 
 def _norm_for_match(text: str) -> str:
-    """同源比对归一化：去标点空白；英文转小写（中文按字、英文按词的效果）"""
+    """同源比对归一化：去标点空白；英文转小写（中文按字、英文按词的效果）。
+
+    纯标点/空白输入归一化为空串（falsy）→ 调用方跳过该窗/点，不计入
+    compared（空窗不是分歧证据）。
+    """
     t = _PUNCT_NORM.sub(" ", text or "")
-    return "".join(ch.lower() if ch.isascii() else ch for ch in t)
+    return "".join(ch.lower() if ch.isascii() else ch for ch in t).strip()
 
 
 def _text_in_range(lines, start, end, pad=6.0):

@@ -23,6 +23,19 @@ def test_new_policy_defaults(tmp_path, monkeypatch):
     assert c["vision"]["subtitle_check"] == "auto"
 
 
+def test_recheck_cross_check_defaults(tmp_path, monkeypatch):
+    """NIT-1：双 ASR 交叉比对默认参数落地 config.recheck（可发现性），与签名口径一致"""
+    import inspect
+    from core import recheck
+    monkeypatch.setattr(cfg, "CONFIG_PATH", str(tmp_path / "none.json"))
+    rc = cfg.load_config()["recheck"]
+    assert rc["cross_check"] is True
+    assert rc["cross_window_sec"] == 15
+    assert rc["cross_threshold"] == 0.65
+    params = inspect.signature(recheck.cross_check).parameters
+    assert (params["window_sec"].default, params["threshold"].default) == (15, 0.65)
+
+
 def test_load_custom_config(tmp_path, monkeypatch):
     p = tmp_path / "config.json"
     p.write_text(json.dumps({"out_dir": "D:/笔记", "whisper_model": "large-v3"}), encoding="utf-8")

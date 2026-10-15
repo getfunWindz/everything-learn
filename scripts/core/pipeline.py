@@ -531,7 +531,8 @@ def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False)
                                                         "src_risk", "vis_ref", "gap_ratio", "max_gap")}}
     # T14.5：Whisper 成功后，auto 字幕作第二 ASR 意见按时间窗交叉比对；分歧区间进入
     # 档1 重点复检区域（由画面仲裁）。未跑 Whisper（采信字幕）不比对、保持现状不落盘。
-    # cross_window_sec / cross_threshold 为 recheck 可选键（无默认配置），rc.get 兜底。
+    # cross_window_sec / cross_threshold 在 config.recheck 有默认（15/0.65）；
+    # rc.get 兼容直调 core 或旧配置缺键。
     disputed = []
     if src == "whisper" and secondary and cfg_full.get("recheck", {}).get("cross_check", True):
         rc = cfg_full.get("recheck", {})

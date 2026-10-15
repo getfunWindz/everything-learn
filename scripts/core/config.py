@@ -54,6 +54,8 @@ DEFAULT_CONFIG = {
         "same_source_threshold": 0.45,
         "same_source_model": "small",
         "cross_check": True,
+        "cross_window_sec": 15,    # T14.5 双 ASR 交叉比对窗宽（秒）
+        "cross_threshold": 0.65,   # T14.5 逐窗归一化相似度 >= 此值记 agree
         "tier3": {"allow": False, "max_density": 1.5, "max_gap_sec": 15},
     },
 }
