@@ -212,13 +212,21 @@ def test_decide_tier_score_includes_vis_ref_term():
 def test_select_regions_prefers_dense_and_gaps():
     from core import recheck
     dense = [{"start": 0, "end": 55, "text": "定义 公式 步骤 定理 结论 定义 公式 步骤"}]
-    rest = [{"start": 60 + i * 30, "end": 85 + i * 30, "text": "嗯 然后 这个"} for i in range(18)]
+    rest = [{"start": 60 + i * 30, "end": 85 + i * 30, "text": "嗯 然后 这个"} for i in range(6)] + \
+           [{"start": 265 + i * 30, "end": 290 + i * 30, "text": "嗯 然后 这个"} for i in range(11)]
     lines = dense + rest
     regions = recheck.select_regions(lines, 600, _cfg())
     assert regions, "应选出候选区域"
     assert any("知识点" in r["reason"] for r in regions)
     assert any("空档" in r["reason"] for r in regions)
     assert regions == sorted(regions, key=lambda r: -r["score"])
+
+
+def test_plan_frames_cap():
+    from core import recheck
+    regions = [{"start": 0, "end": 10000, "reason": "x", "score": 1.0}]
+    p = recheck.plan_frames(regions, fps=3, max_frames=20000)
+    assert p["wanted"] == 30000 and p["frames"] == 20000 and p["capped"] is True
 
 
 def test_select_regions_disputed_boost():

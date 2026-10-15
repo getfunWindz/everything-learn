@@ -210,11 +210,7 @@ def select_regions(lines, duration_sec, cfg, disputed=None):
         sc, _ = score_window_text(text)
         if sc >= 3.0:
             candidates.append({"start": s, "end": e, "reason": "知识点密集区", "score": sc})
-    # 计划 bug 修复（T5）：计划测试数据为 25s 字幕/30s 步长（间隙仅 5s），若以
-    # _cfg 的 gap_sec=20 作为 _gaps 阈值则空档候选恒为空，与计划测试
-    # （assert any("空档" in reason)）矛盾。故扫描取 min(gap_sec, 5.0)：5.0 为
-    # _gaps 默认灵敏度；gap_sec 更小时仍可收紧；长空档靠 score 自然排前。
-    for a, b in _gaps(lines or [], duration_sec, min(gap_sec, 5.0)):
+    for a, b in _gaps(lines or [], duration_sec, gap_sec):
         candidates.append({"start": a, "end": b, "reason": "无讲解空档（画面展示）",
                            "score": 0.5 + min((b - a) / 60.0, 2.0)})
     for a, b in (disputed or []):
