@@ -495,11 +495,16 @@ def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False)
         recheck_meta["skipped"] = "纯音频来源：多模态复检不适用"
     else:
         recheck_meta["skipped"] = "档位=不检（用户指定或白名单）"
-    # 6) 落盘 + 缓存
+    # 6) 落盘 + 缓存（recheck_report：复检元数据全量 + 同源校验 + 不确定项留痕）
+    recheck_report = dict(recheck_meta)
+    recheck_report["same_source"] = ss or {}
+    recheck_report["uncertain"] = [w for w in (recheck_meta.get("windows") or [])
+                                   if w.get("kind") == "uncertain"]
     out_dir = _item_out_dir(meta, ref, out_root, single, opts)
     info = artifacts.build_info(meta, ref, kind="timeline", source=src, page_count=opts.page_count,
                                 recheck=recheck_meta, provenance=provenance, language=language)
     artifacts.write_item_artifacts(out_dir, info, TimelineContent(segments=lines))
+    artifacts.write_recheck_report(out_dir, recheck_report)
     if not opts.no_cache:
         cache.set_cached(ref.platform, ref.item_id, ref.sub_id,
                          {"kind": "timeline", "items": lines})

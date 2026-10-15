@@ -1,7 +1,8 @@
 import sys, os, json
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 import pytest
-from core.artifacts import build_info, render_content_txt, write_item_artifacts
+from core.artifacts import (build_info, render_content_txt, write_item_artifacts,
+                           write_recheck_report)
 from core.models import ItemRef, ItemMeta, TimelineContent, DocumentContent
 
 
@@ -39,6 +40,43 @@ def test_write_item_artifacts_document(tmp_path):
     tpl = (tmp_path / "report_template.md").read_text(encoding="utf-8")
     assert "知识地图" in tpl and "延伸阅读" in tpl and "原文摘录" in tpl
     assert "[00:00" not in tpl and "时间轴" not in tpl
+
+
+def test_render_timeline_vision_source_annotations():
+    """T15：vision 补充/校正行追加行尾标注（校正含 corrected_from）"""
+    out = render_content_txt(TimelineContent(segments=[
+        {"start": 0.0, "end": 1.5, "text": "你好"},
+        {"start": 10.0, "end": 11.0, "text": "画面公式", "source": "vision补充"},
+        {"start": 20.0, "end": 25.0, "text": "注意力机制", "source": "vision校正",
+         "corrected_from": "注意利机制"},
+    ]))
+    assert out == ("[0.0-1.5] 你好\n"
+                   "[10.0-11.0] 画面公式 【画面补充】\n"
+                   "[20.0-25.0] 注意力机制 【画面校正：原「注意利机制」】\n")
+
+
+def test_render_timeline_lines_without_vision_source_unchanged():
+    """T15：无 source（或非 vision 来源）的行不追加任何标注"""
+    out = render_content_txt(TimelineContent(segments=[
+        {"start": 0.0, "end": 1.0, "text": "a"},
+        {"start": 2.0, "end": 3.0, "text": "b", "source": "字幕"},
+    ]))
+    assert out == "[0.0-1.0] a\n[2.0-3.0] b\n"
+    assert "【" not in out
+
+
+def test_write_recheck_report_roundtrip(tmp_path):
+    """T15：recheck_report.json 落盘（目录自动创建、中文不转义、可读回）"""
+    data = {"tier": 1, "budget": {"user_choice": "B"},
+            "same_source": {"checked": True, "passed": True},
+            "uncertain": [{"range": [0.0, 30.0], "kind": "uncertain", "text": "画面过暗"}]}
+    out_dir = tmp_path / "nested" / "item"
+    write_recheck_report(str(out_dir), data)
+    p = out_dir / "recheck_report.json"
+    assert p.exists()
+    raw = p.read_text(encoding="utf-8")
+    assert "画面过暗" in raw and "\\u" not in raw  # ensure_ascii=False
+    assert json.loads(raw) == data
 
 
 def test_render_document_template_sections():

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """M13：pipeline 政策栈与预算闸门集成测试（全部 mock，无网络无 vision）"""
+import json
 import os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
@@ -1126,4 +1127,127 @@ def test_process_item_audio_only_marks_recheck_na(monkeypatch, tmp_path):
     assert cap["decide_calls"][0]["has_video"] is False
     assert "window_args" not in cap
     assert out[0] == "ok"
+
+
+# ---------------- T15：产物透明度（recheck_report.json + content.txt 标注） ----------------
+
+_WM_T15 = {"coverage_pct": 50.0,
+           "windows": [{"range": [0.0, 30.0], "kind": "uncertain", "text": "画面过暗"},
+                       {"range": [30.0, 60.0], "kind": "uncovered",
+                        "text": "超出复检帧预算（max_check_frames）"}],
+           "window_errors": [], "capped": True,
+           "budget": {"estimate": {"frames": 30}, "user_choice": "B",
+                      "confirmed": False, "reason": "non_tty_default"},
+           "effective_tier": 1, "frames_used": 10}
+
+
+def _run_full_artifacts(monkeypatch, tmp_path, *, window_meta=None, tier=1,
+                        vision_enabled=True, mutate_lines=None):
+    """T15：真实落盘路径（build_info/write_item_artifacts 均不 mock），
+    仅 mock 网络/模型；mutate_lines 用于模拟窗口复检对 lines 的补充/校正。"""
+    from core import config as core_config
+    cfg = dict(core_config.DEFAULT_CONFIG)
+    cfg["vision"] = dict(cfg["vision"], enabled=vision_enabled,
+                         api_key="k" if vision_enabled else "",
+                         base_url="http://x" if vision_enabled else "")
+    cfg["out_dir"] = str(tmp_path)
+    monkeypatch.setattr(pipeline.config, "load_config", lambda: cfg)
+    monkeypatch.setattr(pipeline, "_same_source_verify",
+                        lambda a, r, lines, c: {"checked": True, "passed": True,
+                                                "avg": 0.9, "compared": 3})
+    monkeypatch.setattr(pipeline.recheck, "gather_signals",
+                        lambda *a, **k: dict(_WIRING_SIGNALS))
+    monkeypatch.setattr(pipeline.recheck, "decide_tier",
+                        lambda *a, **k: {"tier": tier, "score": 0.7, "reasons": ["r"]})
+    calls = {"window": 0}
+
+    def _fake_window(adapter, ref, lines, cfg_, decision, opts_):
+        calls["window"] += 1
+        if mutate_lines is not None:
+            mutate_lines(lines)
+        return dict(window_meta or {})
+
+    monkeypatch.setattr(pipeline, "_run_window_recheck", _fake_window)
+
+    class A(DemoAdapter):
+        pass
+
+    A.language_hint = "zh"
+    A.has_video = True
+    res = ContentResult(kind="timeline", status="ok", provenance="human",
+                        label="字幕(人工)",
+                        segments=[{"start": 0, "end": 5, "text": "他说到了注意利机制"}])
+    opts = pipeline.RunOptions(out_root=str(tmp_path), no_cache=True)
+    out = pipeline.process_item(A(res), ItemRef(platform="demo", item_id="1", duration=120),
+                                str(tmp_path), opts, single=True)
+    return out, calls
+
+
+def test_process_item_writes_recheck_report(monkeypatch, tmp_path):
+    """T15：执行复检的单条处理 → recheck_report.json 含 tier/budget/same_source/uncertain"""
+    out, calls = _run_full_artifacts(monkeypatch, tmp_path, window_meta=_WM_T15)
+    assert out[0] == "ok" and calls["window"] == 1
+    report_path = os.path.join(out[3], "recheck_report.json")
+    assert os.path.exists(report_path)
+    data = json.load(open(report_path, encoding="utf-8"))
+    assert data["tier"] == 1 and data["effective_tier"] == 1
+    assert data["budget"]["user_choice"] == "B" and data["budget"]["confirmed"] is False
+    assert data["same_source"]["checked"] is True and data["same_source"]["passed"] is True
+    assert data["uncertain"] == [{"range": [0.0, 30.0], "kind": "uncertain",
+                                  "text": "画面过暗"}]
+    assert data["coverage_pct"] == 50.0 and data["capped"] is True
+    assert data["frames_used"] == 10
+
+
+def test_process_item_content_txt_annotates_vision_lines(monkeypatch, tmp_path):
+    """T15：content.txt 校正/补充行带标注（校正含 corrected_from）"""
+    def _mutate(lines):
+        lines[0]["text"] = "他说到了注意力机制"
+        lines[0]["source"] = "vision校正"
+        lines[0]["corrected_from"] = "注意利机制"
+        lines.append({"start": 10.0, "end": 11.0, "text": "画面公式",
+                      "source": "vision补充"})
+        lines.sort(key=lambda x: float(x["start"]))
+
+    out, _ = _run_full_artifacts(monkeypatch, tmp_path, window_meta=_WM_T15,
+                                 mutate_lines=_mutate)
+    content = open(os.path.join(out[3], "content.txt"), encoding="utf-8").read()
+    assert "[0.0-5.0] 他说到了注意力机制 【画面校正：原「注意利机制」】" in content
+    assert "[10.0-11.0] 画面公式 【画面补充】" in content
+
+
+def test_process_item_recheck_report_skipped_branch(monkeypatch, tmp_path):
+    """T15：复检未执行（vision 未配置）→ 报告仍落盘并记 skipped；
+    budget 不可达故不出现，uncertain 为空列表，same_source 照常留痕"""
+    out, calls = _run_full_artifacts(monkeypatch, tmp_path, vision_enabled=False)
+    assert calls["window"] == 0
+    data = json.load(open(os.path.join(out[3], "recheck_report.json"), encoding="utf-8"))
+    assert data["tier"] == 1 and "未配置" in data["skipped"]
+    assert "budget" not in data and data["uncertain"] == []
+    assert data["same_source"]["compared"] == 3
+
+
+def test_process_item_document_writes_no_recheck_report(monkeypatch, tmp_path):
+    """T15：document 形态无档位概念 → 不写 recheck_report.json（三件套照常）"""
+    from core import config as core_config
+    cfg = dict(core_config.DEFAULT_CONFIG)
+    cfg["out_dir"] = str(tmp_path)
+    monkeypatch.setattr(pipeline.config, "load_config", lambda: cfg)
+
+    class DocAdapter:
+        name = "demo"
+
+        def fetch_content(self, ref):
+            return ContentResult(kind="document", status="ok",
+                                 blocks=[{"heading": "引言", "text": "正文"}])
+
+        def fetch_meta(self, ref):
+            return ItemMeta(title="t", author="a")
+
+    opts = pipeline.RunOptions(out_root=str(tmp_path), no_cache=True)
+    out = pipeline.process_item(DocAdapter(), ItemRef(platform="demo", item_id="1"),
+                                str(tmp_path), opts, single=True)
+    assert out[0] == "ok"
+    assert os.path.exists(os.path.join(out[3], "content.txt"))
+    assert not os.path.exists(os.path.join(out[3], "recheck_report.json"))
 

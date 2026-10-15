@@ -42,6 +42,18 @@ def build_info(meta, ref, kind: str, source: str, page_count: int = 1,
     return info
 
 
+def _line_annotation(ln) -> str:
+    """复检留痕（T15）：vision 补充/校正行的行尾标注；其余行原样"""
+    source = ln.get("source") if isinstance(ln, dict) else getattr(ln, "source", None)
+    if source == "vision补充":
+        return " 【画面补充】"
+    if source == "vision校正":
+        orig = (ln.get("corrected_from") if isinstance(ln, dict)
+                else getattr(ln, "corrected_from", None)) or ""
+        return f" 【画面校正：原「{orig}」】"
+    return ""
+
+
 def render_content_txt(content) -> str:
     """归一化文本：timeline → "[起-止] 文本" 行；document → Markdown 结构"""
     kind = getattr(content, "kind", "timeline")
@@ -57,7 +69,7 @@ def render_content_txt(content) -> str:
         s = ln.get("start") if isinstance(ln, dict) else ln.start
         e = ln.get("end") if isinstance(ln, dict) else ln.end
         t = ln.get("text") if isinstance(ln, dict) else ln.text
-        out.append(f"[{float(s):.1f}-{float(e):.1f}] {t}")
+        out.append(f"[{float(s):.1f}-{float(e):.1f}] {t}{_line_annotation(ln)}")
     return "\n".join(out) + ("\n" if out else "")
 
 
@@ -70,3 +82,10 @@ def write_item_artifacts(out_dir: str, info: dict, content) -> None:
         f.write(render_content_txt(content))
     with open(os.path.join(out_dir, "report_template.md"), "w", encoding="utf-8") as f:
         f.write(report.render_template_for(info["kind"], info))
+
+
+def write_recheck_report(out_dir: str, data: dict) -> None:
+    """复检透明度报告（T15）：档位/预算/同源校验/不确定项留痕（timeline 专用）"""
+    os.makedirs(out_dir, exist_ok=True)
+    with open(os.path.join(out_dir, "recheck_report.json"), "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
