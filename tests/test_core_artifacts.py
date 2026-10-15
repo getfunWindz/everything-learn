@@ -55,6 +55,30 @@ def test_render_timeline_vision_source_annotations():
                    "[20.0-25.0] 注意力机制 【画面校正：原「注意利机制」】\n")
 
 
+def test_render_timeline_vision_source_attribute_object():
+    """T15 评审：属性对象（非 dict）行的 source/corrected_from 也应被识别"""
+    class Seg:
+        start = 0.0
+        end = 1.0
+        text = "注意力机制"
+        source = "vision校正"
+        corrected_from = "注意利机制"
+
+    out = render_content_txt(TimelineContent(segments=[Seg()]))
+    assert out == "[0.0-1.0] 注意力机制 【画面校正：原「注意利机制」】\n"
+
+
+def test_render_timeline_vision_correction_without_corrected_from():
+    """T15 评审：corrected_from 为空 → 仅【画面校正】，不带「原「」」"""
+    out = render_content_txt(TimelineContent(segments=[
+        {"start": 0.0, "end": 1.0, "text": "注意力机制", "source": "vision校正"},
+        {"start": 2.0, "end": 3.0, "text": "多头机制", "source": "vision校正",
+         "corrected_from": ""},
+    ]))
+    assert out == ("[0.0-1.0] 注意力机制 【画面校正】\n"
+                   "[2.0-3.0] 多头机制 【画面校正】\n")
+
+
 def test_render_timeline_lines_without_vision_source_unchanged():
     """T15：无 source（或非 vision 来源）的行不追加任何标注"""
     out = render_content_txt(TimelineContent(segments=[

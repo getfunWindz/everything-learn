@@ -50,7 +50,7 @@ def _line_annotation(ln) -> str:
     if source == "vision校正":
         orig = (ln.get("corrected_from") if isinstance(ln, dict)
                 else getattr(ln, "corrected_from", None)) or ""
-        return f" 【画面校正：原「{orig}」】"
+        return f" 【画面校正：原「{orig}」】" if orig else " 【画面校正】"
     return ""
 
 

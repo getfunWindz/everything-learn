@@ -360,6 +360,7 @@ def test_whisper_language_resolution(monkeypatch):
     opts = pipeline.RunOptions(out_root=".", no_cache=True)
     monkeypatch.setattr(pipeline, "_item_out_dir", lambda *a, **k: "out")
     monkeypatch.setattr(pipeline.artifacts, "write_item_artifacts", lambda *a, **k: None)
+    monkeypatch.setattr(pipeline.artifacts, "write_recheck_report", lambda *a, **k: None)
     monkeypatch.setattr(pipeline.artifacts, "build_info", lambda meta, ref, **k: {"kind": "timeline", **k})
     pipeline.process_item(Adapter(), ItemRef(platform="demo", item_id="1", duration=60), ".", opts, single=True)
     assert captured["language"] == "en"
@@ -394,6 +395,7 @@ def test_whisper_language_cli_override(monkeypatch):
     opts = pipeline.RunOptions(out_root=".", no_cache=True, lang="ja")
     monkeypatch.setattr(pipeline, "_item_out_dir", lambda *a, **k: "out")
     monkeypatch.setattr(pipeline.artifacts, "write_item_artifacts", lambda *a, **k: None)
+    monkeypatch.setattr(pipeline.artifacts, "write_recheck_report", lambda *a, **k: None)
     monkeypatch.setattr(pipeline.artifacts, "build_info", lambda meta, ref, **k: {"kind": "timeline", **k})
     pipeline.process_item(Adapter(), ItemRef(platform="demo", item_id="1", duration=60), ".", opts, single=True)
     assert captured["language"] == "ja"
