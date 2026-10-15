@@ -2,6 +2,7 @@
 """M13：pipeline 政策栈与预算闸门集成测试（全部 mock，无网络无 vision）"""
 import json
 import os, sys
+import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
 from core import pipeline
@@ -824,6 +825,43 @@ def test_budget_cap_none_no_effect(monkeypatch):
     assert out["budget"]["cap"] is None
     assert seen["sample"] == [(0.0, 30.0, 3, True), (30.0, 60.0, 3, True)]  # 无上限裁剪
     assert out["capped"] is False
+
+
+def test_budget_is_cumulative_across_items(monkeypatch):
+    """spec §11.2 运行级上限：同一 opts 跨条目累计 _budget_spent。
+    条目1（30s，估算 0.01734 < 剩余 0.02）正常执行并累计；
+    条目2（60s，估算 0.03468 > 剩余 0.00266）帧预算裁至 14 帧 → 全部窗口 uncovered。"""
+    cfg = _rc_cfg()  # 默认免打扰阈值 0.3：闸门不触发，仅金额上限生效
+    monkeypatch.setattr(pipeline.recheck, "select_regions",
+                        lambda lines_, dur, cfg_, disputed=None:
+                        [{"start": 0.0, "end": float(dur), "reason": "r", "score": 3.0}])
+    seen = _patch_window_io(monkeypatch, frames=[(0.0, b"jpg")])
+    opts = pipeline.RunOptions(budget=0.02)
+
+    first = pipeline._run_window_recheck(
+        _VideoAdapter(), ItemRef(platform="demo", item_id="1", duration=30),
+        [], cfg, {"tier": 1}, opts)
+    assert opts._budget_spent > 0
+    assert first["budget"]["cap"] == 0.02
+    assert first["budget"]["spent_total"] == pytest.approx(0.01734, abs=1e-6)
+    assert first["capped"] is False and first["frames_used"] == 1
+
+    second = pipeline._run_window_recheck(
+        _VideoAdapter(), ItemRef(platform="demo", item_id="2", duration=60),
+        [], cfg, {"tier": 1}, opts)
+    # spent_total 单调递增；cap 恒为运行上限
+    assert second["budget"]["spent_total"] > first["budget"]["spent_total"]
+    assert second["budget"]["cap"] == first["budget"]["cap"] == 0.02
+    assert second["budget"]["reason"] == "budget_cap"
+    assert second["budget"]["spent_total"] == pytest.approx(0.02, abs=1e-6)
+    assert len(seen["sample"]) == 1                      # 条目2：0 帧被抽（剩余预算截断）
+    assert second["frames_used"] < first["frames_used"]    # 第二次 frames 更少
+    assert second["capped"] is True
+    assert second["windows"] == [
+        {"range": [0.0, 30.0], "kind": "uncovered",
+         "text": "超出复检帧预算（max_check_frames）"},
+        {"range": [30.0, 60.0], "kind": "uncovered",
+         "text": "超出复检帧预算（max_check_frames）"}]
 
 
 def test_window_recheck_choice_c_downgrades_to_tier1_regions(monkeypatch):

@@ -46,7 +46,8 @@ class RunOptions:
     interval: float = 1.5
     page_count: int = 1          # 由 run_input 填入（全部 item 数）
     recheck: str = None          # auto | off | 1 | 2 | 3（CLI 直传；等价 tier1/tier2 见 decide_tier）
-    budget: float = None         # 本次运行金额上限（暂存）
+    budget: float = None         # 本次运行金额上限（运行级；spec §11.2）
+    _budget_spent: float = 0.0   # 运行级已消费估算（跨条目随同一 opts 累计）
     yes_recheck: bool = False    # 预授权完整档2
 
 
@@ -240,6 +241,10 @@ def _run_window_recheck(adapter, ref, lines, cfg, decision, opts):
         choice = "A"
         effective_tier = tier
         budget_cap = getattr(opts, "budget", None)
+        budget_remaining = None
+        if budget_cap is not None:  # spec §11.2：运行级上限 = 上限 - 已累计消费
+            budget_remaining = max(0.0, float(budget_cap)
+                                   - float(getattr(opts, "_budget_spent", 0.0)))
         budget_reason = ""
         budget_info = {"confirmed": None, "reason": ""}  # Q5：未过闸门=None；过闸门由 _budget_gate 回填
         if recheck.needs_gate(est, cfg, dur):
@@ -252,13 +257,13 @@ def _run_window_recheck(adapter, ref, lines, cfg, decision, opts):
                 regions = recheck.select_regions(lines, dur, cfg, disputed=None)
                 plan, est = _plan(regions)
                 effective_tier = 1
-        if budget_cap is not None and est["amount"] > float(budget_cap):
-            choice = "B"                      # 超用户预算上限 → 直接帽内尽力（不询问）
+        if budget_remaining is not None and (budget_remaining <= 0 or est["amount"] > budget_remaining):
+            choice = "B"                      # 超运行剩余预算 → 直接帽内尽力（不询问）
             budget_reason = "budget_cap"
             pricing = conf.get("pricing", {})
             per_frame_price = (pricing.get("tokens_per_frame", 600) / 1e6) * pricing.get("input_per_1m", 0.3)
             if per_frame_price > 0:
-                allowed = int(max(0.0, float(budget_cap)) / per_frame_price)
+                allowed = int(budget_remaining / per_frame_price)
                 cap = min(rc.get("max_check_frames", 20000), max(0, allowed))
                 plan = recheck.plan_frames(regions, fps=fps, max_frames=cap)
         # Q8：预先展平 planned windows；准入按理论帧数（去重前 ceil(时长×fps)）裁剪，
@@ -338,6 +343,9 @@ def _run_window_recheck(adapter, ref, lines, cfg, decision, opts):
                                         "text": it.get("text", "")})
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
+        if budget_remaining is not None:  # 执行后按估算累计（actual token 未知，用 est 代理）
+            opts._budget_spent = (getattr(opts, "_budget_spent", 0.0)
+                                  + min(est["amount"], budget_remaining))
         lines.extend(added)
         lines.sort(key=lambda x: float(x["start"]))
         return {"coverage_pct": round(covered / eff_dur * 100, 1) if eff_dur > 0 else 0.0,
@@ -345,7 +353,8 @@ def _run_window_recheck(adapter, ref, lines, cfg, decision, opts):
                 "budget": {"estimate": est, "user_choice": choice,
                            "confirmed": budget_info.get("confirmed"),
                            "reason": budget_reason or budget_info.get("reason", ""),
-                           "cap": budget_cap},
+                           "cap": budget_cap,
+                           "spent_total": round(getattr(opts, "_budget_spent", 0.0), 6)},
                 "effective_tier": effective_tier, "capped": bool(uncovered),
                 "frames_used": used_frames}
     except Exception as e:
