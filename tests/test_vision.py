@@ -325,3 +325,38 @@ def test_check_window_builds_prompt(monkeypatch):
     assert out == []
     assert "这一秒在讲公式" in captured["prompt"]
     assert "仅参考" in captured["prompt"]
+
+
+# ---------- 时间对齐多点视觉归属复检（无音频流兜底，spec §8.2） ----------
+
+def test_check_attribution_aligned_pass(monkeypatch, tmp_path):
+    v = _make_test_video(str(tmp_path / "t.mp4"), seconds=20, fps=10)
+    lines = [{"start": i, "end": i + 1, "text": "知识内容"} for i in range(20)]
+    monkeypatch.setattr(vision, "extract_frames_at",
+                        lambda p, ts: [(int(t), b"jpeg") for t in ts])
+    monkeypatch.setattr(vision, "describe_video", lambda cfg, frames, prompt=None:
+                        "[1] 一致\n[5] 一致\n[10] 一致\n[15] 一致\n[19] 一致")
+    r = vision.check_attribution_aligned({"enabled": True}, v, lines, 20)
+    assert r["passed"] is True
+    assert len(r["verdicts"]) == 5
+
+
+def test_check_attribution_aligned_fail_when_mismatch(monkeypatch, tmp_path):
+    v = _make_test_video(str(tmp_path / "t.mp4"), seconds=20, fps=10)
+    lines = [{"start": i, "end": i + 1, "text": "知识内容"} for i in range(20)]
+    monkeypatch.setattr(vision, "extract_frames_at",
+                        lambda p, ts: [(int(t), b"jpeg") for t in ts])
+    monkeypatch.setattr(vision, "describe_video", lambda cfg, frames, prompt=None:
+                        "[1] 不一致：影视剧\n[5] 不一致：广告\n[10] 不一致：歌词")
+    r = vision.check_attribution_aligned({"enabled": True}, v, lines, 20)
+    assert r["passed"] is False
+
+
+def test_check_attribution_aligned_parse_failure_is_failsafe(monkeypatch, tmp_path):
+    v = _make_test_video(str(tmp_path / "t.mp4"), seconds=20, fps=10)
+    lines = [{"start": i, "end": i + 1, "text": "知识内容"} for i in range(20)]
+    monkeypatch.setattr(vision, "extract_frames_at",
+                        lambda p, ts: [(int(t), b"jpeg") for t in ts])
+    monkeypatch.setattr(vision, "describe_video", lambda cfg, frames, prompt=None: "无法解析的输出")
+    r = vision.check_attribution_aligned({"enabled": True}, v, lines, 20)
+    assert r["passed"] is False and r["verdicts"] == []

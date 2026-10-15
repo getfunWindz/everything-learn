@@ -329,6 +329,40 @@ def check_subtitle_match(cfg_vision: dict, video_path: str, lines: list,
     return parse_match_verdict(describe_video(cfg_vision, frames, prompt=prompt))
 
 
+ATTRIBUTION_PROMPT = (
+    "你是学习报告工具的「字幕归属校验」助手。以下是同一视频 5 个时间点的画面帧，"
+    "以及各时间点附近的字幕文本。请逐点判断：该点画面内容与字幕是否属于同一内容/语言"
+    "（主题一致、字幕不像来自其他视频的台词/歌词/广告）。\n"
+    "输出格式：每行一条 `[时间戳秒] 一致` 或 `[时间戳秒] 不一致：简短理由`。只输出这些行。"
+)
+
+
+def check_attribution_aligned(cfg_vision, video_path, lines, duration, points=5):
+    """时间对齐多点视觉归属复检（无音频流兜底）。
+    5 个时间点：5%/25%/50%/75%/95%；每点取帧 + 该点 ±5s 字幕。
+    → {"passed": bool, "verdicts": [{ts, match}]}；解析/抽帧失败 → passed=False（fail-safe）"""
+    dur = float(duration or 0)
+    if dur <= 0 or not lines:
+        return {"passed": False, "verdicts": []}
+    fractions = (0.05, 0.25, 0.5, 0.75, 0.95)[:max(1, points)]
+    times = [max(0.5, dur * f) for f in fractions]
+    frames = extract_frames_at(video_path, times)
+    if not frames:
+        raise VisionError("抽帧失败（无法解码或视频流不可用）")
+    ctx = []
+    for ts, _jpeg in frames:
+        near = " ".join(l["text"] for l in lines if abs(float(l["start"]) - float(ts)) <= 5.0)
+        ctx.append(f"[{int(float(ts))}s] 字幕：{near or '（无）'}")
+    prompt = ATTRIBUTION_PROMPT + "\n\n【各时间点字幕文本】\n" + "\n".join(ctx)
+    text = describe_video(cfg_vision, frames, prompt=prompt)
+    verdicts = []
+    for m in re.finditer(r"\[(\d+(?:\.\d+)?)\]\s*(一致|不一致)", text or ""):
+        verdicts.append({"ts": float(m.group(1)), "match": m.group(2) == "一致"})
+    mismatches = sum(1 for v in verdicts if not v["match"])
+    passed = len(verdicts) >= 3 and mismatches <= 1
+    return {"passed": passed, "verdicts": verdicts}
+
+
 def _thumb_diff(a: bytes, b: bytes) -> float:
     """两帧缩略图平均像素差（0~1）；解码失败视为不同帧"""
     from PIL import Image
