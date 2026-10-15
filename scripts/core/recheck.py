@@ -12,7 +12,8 @@ _NUMUNIT = re.compile(r"\d+(?:\.\d+)?\s*(?:%|次|倍|ms|GB|万|亿)")  # spec §
 _ENUM = re.compile(r"[①②③④⑤⑥⑦⑧⑨⑩]|(?:^|\s)\d+[.、)]|\([a-cA-C]\)")
 _WORD = re.compile(r"[A-Za-z]+")  # TTR token：英文按词
 _CJK = re.compile(r"[\u4e00-\u9fff]+")  # TTR token：中文连续片段
-VIS_CUES = ("如图", "这张图", "这张表", "表格", "演示", "看一下", "大家注意", "看这里", "如图所示")  # 后续任务（画面引导词）预留
+VIS_CUES = ("如图", "这张图", "这张表", "表格", "演示", "看一下", "大家注意", "看这里", "如图所示")  # M13 信号：画面引导词（最长优先非重叠匹配）
+_VIS_RE = re.compile("|".join(re.escape(c) for c in sorted(VIS_CUES, key=len, reverse=True)))
 
 
 def _effective_duration(lines, duration_sec):
@@ -120,8 +121,8 @@ def kp_spread(lines, duration_sec, segments=10, glossary_terms=None):
         # kp_density 的窗口自 0 起扫（绝对时间轴），故将片段字幕平移到段内相对时间
         seg = [{"start": float(l["start"]) - s, "end": float(l["end"]) - s, "text": l["text"]}
                for l in (lines or []) if s <= float(l["start"]) < e]
-        density, _ = kp_density(seg, max(e - s, 1e-9), glossary_terms=glossary_terms)
-        counts.append(density * max(e - s, 1e-9) / 60.0)
+        _, det = kp_density(seg, max(e - s, 1e-9), glossary_terms=glossary_terms)
+        counts.append(det["blocks"])
     total = sum(counts)
     if total <= 0:
         return 0.0
@@ -131,9 +132,9 @@ def kp_spread(lines, duration_sec, segments=10, glossary_terms=None):
 
 
 def vis_ref_density(lines, duration_sec):
-    """画面引导词密度（个/10min）"""
+    """画面引导词密度（个/10min）；最长优先非重叠匹配，避免“如图/如图所示”等重复计数"""
     text = " ".join(l["text"] for l in (lines or []))
-    n = sum(text.count(c) for c in VIS_CUES)
+    n = len(_VIS_RE.findall(text))
     return n / max(_effective_duration(lines, duration_sec) / 600.0, 1e-9)
 
 
@@ -141,7 +142,7 @@ def _clamp(x, lo=0.0, hi=1.0):
     return max(lo, min(hi, x))
 
 
-_SRC_RISK = {"whisper": 1.0, "auto": 1.0, "unknown": 0.8, "human": 0.3, "official": 0.2}
+_SRC_RISK = {"whisper": 1.0, "auto": 1.0, "none": 1.0, "unknown": 0.8, "human": 0.3, "official": 0.2}
 
 
 def gather_signals(lines, duration_sec, provenance, glossary_terms=None):
@@ -195,4 +196,3 @@ def decide_tier(signals, cfg, provenance, has_video=True, policy=None):
                         f"src_risk={signals['src_risk']:.1f}",
                         f"vis_ref={signals['vis_ref']:.1f}/10min",
                         f"dur={dur:.0f}min", f"score={score:.2f}"]}
-

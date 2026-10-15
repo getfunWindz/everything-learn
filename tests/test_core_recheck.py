@@ -144,9 +144,9 @@ def test_kp_spread_uniform_vs_concentrated():
 
 def test_kp_spread_guard_invalid_segments():
     from core import recheck
-    lines = [{"start": 0, "end": 50, "text": "定义 公式"}]
-    assert recheck.kp_spread(lines, 600, segments=1) == 0.0
-    assert recheck.kp_spread(lines, 600, segments=0) == 0.0
+    dense = [{"start": 0, "end": 50, "text": "定义 公式 步骤 定理 结论 定义 公式 步骤"}]
+    assert recheck.kp_spread(dense, 600, segments=1) == 0.0
+    assert recheck.kp_spread(dense, 600, segments=0) == 0.0
     assert recheck.kp_spread([], 0) == 0.0
 
 
@@ -156,3 +156,39 @@ def test_gap_stats():
     ratio, longest = recheck.gap_stats(lines, 100)
     assert longest == 50.0
     assert abs(ratio - 0.5) < 1e-6
+
+
+def test_vis_ref_density_no_overlap_double_count():
+    from core import recheck
+    lines = [{"start": 0, "end": 5, "text": "如图所示。这张表格里数据很多。看这里，演示一下。"}]
+    assert recheck.vis_ref_density(lines, 600) == 4.0
+
+
+def test_vis_ref_density_units_per_10min():
+    from core import recheck
+    lines = [{"start": 0, "end": 5, "text": "如图"}]
+    assert recheck.vis_ref_density(lines, 600) == 1.0
+    assert recheck.vis_ref_density(lines, 300) == 2.0
+
+
+def test_gather_signals_contract_and_duration_fallback():
+    from core import recheck
+    lines = [{"start": 0, "end": 50, "text": "定义 公式 步骤"},
+             {"start": 60, "end": 115, "text": "注意 结论"}]
+    sig = recheck.gather_signals(lines, 0, provenance="human")   # duration=0 → 回退 115s
+    assert abs(sig["dur_min"] - 115 / 60) < 1e-9
+    for k in ("kp_density", "kp_spread", "src_risk", "vis_ref", "gap_ratio", "max_gap"):
+        assert k in sig
+    assert sig["src_risk"] == 0.3
+    assert recheck.gather_signals(lines, 0, provenance="none")["src_risk"] == 1.0
+
+
+def test_decide_tier_score_threshold_boundary():
+    from core import recheck
+    sig = {"dur_min": 30, "kp_density": 1.0, "kp_spread": 0.3, "src_risk": 0.8,
+           "vis_ref": 0.0, "gap_ratio": 0.02, "max_gap": 5.0}
+    d = recheck.decide_tier(sig, _cfg(), provenance="unknown", has_video=True)
+    assert abs(d["score"] - 0.6217) < 0.001     # 1/6 + 0.18 + 0.4 − 0.125
+    assert d["tier"] == 2
+    cfg2 = _cfg(); cfg2["recheck"]["tier2_score"] = 0.7
+    assert recheck.decide_tier(sig, cfg2, provenance="unknown", has_video=True)["tier"] == 1
