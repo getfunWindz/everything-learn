@@ -29,3 +29,17 @@ def test_contract_requires_media_channel_kwargs():
             return None
     problems = run_contract(NoKwargs())
     assert any("fetch_media_url" in p for p in problems)
+
+
+def test_timeline_adapters_declare_source_flags():
+    """M13 §12：timeline 适配器显式声明 has_video / language_hint（自动检测则缺省）"""
+    from providers.bilibili import BilibiliAdapter
+    from providers.douyin import DouyinAdapter
+    from providers.podcast import PodcastAdapter
+    from providers.ted import TedAdapter
+    from providers.youtube import YouTubeAdapter
+    assert BilibiliAdapter.language_hint == "zh" and BilibiliAdapter.has_video is True
+    assert DouyinAdapter.language_hint == "zh" and DouyinAdapter.has_video is True
+    assert TedAdapter.has_video is True and getattr(TedAdapter, "language_hint", None) is None
+    assert YouTubeAdapter.has_video is True and getattr(YouTubeAdapter, "language_hint", None) is None
+    assert PodcastAdapter.has_video is False

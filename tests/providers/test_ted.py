@@ -82,6 +82,7 @@ def test_fetch_content_zh_cn():
     assert res.label == "字幕(官方 zh-cn)" and len(res.segments) == 200
     assert abs(res.segments[0]["start"] - 0.621) < 1e-6      # 毫秒 → 秒
     assert res.segments[0]["text"] == "上大学那会儿，"
+    assert res.provenance == "official" and res.language == "zh-cn"   # M13 §12
 
 
 def test_fetch_content_lang_fallback():
@@ -95,6 +96,7 @@ def test_fetch_content_lang_fallback():
     a, ref = _adapter(routes)
     res = a.fetch_content(ref)
     assert res.status == "ok" and res.label == "字幕(官方 en)" and len(res.segments) == 12
+    assert res.provenance == "official" and res.language == "en"
 
 
 def test_fetch_content_all_missing_returns_empty():
@@ -104,12 +106,18 @@ def test_fetch_content_all_missing_returns_empty():
     assert res.status == "empty" and "无可用官方字幕" in res.reason
 
 
-def test_fetch_content_short_is_suspect():
+def test_fetch_content_short_still_ok():
+    """M13 §8.3：旧「段数过少/覆盖不足 → suspect」启发式已退役；一段官方字幕也标 ok"""
     short = json.dumps({"captions": [{"content": "hi", "startTime": 0, "duration": 1000}]})
     routes = {"talks/tim_urban": (200, _page_html()), "/lang/zh-cn": (200, short)}
     a, ref = _adapter(routes)
     res = a.fetch_content(ref)
-    assert res.status == "suspect" and "覆盖不足" in res.reason
+    assert res.status == "ok" and len(res.segments) == 1
+    assert res.provenance == "official" and res.language == "zh-cn"
+
+
+def test_adapter_declares_has_video():
+    assert TedAdapter.has_video is True
 
 
 def test_fetch_content_lang_alias_zh():

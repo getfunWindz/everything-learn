@@ -4,7 +4,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts"
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 import pytest
-from providers.bilibili import (BilibiliAdapter, VideoInfo, SubtitleResult, SubtitleLine,
+from providers.bilibili import (BilibiliAdapter, VideoInfo, SubtitleLine,
                                 SearchNeeded)
 from tests.contract.harness import run_contract
 
@@ -23,8 +23,8 @@ class FakeClient:
     def get_video_info(self, bvid="", aid=0):
         return VideoInfo(VIEW_DATA)
 
-    def fetch_subtitle(self, bvid, cid, duration=None, lang=None, title="", desc=""):
-        return SubtitleResult([SubtitleLine(0.0, 1.0, "你好")], "ok", "")
+    def fetch_subtitle(self, bvid, cid, duration=None, lang=None):
+        return [SubtitleLine(0.0, 1.0, "你好")], "human"
 
     def get_video_url(self, bvid, cid, lowest=False):
         return "http://video/low" if lowest else "http://video/high"
@@ -90,6 +90,36 @@ def test_fetch_content_maps_subtitle_result():
     res = a.fetch_content(item)
     assert res.kind == "timeline" and res.status == "ok"
     assert res.segments[0]["text"] == "你好" and res.segments[0]["start"] == 0.0
+    assert res.provenance == "human" and res.language == "zh"
+    assert res.label == "字幕"
+
+
+def test_fetch_content_auto_label_and_language():
+    """AI 字幕：provenance=auto，label 补「(AI)」；language 固定 zh（M13 §12）"""
+    class AutoClient(FakeClient):
+        def fetch_subtitle(self, bvid, cid, duration=None, lang=None):
+            return [SubtitleLine(0.0, 1.0, "自动内容")], "auto"
+    a = BilibiliAdapter(client=AutoClient())
+    item = a.list_items(a.resolve("BV1GJ411x7h7"))[0]
+    res = a.fetch_content(item)
+    assert res.status == "ok" and res.provenance == "auto" and res.language == "zh"
+    assert res.label == "字幕(AI)"
+
+
+def test_fetch_content_no_subtitle_is_empty_none():
+    class EmptyClient(FakeClient):
+        def fetch_subtitle(self, bvid, cid, duration=None, lang=None):
+            return [], "none"
+    a = BilibiliAdapter(client=EmptyClient())
+    item = a.list_items(a.resolve("BV1GJ411x7h7"))[0]
+    res = a.fetch_content(item)
+    assert res.status == "empty" and res.provenance == "none" and res.segments == []
+
+
+def test_adapter_declares_language_hint_and_video():
+    """M13 §8.3/§12：适配器类属性声明主语言与画面层能力"""
+    a = _adapter()
+    assert a.language_hint == "zh" and a.has_video is True
 
 
 def test_fetch_media_url():

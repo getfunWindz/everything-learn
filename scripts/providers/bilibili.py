@@ -59,18 +59,6 @@ class SubtitleLine:
                 and self.content == other.content)
 
 
-class SubtitleResult:
-    """字幕抓取分级结果：ok=可信 / suspect=软可疑（可多模态复检拯救）/ invalid=硬不可信 / empty=无字幕"""
-    def __init__(self, lines: list, status: str, reason: str = ""):
-        self.lines, self.status, self.reason = lines, status, reason
-
-
-# 字幕校验阈值（v3.4 放宽，D3 决策：覆盖下限 60%→50%；关键词零命中判定需 ≥4 词）
-COVERAGE_MIN_RATIO = 0.5
-COVERAGE_MAX_RATIO = 1.3
-MIN_SUBTITLE_LINES = 10
-KEYWORD_MIN_COUNT = 4
-
 # wbi 签名打乱表（bilibili 公开算法）
 _WBI_TAB = [46,47,18,2,53,8,23,32,15,50,10,31,58,3,45,35,27,43,5,49,33,9,42,19,29,28,14,39,12,38,41,13,37,48,7,16,24,55,40,61,26,17,0,1,60,51,30,4,22,25,54,21,56,59,6,63,57,62,11,36,20,34,44,52]
 
@@ -222,119 +210,28 @@ class ApiClient:
         data = self._get("/x/player/v2", {"bvid": bvid, "cid": cid})
         return (data.get("subtitle") or {}).get("subtitles") or []
 
-    def get_subtitle_text(self, bvid: str, cid: int, duration: int = None, attempts: int = 2,
-                          lang: str = None, title: str = "", desc: str = "") -> list:
-        """兼容包装：仅返回可信字幕（ok），其余返回 [] 由上层降级/复检"""
-        res = self.fetch_subtitle(bvid, cid, duration=duration, lang=lang,
-                                  title=title, desc=desc)
-        return res.lines if res.status == "ok" else []
-
-    def fetch_subtitle(self, bvid: str, cid: int, duration: int = None, lang: str = None,
-                       title: str = "", desc: str = "") -> "SubtitleResult":
-        """抓取字幕并分级（最多两次抓取）：
-        - 无字幕 → empty（不再重抓，省请求）
-        - 越界 → invalid（硬不可信，不再重抓）
-        - 首抓 ok → 二次确认：两次一致 → ok；不一致 → suspect（保留候选）
-        - 首抓 suspect → 二次抓取：二次 ok → 仍标 suspect（候选用二次的，交多模态裁决）
-        - 两次均 suspect → suspect（候选取更长者）"""
-        last = None
-        for attempt in range(2):
-            lines = self._fetch_subtitle_once(bvid, cid, lang)
-            if not lines:
-                if last is not None and last.lines:
-                    # 接口闪断：首抓有内容、二抓为空 → 保留候选交多模态复检，而非直接判无字幕
-                    return SubtitleResult(last.lines, "suspect", "二次获取为空")
-                return SubtitleResult([], "empty", "无字幕")
-            status, reason = self._subtitle_verdict(lines, title, desc, duration)
-            if status == "invalid":
-                return SubtitleResult(lines, "invalid", reason)
-            if attempt == 0:
-                last = SubtitleResult(lines, status, reason)
-                time.sleep(random.uniform(0.8, 1.5))  # 抖动间隔，拿独立的第二次抓取
-                continue
-            # 第二次抓取
-            if status == "ok":
-                if last.status == "ok" and lines == last.lines:
-                    return SubtitleResult(lines, "ok", "")
-                if last.status == "ok":
-                    return SubtitleResult(lines, "suspect", "两次获取内容不一致")
-                return SubtitleResult(lines, "suspect", f"首次可疑({last.reason})")
-            cand = lines if len(lines) >= len(last.lines) else last.lines
-            return SubtitleResult(cand, "suspect", reason or last.reason)
-        return last or SubtitleResult([], "empty", "无字幕")
-
     @staticmethod
-    def _subtitle_complete(lines: list, duration: int = None) -> bool:
-        """字幕完整性：行数足够 + 时间覆盖视频主体（防御错乱歌词/残缺/错位字幕）
-        下限：末条 ≥ 50% 时长（v3.4 放宽，原 60%）；上限：末条 ≤ 130% 时长（防错位字幕超长）"""
-        if not lines or len(lines) < MIN_SUBTITLE_LINES:
-            return False
-        if duration:
-            last = lines[-1].end
-            if last < duration * COVERAGE_MIN_RATIO or last > duration * COVERAGE_MAX_RATIO:
-                return False
-        return True
+    def _provenance_of(sub: dict) -> str:
+        """来源分级（M13 §8.3）：lan 以 ai- 开头或 lan_doc 含「自动生成」→ auto；否则 human"""
+        lan = (sub.get("lan") or "").lower()
+        doc = sub.get("lan_doc") or ""
+        if lan.startswith("ai-") or "自动生成" in doc:
+            return "auto"
+        return "human"
 
-    @staticmethod
-    def _subtitle_verdict(lines: list, title: str = "", desc: str = "",
-                          duration: int = None) -> tuple:
-        """字幕分级：返回 (status, reason)
-        - invalid：时长越界（末条 > 130% 时长，典型"拉取了别的视频字幕"）→ 强制 Whisper
-        - suspect：覆盖不足/行数偏少/歌词/标题关键词零命中/行密度异常 → 可多模态复检
-        - ok：结构完整且内容合理
-        阈值放宽（D3 决策，v3.4）：覆盖下限 60%→50%；标题关键词零命中判定需 ≥4 词。
-        """
+    def fetch_subtitle(self, bvid: str, cid: int, duration: int = None,
+                       lang: str = None) -> tuple:
+        """取字幕：取轨道（人工优先）→ 取全文 → (lines, provenance)。
+        无字幕（无轨道或轨道内容为空）→ ([], "none")；duration 仅为调用兼容保留
+        （旧覆盖度/双抓一致性防线已退役，校验由 core 统一承担）。"""
+        subs = self.get_subtitles(bvid, cid)
+        if not subs:
+            return [], "none"
+        chosen = self._pick_subtitle(subs, lang)
+        lines = self._fetch_subtitle_once(chosen)
         if not lines:
-            return "empty", "无字幕"
-        if duration:
-            last = lines[-1].end
-            if last > duration * COVERAGE_MAX_RATIO:
-                return "invalid", f"时长越界({last:.0f}s>{duration * COVERAGE_MAX_RATIO:.0f}s)"
-            if last < duration * COVERAGE_MIN_RATIO or len(lines) < MIN_SUBTITLE_LINES:
-                return "suspect", f"覆盖不足({len(lines)}行 末条{last:.0f}s)"
-        elif len(lines) < MIN_SUBTITLE_LINES:
-            return "suspect", f"行数偏少({len(lines)}行)"
-        plausible, reason = ApiClient._subtitle_plausible(lines, title, desc, duration)
-        if not plausible:
-            return "suspect", reason
-        return "ok", ""
-
-    @staticmethod
-    def _subtitle_plausible(lines: list, title: str = "", desc: str = "",
-                            duration: int = None) -> tuple:
-        """B1 内容级校验：检测「结构完整但内容错乱」的字幕（本次事故：靶场/影视剧/歌词）。
-        返回 (plausible, reason)；plausible=False 表示应降级 Whisper。
-        信号：① 歌词特征（♪） ② 标题关键词在字幕中完全未出现 ③ 行密度异常"""
-        if not lines:
-            return False, "空字幕"
-        text = " ".join(l.content for l in lines)
-        # ① 歌词特征
-        if "♪" in text:
-            return False, "歌词特征(♪)"
-        # ② 标题关键词重叠：标题提取出的关键词（中文 2-gram + 英文词）
-        #    在字幕中完全零命中 → 内容与标题无关（Whisper 音译变体如 kb cash 也能被中文 2-gram 兜住）
-        #    v3.4 放宽：仅当关键词 ≥4 个时才判定，避免短标题/泛化标题误杀
-        kws = ApiClient._extract_keywords(title)
-        if len(kws) >= KEYWORD_MIN_COUNT:
-            hits = sum(1 for k in kws if k.lower() in text.lower())
-            if hits == 0:
-                return False, f"标题关键词零命中({len(kws)}词)"
-        # ③ 行密度异常（正常讲解约 0.3~1.0 行/秒；错乱整段字幕常 > 2 行/秒）
-        if duration and duration > 0:
-            density = len(lines) / duration
-            if density > 2.0:
-                return False, f"行密度异常({density:.1f}行/秒)"
-        return True, ""
-
-    @staticmethod
-    def _extract_keywords(text: str) -> list:
-        """提取标题关键词：中文滑窗 2-gram（防贪婪整串）+ ≥3 字母英文词（排除纯数字/符号）"""
-        kws = []
-        for zh in re.findall(r"[\u4e00-\u9fff]{2,}", text):
-            for i in range(len(zh) - 1):
-                kws.append(zh[i:i + 2])
-        kws += [w for w in re.findall(r"[a-zA-Z]{3,}", text) if w.lower() not in {"the", "and"}]
-        return kws
+            return [], "none"
+        return lines, self._provenance_of(chosen)
 
     @staticmethod
     def _pick_subtitle(subs: list, lang: str = None) -> dict:
@@ -351,15 +248,11 @@ class ApiClient:
                 return s
         return subs[0]
 
-    def _fetch_subtitle_once(self, bvid: str, cid: int, lang: str = None) -> list:
-        """单次获取字幕全文；无字幕返回 []。按 cid 取 → 未来批量多P直接复用"""
-        subs = self.get_subtitles(bvid, cid)
-        if not subs:
-            return []
-        chosen = self._pick_subtitle(subs, lang)
-        url = chosen.get("subtitle_url") or ""
+    def _fetch_subtitle_once(self, chosen: dict) -> list:
+        """单次获取所选字幕轨全文；轨道无 url → 视为无字幕返回 []，由上层降级 Whisper"""
+        url = (chosen or {}).get("subtitle_url") or ""
         if not url:
-            return []  # 接口偶发返回空 url → 视为无字幕，由上层降级 Whisper
+            return []
         if url.startswith("//"):
             url = "https:" + url
         elif url.startswith("/"):
@@ -541,6 +434,8 @@ def resolve_input(text: str) -> VideoSpec:
 class BilibiliAdapter:
     name = "bilibili"
     kinds = {"video"}
+    language_hint = "zh"   # 平台主语言（M13 §12：转写语言提示）
+    has_video = True       # 具备画面层（档位复检可用）
 
     def __init__(self, client=None):
         self._client = client
@@ -630,13 +525,13 @@ class BilibiliAdapter:
                         extra={"video_duration": info.duration, "bvid": info.bvid})
 
     def fetch_content(self, ref) -> ContentResult:
-        res = self.client.fetch_subtitle(ref.item_id, ref.extra["cid"], duration=ref.duration,
-                                         lang=self.lang, title=ref.title,
-                                         desc=ref.extra.get("desc", ""))
+        lines, provenance = self.client.fetch_subtitle(
+            ref.item_id, ref.extra["cid"], duration=ref.duration, lang=self.lang)
         return ContentResult(
-            kind="timeline", status=res.status,
-            segments=[{"start": l.start, "end": l.end, "text": l.content} for l in res.lines],
-            reason=res.reason)
+            kind="timeline", status="ok" if lines else "empty",
+            segments=[{"start": l.start, "end": l.end, "text": l.content} for l in lines],
+            provenance=provenance, language="zh",
+            label="字幕(AI)" if provenance == "auto" else "字幕")
 
     def fetch_media_url(self, ref, media: str = "audio", lowest: bool = False):
         """media=video → 画面流（复检抽帧，lowest 省带宽）；audio → 音频流（Whisper）"""

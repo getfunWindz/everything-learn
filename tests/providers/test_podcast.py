@@ -108,6 +108,7 @@ def test_fetch_content_with_transcript(monkeypatch):
     res = a.fetch_content(items[0])
     assert res.status == "ok" and len(res.segments) == 12
     assert res.label == "字幕(转写稿)"
+    assert res.provenance == "unknown"   # 第三方转写稿：可信度未知（M13 §12）
 
 
 def test_fetch_content_without_transcript_returns_empty(monkeypatch):
@@ -115,6 +116,7 @@ def test_fetch_content_without_transcript_returns_empty(monkeypatch):
     items = a.list_items(a.resolve("https://example.com/show.rss"))
     res = a.fetch_content(items[1])          # Episode Two 无 transcript
     assert res.status == "empty" and "转写稿" in res.reason
+    assert res.provenance == "none"          # 无转写稿 → 将走 Whisper
 
 
 def test_fetch_media_url_returns_enclosure(monkeypatch):
@@ -122,6 +124,38 @@ def test_fetch_media_url_returns_enclosure(monkeypatch):
     items = a.list_items(a.resolve("https://example.com/show.rss"))
     assert a.fetch_media_url(items[0], media="audio") == "https://media.example/ep1.m4a"
     assert a.fetch_media_url(items[0], media="video") is None
+
+
+def test_fetch_content_transcript_download_error_provenance_unknown(monkeypatch):
+    a = _adapter_with_fixture(monkeypatch)
+    items = a.list_items(a.resolve("https://example.com/show.rss"))
+    monkeypatch.setattr(a, "_download", lambda url: (_ for _ in ()).throw(RuntimeError("boom")))
+    res = a.fetch_content(items[0])
+    assert res.status == "empty" and res.provenance == "unknown"
+    assert "下载失败" in res.reason
+
+
+def test_fetch_content_empty_transcript_provenance_unknown(monkeypatch):
+    a = _adapter_with_fixture(monkeypatch)
+    items = a.list_items(a.resolve("https://example.com/show.rss"))
+    monkeypatch.setattr(a, "_download", lambda url: "WEBVTT\n\n")
+    res = a.fetch_content(items[0])
+    assert res.status == "empty" and res.provenance == "unknown"
+
+
+def test_fetch_content_short_coverage_suspect(monkeypatch):
+    """保持现逻辑：转写稿段数过少/覆盖不足 → suspect（core 仍按候选处理）"""
+    a = _adapter_with_fixture(monkeypatch)
+    items = a.list_items(a.resolve("https://example.com/show.rss"))
+    monkeypatch.setattr(a, "_download", lambda url: _vtt_covering(items[0].duration, n=3))
+    res = a.fetch_content(items[0])
+    assert res.status == "suspect" and res.provenance == "unknown"
+    assert res.segments and "覆盖不足" in res.reason
+
+
+def test_adapter_declares_no_video():
+    """M13 §12：播客无画面层 → has_video=False（档位复检记 n/a）"""
+    assert PodcastAdapter.has_video is False
 
 
 def test_contract():

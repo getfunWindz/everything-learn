@@ -40,6 +40,7 @@ def _clean(text: str) -> str:
 class TedAdapter:
     name = "ted"
     kinds = {"video"}
+    has_video = True   # 具备画面层（档位复检可用）
 
     def __init__(self, session: requests.Session = None):
         self._session = session
@@ -145,16 +146,9 @@ class TedAdapter:
                 segs.append({"start": start, "end": end, "text": text})
             if not segs:
                 continue
-            status, reason = self._grade(segs, int(vd.get("duration") or 0))
-            return ContentResult(kind="timeline", status=status, segments=segs,
-                                 reason=reason, label=f"字幕(官方 {lang})")
+            # M13 §8.3：官网字幕一律 official；覆盖度启发式已退役（校验由 core 统一承担）
+            return ContentResult(kind="timeline", status="ok", segments=segs,
+                                 label=f"字幕(官方 {lang})",
+                                 provenance="official", language=lang)
         return ContentResult(kind="timeline", status="empty",
                              reason=f"无可用官方字幕（{last_err or '接口无数据'}）", label="字幕")
-
-    @staticmethod
-    def _grade(segs, duration):
-        """分级：段数过少或覆盖不足半程 → suspect"""
-        text_len = sum(len(s["text"]) for s in segs)
-        if len(segs) < 10 or (duration and segs[-1]["end"] < duration * 0.5):
-            return "suspect", f"覆盖不足（{len(segs)} 段/{text_len} 字）"
-        return "ok", ""

@@ -29,17 +29,11 @@ class FakeClient:
         assert bvid or aid
         from providers.bilibili import VideoInfo
         return VideoInfo(VIEW["data"])
-    def get_subtitle_text(self, bvid, cid, duration=None, lang=None, title="", desc=""):
-        if self.lines is None:
-            return []
+    def fetch_subtitle(self, bvid, cid, duration=None, lang=None):
         from providers.bilibili import SubtitleLine
-        return [SubtitleLine(l["start"], l["end"], l["text"]) for l in self.lines]
-    def fetch_subtitle(self, bvid, cid, duration=None, lang=None, title="", desc=""):
-        from providers.bilibili import SubtitleResult, SubtitleLine
         if self.lines is None:
-            return SubtitleResult([], "empty", "无字幕")
-        return SubtitleResult(
-            [SubtitleLine(l["start"], l["end"], l["text"]) for l in self.lines], "ok", "")
+            return [], "none"
+        return ([SubtitleLine(l["start"], l["end"], l["text"]) for l in self.lines], "human")
     def get_audio_url(self, bvid, cid):
         return "http://fake/audio"
     def get_video_url(self, bvid, cid, lowest=False):
@@ -124,19 +118,12 @@ class MultiPageClient:
     def get_video_info(self, bvid="", aid=0):
         from providers.bilibili import VideoInfo
         return VideoInfo(self.view["data"])
-    def get_subtitle_text(self, bvid, cid, duration=None, lang=None, title="", desc=""):
+    def fetch_subtitle(self, bvid, cid, duration=None, lang=None):
         from providers.bilibili import SubtitleLine
         raw = self.lines_map.get(cid)
         if raw is None:
-            return []
-        return [SubtitleLine(l["start"], l["end"], l["text"]) for l in raw]
-    def fetch_subtitle(self, bvid, cid, duration=None, lang=None, title="", desc=""):
-        from providers.bilibili import SubtitleResult, SubtitleLine
-        raw = self.lines_map.get(cid)
-        if raw is None:
-            return SubtitleResult([], "empty", "无字幕")
-        return SubtitleResult(
-            [SubtitleLine(l["start"], l["end"], l["text"]) for l in raw], "ok", "")
+            return [], "none"
+        return ([SubtitleLine(l["start"], l["end"], l["text"]) for l in raw], "human")
     def get_audio_url(self, bvid, cid):
         return "http://fake/audio"
     def get_video_url(self, bvid, cid, lowest=False):
@@ -403,24 +390,13 @@ def test_invalid_pages_graceful(tmp_path, capsys):
     err = capsys.readouterr().err
     assert "无效" in err and "Traceback" not in err
 
-def test_legacy_vision_check_not_called(tmp_path, monkeypatch):
-    """M13/T12：旧步骤 5（_vision_check 内容完整性复检）已移除接线（T14 窗口复检替代）"""
-    called = {"n": 0}
-    def spy(*a, **k):
-        called["n"] += 1
-        return [{"start": 6.0, "end": 8.0, "text": "白板公式补充"}]
-    monkeypatch.setattr(pipeline, "_vision_check", spy)
-    monkeypatch.setattr(el.config, "load_config",
-                        lambda: {"vision": {"enabled": True, "api_key": "k"}})
-    out = tmp_path / "out"
-    client = FakeClient()
-    el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
-                                    no_whisper=False, pick=1, lang=None, model=None),
-                 client=client)
-    rd = report_dir(out)
-    info = json.load(open(os.path.join(rd, "content_info.json"), encoding="utf-8"))
-    assert called["n"] == 0
-    assert info["source"] == "字幕"
+def test_no_vision_check_flag_reaches_opts(tmp_path, monkeypatch):
+    """兼容开关：--no-vision-check 仍被接受并透传（旧 _vision_check 原语已退役）"""
+    captured = _capture_run_opts(tmp_path, monkeypatch)
+    el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(tmp_path / "out"),
+                                  no_whisper=False, pick=1, no_cache=False, interval=1.5,
+                                  no_vision_check=True), client=object())
+    assert captured["opts"].no_vision_check is True
 
 def test_whisper_empty_transcript_fails(tmp_path, monkeypatch):
     """M13/T12：无字幕候选且 Whisper 返回空 → failed（旧 vision 纯视觉兜底已退役）"""
@@ -433,22 +409,6 @@ def test_whisper_empty_transcript_fails(tmp_path, monkeypatch):
                                         no_whisper=False, pick=1, lang=None, model=None),
                      client=client)
     assert e.value.code == 4
-
-def test_no_vision_check_flag(tmp_path, monkeypatch):
-    """兼容开关：旧 _vision_check 已移除接线（不调用多模态）；--no-vision-check 仍被接受"""
-    called = {"n": 0}
-    def spy_check(*a, **k):
-        called["n"] += 1
-        return []
-    monkeypatch.setattr(pipeline, "_vision_check", spy_check)
-    monkeypatch.setattr(el.config, "load_config",
-                        lambda: {"vision": {"enabled": True, "api_key": "k"}})
-    out = tmp_path / "out"
-    client = FakeClient()
-    el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
-                                    no_whisper=False, pick=1, lang=None, model=None,
-                                    no_vision_check=True), client=client)
-    assert called["n"] == 0
 
 def test_frames_command_saves_jpegs(tmp_path, monkeypatch):
     """frames 命令：抽帧保存 JPEG 文件（供多模态 agent 用 read 工具读图复检）"""
@@ -548,33 +508,10 @@ def test_run_recheck_defaults_none(tmp_path, monkeypatch):
     assert captured["opts"].yes_recheck is False
 
 
-def test_want_subtitle_check_modes():
-    """字幕复检模式三态：auto=仅可疑 / always=恒查 / off=关闭（用户可自选）"""
-    cfg_on = {"enabled": True, "api_key": "k"}
-    assert pipeline._want_subtitle_check(cfg_on, "suspect") is True    # auto：可疑时查
-    assert pipeline._want_subtitle_check(cfg_on, "ok") is False        # auto：可信不查
-    assert pipeline._want_subtitle_check({**cfg_on, "subtitle_check": "always"}, "ok") is True
-    assert pipeline._want_subtitle_check({**cfg_on, "subtitle_check": "off"}, "suspect") is False
-    assert pipeline._want_subtitle_check({"enabled": False}, "suspect") is False
+# ---------- 字幕同源校验接线（候选过校验 → 采信；未过 → 强制 Whisper） ----------
 
 
-# ---------- 字幕归属复检接线（可疑字幕 → 多模态裁决 → 强制 Whisper） ----------
-
-class SuspectClient(FakeClient):
-    """返回可疑字幕的假客户端（用于复检接线测试）"""
-    def fetch_subtitle(self, bvid, cid, duration=None, lang=None, title="", desc=""):
-        from providers.bilibili import SubtitleResult, SubtitleLine
-        return SubtitleResult(
-            [SubtitleLine(l["start"], l["end"], l["text"]) for l in self.lines],
-            "suspect", "标题关键词零命中")
-
-class InvalidClient(SuspectClient):
-    def fetch_subtitle(self, bvid, cid, duration=None, lang=None, title="", desc=""):
-        from providers.bilibili import SubtitleResult
-        return SubtitleResult([], "invalid", "时长越界")
-
-
-def test_suspect_subtitle_kept_when_same_source_passes(tmp_path, monkeypatch):
+def test_subtitle_candidate_kept_when_same_source_passes(tmp_path, monkeypatch):
     """M13/T12：旧 status=suspect 分级退役；字幕候选过同源校验即采信，不调用 Whisper"""
     import transcriber as tr_mod
     monkeypatch.setattr(tr_mod, "transcribe_url",
@@ -582,7 +519,7 @@ def test_suspect_subtitle_kept_when_same_source_passes(tmp_path, monkeypatch):
     out = tmp_path / "out"
     el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
                                     no_whisper=False, pick=1, lang=None, model=None),
-                 client=SuspectClient())
+                 client=FakeClient())
     rd = report_dir(out)
     info = json.load(open(os.path.join(rd, "content_info.json"), encoding="utf-8"))
     assert info["source"] == "字幕"
@@ -599,14 +536,14 @@ def test_failed_same_source_forces_whisper(tmp_path, monkeypatch):
     out = tmp_path / "out"
     el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
                                     no_whisper=False, pick=1, lang=None, model=None),
-                 client=SuspectClient())
+                 client=FakeClient())
     rd = report_dir(out)
     info = json.load(open(os.path.join(rd, "content_info.json"), encoding="utf-8"))
     assert info["source"] == "whisper"
 
 
 def test_no_candidate_skips_same_source(tmp_path, monkeypatch):
-    """M13/T12：无字幕候选（原 invalid 场景）→ 不做同源校验，直接 Whisper"""
+    """M13/T12：无字幕候选 → 不做同源校验，直接 Whisper"""
     called = {"n": 0}
     def spy(*a, **k):
         called["n"] += 1
@@ -618,11 +555,42 @@ def test_no_candidate_skips_same_source(tmp_path, monkeypatch):
     out = tmp_path / "out"
     el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
                                     no_whisper=False, pick=1, lang=None, model=None),
-                 client=InvalidClient())
+                 client=FakeClient(lines=None))
     assert called["n"] == 0
     rd = report_dir(out)
     info = json.load(open(os.path.join(rd, "content_info.json"), encoding="utf-8"))
     assert info["source"] == "whisper"
+
+
+class AutoSubtitleClient(FakeClient):
+    """AI 字幕候选（provenance=auto）"""
+    def fetch_subtitle(self, bvid, cid, duration=None, lang=None):
+        from providers.bilibili import SubtitleLine
+        return ([SubtitleLine(l["start"], l["end"], l["text"]) for l in self.lines], "auto")
+
+
+def test_ai_subtitle_provenance_recorded(tmp_path):
+    """M13 §10.1：auto 来源 + language=zh 落入 content_info（--no-whisper 采信 AI 字幕）"""
+    out = tmp_path / "out"
+    el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
+                                  no_whisper=True, pick=1, lang=None, model=None),
+               client=AutoSubtitleClient())
+    rd = report_dir(out)
+    info = json.load(open(os.path.join(rd, "content_info.json"), encoding="utf-8"))
+    assert info["provenance"] == "auto" and info["language"] == "zh"
+    assert info["source"].startswith("字幕(AI)")
+
+
+def test_human_subtitle_provenance_recorded(tmp_path):
+    """人工字幕过同源校验 → provenance=human 落入 content_info"""
+    out = tmp_path / "out"
+    el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
+                                  no_whisper=False, pick=1, lang=None, model=None),
+               client=FakeClient())
+    rd = report_dir(out)
+    info = json.load(open(os.path.join(rd, "content_info.json"), encoding="utf-8"))
+    assert info["provenance"] == "human" and info["language"] == "zh"
+    assert info["source"] == "字幕"
 
 
 # ---------- VAD / medium 默认（Task 5） ----------

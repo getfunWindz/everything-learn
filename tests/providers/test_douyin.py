@@ -94,6 +94,12 @@ def test_session_is_throttled():
     assert isinstance(a.session, ThrottledSession) and a.session.platform == "douyin"
 
 
+def test_adapter_declares_language_and_video():
+    """M13 §8.3/§12：适配器类属性声明主语言与画面层能力"""
+    a = DouyinAdapter()
+    assert a.language_hint == "zh" and a.has_video is True
+
+
 def test_cookie_export_spec_declared():
     from providers.douyin import COOKIE_EXPORT
     assert COOKIE_EXPORT["file"] == ".douyin_cookie"

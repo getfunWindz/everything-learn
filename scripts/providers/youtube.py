@@ -107,6 +107,7 @@ def pick_video_url(formats, lowest: bool = True) -> str:
 class YouTubeAdapter:
     name = "youtube"
     kinds = {"video"}
+    has_video = True   # 具备画面层（档位复检可用）；language_hint 不设 → 转写自动检测
 
     def __init__(self, client=None):
         self.lang = None
@@ -212,9 +213,8 @@ class YouTubeAdapter:
         candidates = self._caption_candidates(subs, autos, chain)
         if not candidates:
             return ContentResult(kind="timeline", status="empty", reason="无字幕轨")
-        duration = float(info.get("duration") or ref.duration or 0)
         last_err = ""
-        for entry, label in candidates:
+        for entry, label, provenance, lang in candidates:
             try:
                 text = self._download(entry["url"])
             except Exception as e:
@@ -230,36 +230,34 @@ class YouTubeAdapter:
             if not segs:
                 last_err = "字幕解析为空"
                 continue
-            last = segs[-1]["end"]
-            coverage = (last / duration) if duration else 1.0
-            if len(segs) < 10 or coverage < 0.5:
-                return ContentResult(kind="timeline", status="suspect", segments=segs, label=label,
-                                     reason=f"覆盖不足({len(segs)}段 末条{last:.0f}s)")
-            return ContentResult(kind="timeline", status="ok", segments=segs, label=label)
+            # M13 §8.3：适配器只取回 + 声明来源；覆盖度/质量校验由 core 统一承担
+            return ContentResult(kind="timeline", status="ok", segments=segs, label=label,
+                                 provenance=provenance, language=lang)
         return ContentResult(kind="timeline", status="empty", reason=last_err or "无字幕轨")
 
     def _caption_candidates(self, subs, autos, chain):
-        """候选字幕轨（人工优先 → 自动；链上语言优先 → 其余兑底）；下载失败时依次回退"""
+        """候选字幕轨（人工优先 → 自动；链上语言优先 → 其余兑底）；
+        → [(entry, label, provenance, lang)]；下载失败时依次回退"""
         out, seen = [], set()
 
-        def add(table, lang, label):
+        def add(table, lang, label, provenance):
             entries = table.get(lang)
             if not entries:
                 return
             e = _pick_caption_entry(entries)
             if e and e.get("url") and e["url"] not in seen:
                 seen.add(e["url"])
-                out.append((e, label))
+                out.append((e, label, provenance, lang))
 
         langs = [l for l in chain if l]
         for lang in langs:
-            add(subs, lang, "")
+            add(subs, lang, "", "human")
         for lang in langs:
-            add(autos, lang, "字幕(自动)")
-        for table, label in ((subs, ""), (autos, "字幕(自动)")):
+            add(autos, lang, "字幕(自动)", "auto")
+        for table, label, provenance in ((subs, "", "human"), (autos, "字幕(自动)", "auto")):
             for lang in table:
                 if lang not in langs:
-                    add(table, lang, label)
+                    add(table, lang, label, provenance)
         return out
 
     def _pick_caption(self, subs, autos, chain):

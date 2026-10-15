@@ -79,6 +79,7 @@ def test_fetch_content_manual_ok(monkeypatch):
                         lambda url: open(os.path.join(FIXT, "manual.vtt"), encoding="utf-8").read())
     res = a.fetch_content(a.resolve("kCc8FmEb1nY"))
     assert res.status == "ok" and res.label == "" and len(res.segments) == 12
+    assert res.provenance == "human" and res.language == "en"   # subtitles → 人工
 
 
 def test_fetch_content_auto_labeled(monkeypatch):
@@ -90,6 +91,20 @@ def test_fetch_content_auto_labeled(monkeypatch):
                         lambda url: open(os.path.join(FIXT, "auto_rolling.json3"), encoding="utf-8").read())
     res = a.fetch_content(a.resolve("kCc8FmEb1nY"))
     assert res.status == "ok" and res.label == "字幕(自动)" and len(res.segments) == 12
+    assert res.provenance == "auto" and res.language == "en"   # automatic_captions → auto
+
+
+def test_fetch_content_short_captions_not_suspect(monkeypatch):
+    """M13 §8.3：适配器内「段数/覆盖不足 → suspect」启发式已退役；取回即 ok，校验交 core"""
+    short = '{"events": [{"tStartMs": 0, "dDurationMs": 1000, "segs": [{"utf8": "hi"}]}]}'
+    info = {"duration": 600, "subtitles": {"en": [{"ext": "json3", "url": "http://x/s.json3"}]},
+            "automatic_captions": {}}
+    a = YouTubeAdapter()
+    monkeypatch.setattr(a, "_extract", lambda *args, **kw: info)
+    monkeypatch.setattr(a, "_download", lambda url: short)
+    res = a.fetch_content(a.resolve("kCc8FmEb1nY"))
+    assert res.status == "ok" and len(res.segments) == 1
+    assert res.provenance == "human"
 
 
 def test_fetch_content_prefers_manual_over_auto(monkeypatch):
@@ -104,6 +119,7 @@ def test_fetch_content_prefers_manual_over_auto(monkeypatch):
     monkeypatch.setattr(a, "_download", dl)
     res = a.fetch_content(a.resolve("kCc8FmEb1nY"))
     assert called["url"] == "http://x/m.vtt" and res.label == ""
+    assert res.provenance == "human"
 
 
 def test_fetch_content_none_returns_empty(monkeypatch):
@@ -145,6 +161,42 @@ def test_fetch_content_falls_back_to_next_language(monkeypatch):
     assert res.status == "ok"
     assert calls == ["http://x/zh.json3", "http://x/en.json3"]
     assert res.label == "字幕(自动)"
+    assert res.provenance == "auto" and res.language == "en"   # 回退后语言取所选轨道
+
+
+def test_adapter_declares_has_video():
+    """M13 §8.3：YouTube 声明画面层能力；language_hint 不设（自动检测）"""
+    a = YouTubeAdapter()
+    assert a.has_video is True
+    assert not hasattr(a, "language_hint") or getattr(a, "language_hint", None) is None
+
+
+def test_fetch_content_user_lang_selects_track_and_language(monkeypatch):
+    """--lang 指定轨道 → language 记录实际所选轨道语言"""
+    info = {"duration": 24,
+            "subtitles": {"ja": [{"ext": "vtt", "url": "http://x/ja.vtt"}],
+                          "en": [{"ext": "vtt", "url": "http://x/en.vtt"}]},
+            "automatic_captions": {}}
+    a = YouTubeAdapter()
+    a.lang = "ja"
+    monkeypatch.setattr(a, "_extract", lambda *args, **kw: info)
+    called = {}
+    def dl(url):
+        called["url"] = url
+        return open(os.path.join(FIXT, "manual.vtt"), encoding="utf-8").read()
+    monkeypatch.setattr(a, "_download", dl)
+    res = a.fetch_content(a.resolve("kCc8FmEb1nY"))
+    assert called["url"] == "http://x/ja.vtt"
+    assert res.provenance == "human" and res.language == "ja"
+
+
+def test_caption_candidates_provenance_order():
+    """人工轨先于自动轨进入候选；来源标注正确（T19 映射核心）"""
+    subs = {"en": [{"ext": "vtt", "url": "http://x/m.vtt"}]}
+    autos = {"en": [{"ext": "json3", "url": "http://x/a.json3"}]}
+    out = YouTubeAdapter()._caption_candidates(subs, autos, ["en"])
+    assert [(label, prov, lang) for _e, label, prov, lang in out] == [
+        ("", "human", "en"), ("字幕(自动)", "auto", "en")]
 
 
 # ---------------- T4：媒体直链 ----------------

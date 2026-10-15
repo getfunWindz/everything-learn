@@ -53,6 +53,7 @@ def _itunes_lookup_feed(podcast_id: str) -> str:
 class PodcastAdapter:
     name = "podcast"
     kinds = {"audio"}
+    has_video = False   # 无画面层：档位复检记 n/a，仅同理源校验（M13 §12）
 
     def __init__(self, client=None):
         self.lang = None
@@ -192,24 +193,27 @@ class PodcastAdapter:
     def fetch_content(self, ref) -> ContentResult:
         url = ref.extra.get("transcript_url") or ""
         if not url:
-            return ContentResult(kind="timeline", status="empty", reason="无转写稿（将走 Whisper）")
+            return ContentResult(kind="timeline", status="empty",
+                                 reason="无转写稿（将走 Whisper）", provenance="none")
         try:
             text = self._download(url)
         except Exception as e:
             return ContentResult(kind="timeline", status="empty",
-                                 reason=f"转写稿下载失败：{str(e)[:80]}")
+                                 reason=f"转写稿下载失败：{str(e)[:80]}", provenance="unknown")
         ttype = (ref.extra.get("transcript_type") or "").lower()
         segs = parse_srt(text) if "srt" in ttype else parse_vtt(text)
         if not segs:
-            return ContentResult(kind="timeline", status="empty", reason="转写稿解析为空")
+            return ContentResult(kind="timeline", status="empty",
+                                 reason="转写稿解析为空", provenance="unknown")
         duration = float(ref.duration or 0)
         last = segs[-1]["end"]
         coverage = (last / duration) if duration else 1.0
         if len(segs) < 10 or coverage < 0.5:
             return ContentResult(kind="timeline", status="suspect", segments=segs,
-                                 label="字幕(转写稿)",
+                                 label="字幕(转写稿)", provenance="unknown",
                                  reason=f"覆盖不足({len(segs)}段 末条{last:.0f}s)")
-        return ContentResult(kind="timeline", status="ok", segments=segs, label="字幕(转写稿)")
+        return ContentResult(kind="timeline", status="ok", segments=segs,
+                             label="字幕(转写稿)", provenance="unknown")
 
     def fetch_media_url(self, ref, media: str = "audio", lowest: bool = False):
         if media == "video":

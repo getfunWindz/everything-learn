@@ -78,65 +78,64 @@ def test_subtitle_flow():
     subs = [{"lan": "ai-zh", "lan_doc": "中文（自动生成）", "subtitle_url": "//s1.hdslb.com/x.json"}]
     body = [{"from": i * 1.0, "to": i * 1.0 + 0.9, "content": f"第{i}句"} for i in range(12)]
     client = make_client(subtitles=subs, sub_body=body)
-    lines = client.get_subtitle_text("BV1GJ411x7h7", 1001)
+    lines, provenance = client.fetch_subtitle("BV1GJ411x7h7", 1001)
     assert len(lines) == 12 and lines[0].content == "第0句" and lines[0].start == 0.0
+    assert provenance == "auto"   # ai-* 轨 → 自动字幕
 
-def test_subtitle_incomplete_coverage_falls_back():
-    """字幕时间覆盖不足（如错乱歌词）→ 返回 []，降级 Whisper"""
-    subs = [{"lan": "ai-zh", "lan_doc": "中文", "subtitle_url": "//s1.hdslb.com/x.json"}]
-    body = [{"from": i * 1.0, "to": i * 1.0 + 0.9, "content": f"歌词{i}"} for i in range(12)]  # 覆盖到 12 秒
+def test_fetch_subtitle_returns_lines_and_provenance():
+    """取轨道 → 取全文 → (lines, provenance)；人工轨标 human"""
+    subs = [{"lan": "zh-CN", "lan_doc": "中文（中国）", "subtitle_url": "//s1.hdslb.com/x.json"}]
+    body = [{"from": i * 1.0, "to": i * 1.0 + 0.9, "content": f"稳定{i}"} for i in range(12)]
     client = make_client(subtitles=subs, sub_body=body)
-    lines = client.get_subtitle_text("BV1GJ411x7h7", 1001, duration=900)  # 视频 15 分钟
-    assert lines == []  # 12s < 900*0.6 → 判定不可信
+    lines, provenance = client.fetch_subtitle("BV1GJ411x7h7", 1001)
+    assert len(lines) == 12 and provenance == "human"
 
-def test_subtitle_overcoverage_falls_back():
-    """字幕时间远超视频时长（错位字幕）→ 返回 []，降级 Whisper"""
-    subs = [{"lan": "ai-zh", "lan_doc": "中文", "subtitle_url": "//s1.hdslb.com/x.json"}]
-    body = [{"from": i * 10.0, "to": i * 10.0 + 9.0, "content": f"错位内容{i}"} for i in range(12)]  # 覆盖到 120 秒
-    client = make_client(subtitles=subs, sub_body=body)
-    lines = client.get_subtitle_text("BV1GJ411x7h7", 1001, duration=60)  # 视频只有 60 秒
-    assert lines == []  # 120s > 60*1.3 → 判定不可信
+def test_provenance_ai_lan_is_auto():
+    """lan 以 ai- 开头 → 自动字幕 auto"""
+    assert ApiClient._provenance_of({"lan": "ai-zh", "lan_doc": "中文"}) == "auto"
+    assert ApiClient._provenance_of({"lan": "ai-en", "lan_doc": "English"}) == "auto"
 
-def test_subtitle_requires_two_stable_attempts():
-    """连续两次获取内容一致才算可信，且确认确实请求了两次"""
+def test_provenance_lan_doc_auto_is_auto():
+    """lan_doc 含「自动生成」 → 自动字幕 auto（平台轨道命名的兼容判定）"""
+    assert ApiClient._provenance_of({"lan": "zh", "lan_doc": "中文（自动生成）"}) == "auto"
+
+def test_provenance_human_track():
+    assert ApiClient._provenance_of({"lan": "zh-CN", "lan_doc": "中文（中国）"}) == "human"
+    assert ApiClient._provenance_of({}) == "human"
+
+def test_fetch_subtitle_single_fetch_no_double_grab():
+    """旧双抓一致性防线退役：一次 fetch_subtitle 只抓一次字幕文件"""
     subs = [{"lan": "ai-zh", "lan_doc": "中文", "subtitle_url": "//s1.hdslb.com/x.json"}]
     body = [{"from": i * 1.0, "to": i * 1.0 + 0.9, "content": f"稳定{i}"} for i in range(12)]
     calls = {"n": 0}
     def handler(path, params):
-        if path == "/x/web-interface/nav":
-            return {"code": 0, "data": {"wbi_img": {"img_url": "https://i0.hdslb.com/bfs/wbi/7cd084941338484aae1ad9425b84077c.png", "sub_url": "https://i0.hdslb.com/bfs/wbi/4932caff0ff746eab6f01bf08b70ac45.png"}}}
+        if path == "/x/player/v2":
+            return {"code": 0, "data": {"subtitle": {"subtitles": subs}}}
         if path.startswith("https://") and "hdslb" in path:
             calls["n"] += 1
             return {"font_size": 0.4, "body": body}
-        if path == "/x/player/v2": return {"code": 0, "data": {"subtitle": {"subtitles": subs}}}
-        raise AssertionError(f"unexpected path: {path}")
-    client = ApiClient(FakeSession(handler))
-    lines = client.get_subtitle_text("BV1GJ411x7h7", 1001)
-    assert len(lines) == 12 and lines[0].content == "稳定0"
-    assert calls["n"] == 2  # 验证了两次一致性
+        raise AssertionError(path)
+    client = ApiClient(FakeSession(handler), warm=False)
+    lines, provenance = client.fetch_subtitle("BV1GJ411x7h7", 1001)
+    assert len(lines) == 12 and provenance == "auto" and calls["n"] == 1
 
-def test_subtitle_unstable_falls_back_empty(monkeypatch):
-    """两次内容不一致 → 返回空，让上层走 Whisper（宁可慢不可错）"""
+def test_fetch_subtitle_empty_body_returns_none():
+    """轨道存在但内容为空 → 视为无字幕 ([], none)，交上层降级 Whisper"""
     subs = [{"lan": "ai-zh", "lan_doc": "中文", "subtitle_url": "//s1.hdslb.com/x.json"}]
-    calls = {"n": 0}
-    def flaky_body(path, params):
-        calls["n"] += 1
-        if calls["n"] % 2 == 1:
-            return [{"from": 0.0, "to": 1.0, "content": "第一次内容"}]
-        return [{"from": 0.0, "to": 1.0, "content": "第二次不同内容"}]
-    def handler(path, params):
-        if path == "/x/web-interface/nav":
-            return {"code": 0, "data": {"wbi_img": {"img_url": "https://i0.hdslb.com/bfs/wbi/7cd084941338484aae1ad9425b84077c.png", "sub_url": "https://i0.hdslb.com/bfs/wbi/4932caff0ff746eab6f01bf08b70ac45.png"}}}
-        if path.startswith("https://") and "hdslb" in path:
-            return {"font_size": 0.4, "body": flaky_body(path, params)}
-        if path == "/x/player/v2": return {"code": 0, "data": {"subtitle": {"subtitles": subs}}}
-        raise AssertionError(f"unexpected path: {path}")
-    client = ApiClient(FakeSession(handler))
-    assert client.get_subtitle_text("BV1GJ411x7h7", 1001) == []
+    client = make_client(subtitles=subs, sub_body=[])
+    assert client.fetch_subtitle("BV1GJ411x7h7", 1001) == ([], "none")
 
-def test_no_subtitle_returns_empty():
+def test_fetch_subtitle_duration_param_accepted():
+    """duration 参数仅为调用兼容保留（旧覆盖度防线退役后不再参与判定）"""
+    subs = [{"lan": "ai-zh", "lan_doc": "中文", "subtitle_url": "//s1.hdslb.com/x.json"}]
+    body = [{"from": 0.0, "to": 1.0, "content": "只有一句"}]
+    client = make_client(subtitles=subs, sub_body=body)
+    lines, provenance = client.fetch_subtitle("BV1GJ411x7h7", 1001, duration=900)
+    assert [l.content for l in lines] == ["只有一句"] and provenance == "auto"
+
+def test_no_subtitle_returns_none():
     client = make_client(subtitles=[])
-    assert client.get_subtitle_text("BV1GJ411x7h7", 1001) == []
+    assert client.fetch_subtitle("BV1GJ411x7h7", 1001) == ([], "none")
 
 def test_search_cleans_html():
     results = [{"bvid": "BV1xx", "title": "Python<em class=\"keyword\">教程</em>", "author": "某UP", "duration": "10:00"}]
@@ -177,7 +176,7 @@ def test_pick_subtitle_lang_fallback():
     assert A._pick_subtitle(subs, "zh")["lan"] == "ai-ja"  # 无中文 → 任意第一个
 
 def test_subtitle_lang_parameter_flow():
-    """get_subtitle_text 的 lang 参数透传到字幕选择"""
+    """fetch_subtitle 的 lang 参数透传到字幕选择（provenance 随所选轨道）"""
     subs = [{"lan": "ai-zh", "lan_doc": "中文", "subtitle_url": "//s1.hdslb.com/x.json"},
             {"lan": "ai-ja", "lan_doc": "日本語", "subtitle_url": "//s2.hdslb.com/ja.json"}]
     body_zh = [{"from": i * 1.0, "to": i * 1.0 + 0.9, "content": f"中{i}"} for i in range(12)]
@@ -190,60 +189,15 @@ def test_subtitle_lang_parameter_flow():
         if "x.json" in path: return {"font_size": 0.4, "body": body_zh}
         raise AssertionError(path)
     client = ApiClient(FakeSession(handler))
-    lines = client.get_subtitle_text("BV1GJ411x7h7", 1001, lang="ja")
+    lines, provenance = client.fetch_subtitle("BV1GJ411x7h7", 1001, lang="ja")
     assert lines[0].content == "日0"  # 选中了日文字幕
+    assert provenance == "auto"
 
 
 def test_api_error_raises_bili_error():
     client = ApiClient(FakeSession(lambda p, q: {"code": -404, "message": "视频不存在"}))
     with pytest.raises(BiliError):
         client.get_video_info(bvid="BVxxx")
-
-
-def test_fetch_subtitle_suspect_keeps_candidate():
-    """可疑字幕不再直接丢弃：返回 suspect + 候选行（供多模态复检）"""
-    subs = [{"lan": "ai-zh", "lan_doc": "中文", "subtitle_url": "//s1.hdslb.com/x.json"}]
-    body = [{"from": i * 1.0, "to": i * 1.0 + 0.9, "content": f"词{i}"} for i in range(12)]
-    client = make_client(subtitles=subs, sub_body=body)
-    res = client.fetch_subtitle("BV1GJ411x7h7", 1001, duration=900, title="KV Cache 原理")
-    assert res.status == "suspect"
-    assert len(res.lines) == 12 and res.reason
-
-
-def test_fetch_subtitle_ok():
-    subs = [{"lan": "ai-zh", "lan_doc": "中文", "subtitle_url": "//s1.hdslb.com/x.json"}]
-    body = [{"from": i * 1.0, "to": i * 1.0 + 0.9, "content": f"稳定{i}"} for i in range(12)]
-    client = make_client(subtitles=subs, sub_body=body)
-    res = client.fetch_subtitle("BV1GJ411x7h7", 1001)
-    assert res.status == "ok" and len(res.lines) == 12
-
-
-def test_fetch_subtitle_invalid_overrun():
-    subs = [{"lan": "ai-zh", "lan_doc": "中文", "subtitle_url": "//s1.hdslb.com/x.json"}]
-    body = [{"from": i * 10.0, "to": i * 10.0 + 9.0, "content": f"错位{i}"} for i in range(12)]
-    client = make_client(subtitles=subs, sub_body=body)
-    res = client.fetch_subtitle("BV1GJ411x7h7", 1001, duration=60)
-    assert res.status == "invalid"
-
-
-def test_fetch_subtitle_second_empty_keeps_candidate():
-    """二次抓取为空（接口闪断）→ suspect 保留首抓候选（可交多模态复检），而非直接 empty"""
-    subs = [{"lan": "ai-zh", "lan_doc": "中文", "subtitle_url": "//s1.hdslb.com/x.json"}]
-    body = [{"from": i * 1.0, "to": i * 1.0 + 0.9, "content": f"稳定{i}"} for i in range(12)]
-    calls = {"n": 0}
-    def handler(path, params):
-        if path == "/x/web-interface/nav":
-            return {"code": 0, "data": {"wbi_img": {"img_url": "https://i0.hdslb.com/bfs/wbi/7cd084941338484aae1ad9425b84077c.png", "sub_url": "https://i0.hdslb.com/bfs/wbi/4932caff0ff746eab6f01bf08b70ac45.png"}}}
-        if path == "/x/player/v2":
-            return {"code": 0, "data": {"subtitle": {"subtitles": subs}}}
-        if path.startswith("https://"):
-            calls["n"] += 1
-            return {"font_size": 0.4, "body": body if calls["n"] == 1 else []}
-        raise AssertionError(path)
-    client = ApiClient(FakeSession(handler), warm=False)
-    res = client.fetch_subtitle("BV1GJ411x7h7", 1001)
-    assert res.status == "suspect" and "为空" in res.reason
-    assert len(res.lines) == 12
 
 
 def test_video_url_lowest_picks_min_bandwidth():
@@ -452,3 +406,36 @@ def test_list_items_space(monkeypatch):
     assert refs[0].item_id == "BV0" and refs[0].duration == 754 and refs[0].sub_id == "1"
     assert refs[0].extra["owner"] == "UP" and refs[0].extra["view"] == 0
     assert refs[30].item_id == "BV30"
+
+
+def test_fetch_subtitle_human_preferred_over_ai():
+    """人工优先选轨：同时存在 ai-zh 与 zh-CN 时选人工轨，provenance=human"""
+    subs = [{"lan": "ai-zh", "lan_doc": "中文（自动生成）", "subtitle_url": "//s1.hdslb.com/ai.json"},
+            {"lan": "zh-CN", "lan_doc": "中文（中国）", "subtitle_url": "//s1.hdslb.com/human.json"}]
+    def handler(path, params):
+        if path == "/x/player/v2":
+            return {"code": 0, "data": {"subtitle": {"subtitles": subs}}}
+        if "human.json" in path:
+            return {"body": [{"from": 0.0, "to": 1.0, "content": "人工内容"}]}
+        if "ai.json" in path:
+            return {"body": [{"from": 0.0, "to": 1.0, "content": "AI内容"}]}
+        raise AssertionError(path)
+    client = ApiClient(FakeSession(handler), warm=False)
+    lines, provenance = client.fetch_subtitle("BV1GJ411x7h7", 1001)
+    assert [l.content for l in lines] == ["人工内容"] and provenance == "human"
+
+
+def test_fetch_subtitle_track_without_url_returns_none():
+    """轨道缺 subtitle_url（接口偶发）→ 视为无字幕 ([], none)"""
+    subs = [{"lan": "zh-CN", "lan_doc": "中文（中国）", "subtitle_url": ""}]
+    client = make_client(subtitles=subs)
+    assert client.fetch_subtitle("BV1GJ411x7h7", 1001) == ([], "none")
+
+
+def test_fetch_subtitle_lang_fallback_provenance_follows_chosen_track():
+    """指定 lang 不存在 → 回退默认选轨；provenance 以实际所选轨道为准"""
+    subs = [{"lan": "ai-en", "lan_doc": "English", "subtitle_url": "//s1.hdslb.com/en.json"}]
+    body = [{"from": 0.0, "to": 1.0, "content": "only english"}]
+    client = make_client(subtitles=subs, sub_body=body)
+    lines, provenance = client.fetch_subtitle("BV1GJ411x7h7", 1001, lang="zh")
+    assert lines and provenance == "auto"   # 无中文 → 回退 ai-en

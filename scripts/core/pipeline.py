@@ -73,18 +73,6 @@ def _item_out_dir(meta, ref, out_root, single, opts) -> str:
 
 # ---------------- 多模态复检（平台无关：经 adapter.fetch_media_url 取画面流） ----------------
 
-def _want_subtitle_check(cfg_vision: dict, status: str) -> bool:
-    """是否执行字幕归属复检：always/true 恒查；off/false 关闭；auto（默认）仅可疑字幕"""
-    if not cfg_vision.get("enabled") or not cfg_vision.get("api_key"):
-        return False
-    mode = cfg_vision.get("subtitle_check", "auto")
-    if mode in (False, "off", "false", None):
-        return False
-    if mode in (True, "always", "true"):
-        return True
-    return status == "suspect"
-
-
 def _media_headers(adapter):
     """适配器可选钩子：媒体 CDN 所需请求头（如抖音拒绝裸 UA/bilibili Referer）；无则 None"""
     fn = getattr(adapter, "media_headers", None)
@@ -94,44 +82,6 @@ def _media_headers(adapter):
         except Exception:
             return None
     return None
-
-
-def _vision_verify_subtitle(adapter, ref, cfg_vision: dict, lines: list):
-    """字幕归属复检：最低码率画面流 → 首/中/尾 3 帧 → 多模态判定。
-    返回 True=一致（采信）/ False=不一致（强制 Whisper）/ None=未执行"""
-    import transcriber as tr
-    import vision
-    if not lines:
-        return None
-    print("  · 字幕可疑：多模态归属复检（开头/中间/结尾 3 帧）……", file=sys.stderr)
-    url = adapter.fetch_media_url(ref, media="video", lowest=True)
-    if not url:
-        return None
-    with tempfile.TemporaryDirectory() as td:
-        vp = os.path.join(td, "video.m4s")
-        tr.download_audio(url, vp, headers=_media_headers(adapter))  # 通用流式下载（任意二进制）
-        return vision.check_subtitle_match(cfg_vision, vp, lines, ref.duration)
-
-
-def _vision_check(adapter, ref, cfg_vision: dict, lines: list):
-    """内容完整性复检：画面流 → 多模态找遗漏材料 → 补充行（失败返回 None，不阻塞）"""
-    import transcriber as tr
-    import vision
-    if not cfg_vision.get("enabled") or not cfg_vision.get("api_key"):
-        return None
-    url = adapter.fetch_media_url(ref, media="video")
-    if not url:
-        return None
-    print("复检：下载视频画面流，抽帧核对转写遗漏……", file=sys.stderr)
-    with tempfile.TemporaryDirectory() as td:
-        vp = os.path.join(td, "video.m4s")
-        tr.download_audio(url, vp, headers=_media_headers(adapter))
-        result = vision.check_transcript(cfg_vision, vp, lines or [], ref.duration,
-                                         max_frames=cfg_vision.get("max_frames", 30),
-                                         max_rounds=cfg_vision.get("max_rounds", 2))
-    sup = result.get("supplements") or []
-    print(f"复检：{'发现 %d 条遗漏材料，已补充' % len(sup) if sup else '无遗漏'}", file=sys.stderr)
-    return sup
 
 
 # ---------------- 档位复检执行（T13/T14：预算闸门 + 窗口复检） ----------------
