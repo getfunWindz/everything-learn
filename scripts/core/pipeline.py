@@ -377,6 +377,7 @@ def _run_window_recheck(adapter, ref, lines, cfg, decision, opts):
             budget_meta["estimate_pre_cap"] = est_pre_cap
         return {"coverage_pct": round(covered / eff_dur * 100, 1) if eff_dur > 0 else 0.0,
                 "windows": reports, "window_errors": window_errors,
+                "uncovered": [[float(s), float(e)] for (s, e) in uncovered],  # T16：骨架未覆盖区间
                 "budget": budget_meta,
                 "effective_tier": effective_tier, "capped": bool(uncovered),
                 "frames_used": used_frames}
@@ -525,12 +526,13 @@ def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False)
                     "reasons": decision["reasons"],
                     "signals": {k: signals[k] for k in ("dur_min", "kp_density", "kp_spread",
                                                         "src_risk", "vis_ref", "gap_ratio", "max_gap")}}
+    window_result = {}
     if decision["tier"] in (1, 2):
         if cfg_full.get("vision", {}).get("enabled") and not opts.no_vision_check:
-            result = _run_window_recheck(adapter, ref, lines, cfg_full, decision, opts) or {}
-            recheck_meta.update(result)
+            window_result = _run_window_recheck(adapter, ref, lines, cfg_full, decision, opts) or {}
+            recheck_meta.update(window_result)
             # Q1：实际执行档（闸门 A 可从档1 升级档2）；result 未携带时回退判决档
-            recheck_meta["effective_tier"] = result.get("effective_tier", decision["tier"])
+            recheck_meta["effective_tier"] = window_result.get("effective_tier", decision["tier"])
         else:
             recheck_meta["skipped"] = ("vision 未配置：档位复检未执行"
                                        if not cfg_full.get("vision", {}).get("enabled")
@@ -540,7 +542,13 @@ def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False)
     else:
         recheck_meta["skipped"] = "档位=不检（用户指定或白名单）"
     # 6) 落盘 + 缓存（recheck_report：复检元数据全量 + 同源校验 + 不确定项留痕）
+    # T16 配套：骨架「复检说明」读取 recheck.same_source/uncovered，须在 build_info 前补齐
+    # 顶层键（未执行时显式落 {} / []，避免真实产物显示「无 / 未执行」失真）；
+    # recheck_report 保持既有结构：未覆盖区间已逐条在 windows 明细留痕。
+    recheck_meta.setdefault("same_source", ss or {})
+    recheck_meta.setdefault("uncovered", (window_result or {}).get("uncovered", []))
     recheck_report = dict(recheck_meta)
+    recheck_report.pop("uncovered", None)
     recheck_report["same_source"] = ss or {}
     recheck_report["uncertain"] = [w for w in (recheck_meta.get("windows") or [])
                                    if w.get("kind") == "uncertain"]

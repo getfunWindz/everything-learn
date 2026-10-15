@@ -129,11 +129,25 @@ def test_render_timeline_template_recheck_section():
     assert "档位：2（评分 0.72）" in tpl          # effective_tier 优先于 tier
     assert "理由：关键点密度高, whisper 来源" in tpl
     assert "覆盖：90.0%；未覆盖区间：" in tpl
-    assert "60.0" in tpl and "120.0" in tpl        # 未覆盖区间已展开
+    assert "00:01:00–00:02:00" in tpl               # 未覆盖区间转时间戳（T16 配套）
     assert "同源校验：0.9" in tpl
     assert "【画面补充】" in tpl and "【画面校正】" in tpl  # R13：标注必须保留
     assert "recheck_report.json" in tpl
     assert tpl.index("## 复检说明") < tpl.index("## 一句话总结")  # 正文之前
+
+
+def test_render_timeline_template_recheck_uncovered_timestamped():
+    """T16 配套：未覆盖区间列表转时间戳（多处用「、」分隔；空列表仍为「无」）"""
+    from report import render_template_for
+    ref = ItemRef(platform="bilibili", item_id="BV4", url="u")
+    meta = ItemMeta(title="视频4", author="UP", duration=4000, published="2024-01-01")
+    info = build_info(meta, ref, kind="timeline", source="whisper", recheck={
+        "tier": 1, "uncovered": [[0, 5], [3661, 3725.4]]})
+    tpl = render_template_for("timeline", info)
+    assert "未覆盖区间：00:00:00–00:00:05、01:01:01–01:02:05" in tpl
+    info2 = build_info(meta, ref, kind="timeline", source="whisper",
+                       recheck={"tier": 1, "uncovered": []})
+    assert "未覆盖区间：无" in render_template_for("timeline", info2)
 
 
 def test_render_timeline_template_recheck_missing():

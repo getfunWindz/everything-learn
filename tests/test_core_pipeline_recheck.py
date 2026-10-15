@@ -615,6 +615,29 @@ def test_process_item_wires_tier2_recheck_into_info(monkeypatch, tmp_path):
     assert info["recheck"]["effective_tier"] == 2
 
 
+def test_process_item_recheck_meta_includes_same_source_and_uncovered(monkeypatch, tmp_path):
+    """T16 配套：content_info.recheck 顶层补齐 same_source/uncovered（骨架「复检说明」数据源）"""
+    wm = {"coverage_pct": 50.0,
+          "windows": [{"range": [30.0, 60.0], "kind": "uncovered",
+                       "text": "超出复检帧预算（max_check_frames）"}],
+          "uncovered": [[30.0, 60.0]], "capped": True}
+    out, cap = _run_wiring(monkeypatch, tmp_path, tier=2, window_meta=wm)
+    assert out[0] == "ok"
+    rc = cap["info"]["recheck"]
+    assert rc["same_source"] == {"checked": True, "passed": True, "avg": 0.9}
+    assert rc["uncovered"] == [[30.0, 60.0]]
+    assert rc["uncovered"] == [w["range"] for w in rc["windows"] if w["kind"] == "uncovered"]
+
+
+def test_process_item_recheck_meta_same_source_empty_when_unverified(monkeypatch, tmp_path):
+    """T16 配套：auto 来源不跑同源校验 → recheck.same_source == {}（骨架显示「未执行」不失真）"""
+    out, cap = _run_wiring(monkeypatch, tmp_path, tier=1, provenance="auto")
+    assert out[0] == "ok" and out[1] == "whisper"
+    rc = cap["info"]["recheck"]
+    assert rc["same_source"] == {}
+    assert rc["uncovered"] == []
+
+
 def test_process_item_recheck_skipped_without_vision(monkeypatch, tmp_path):
     """vision 未配置：档1/2 判决也跳过执行，并记录 skipped"""
     out, cap = _run_wiring(monkeypatch, tmp_path, tier=1, vision_enabled=False)
@@ -1250,6 +1273,19 @@ def test_window_recheck_admission_uses_theoretical_frames(monkeypatch):
     assert out["frames_used"] == 1  # 统计记实际去重后帧数
 
 
+def test_window_recheck_returns_uncovered_ranges_matching_reports(monkeypatch):
+    """T16 配套：_run_window_recheck 顶层返回 uncovered 区间，与 windows 明细逐条一致"""
+    cfg = _rc_cfg(max_check_frames=100)
+    ref = ItemRef(platform="demo", item_id="1", duration=60)
+    monkeypatch.setattr(pipeline.recheck, "select_regions",
+                        lambda *a, **k: [{"start": 0, "end": 60, "reason": "r", "score": 3.0}])
+    _patch_window_io(monkeypatch, frames=[(0.0, b"jpg")])
+    out = pipeline._run_window_recheck(_VideoAdapter(), ref, [], cfg,
+                                       {"tier": 1}, pipeline.RunOptions())
+    clipped = [w["range"] for w in out["windows"] if w["kind"] == "uncovered"]
+    assert out["uncovered"] == clipped == [[30.0, 60.0]]
+
+
 def test_window_recheck_partial_region_window_count(monkeypatch):
     """M6：非整窗区域计数——[0,95] / win=30 → 4 窗（含 5s 尾窗）"""
     cfg = _rc_cfg()
@@ -1373,6 +1409,47 @@ def test_process_item_writes_recheck_report(monkeypatch, tmp_path):
                                   "text": "画面过暗"}]
     assert data["coverage_pct"] == 50.0 and data["capped"] is True
     assert data["frames_used"] == 10
+
+
+def test_process_item_content_info_carries_uncovered_from_window_clip(monkeypatch, tmp_path):
+    """T16 配套（真实落盘）：帧帽裁剪出的未覆盖区间透传进 content_info.recheck；
+    且 recheck_report.json 保持既有结构（未覆盖逐条在 windows 明细，不另设顶层键）"""
+    from core import config as core_config
+    cfg = dict(core_config.DEFAULT_CONFIG)
+    cfg["vision"] = dict(cfg["vision"], enabled=True, api_key="k", base_url="http://x")
+    cfg["recheck"] = dict(cfg["recheck"], max_check_frames=100)
+    cfg["out_dir"] = str(tmp_path)
+    monkeypatch.setattr(pipeline.config, "load_config", lambda: cfg)
+    monkeypatch.setattr(pipeline, "_same_source_verify",
+                        lambda a, r, lines, c: {"checked": True, "passed": True, "avg": 0.9})
+    monkeypatch.setattr(pipeline.recheck, "gather_signals",
+                        lambda *a, **k: dict(_WIRING_SIGNALS))
+    monkeypatch.setattr(pipeline.recheck, "decide_tier",
+                        lambda *a, **k: {"tier": 1, "score": 0.7, "reasons": ["r"]})
+    monkeypatch.setattr(pipeline.recheck, "select_regions",
+                        lambda *a, **k: [{"start": 0, "end": 60, "reason": "r", "score": 3.0}])
+    _patch_window_io(monkeypatch, frames=[(0.0, b"jpg")])
+
+    class A(DemoAdapter):
+        pass
+
+    A.language_hint = "zh"
+    A.has_video = True
+    res = ContentResult(kind="timeline", status="ok", provenance="human",
+                        label="字幕(人工)",
+                        segments=[{"start": 0, "end": 5, "text": "人工字幕内容"}])
+    opts = pipeline.RunOptions(out_root=str(tmp_path), no_cache=True)
+    out = pipeline.process_item(A(res), ItemRef(platform="demo", item_id="1", duration=60),
+                                str(tmp_path), opts, single=True)
+    assert out[0] == "ok"
+    info = json.load(open(os.path.join(out[3], "content_info.json"), encoding="utf-8"))
+    rc = info["recheck"]
+    assert rc["same_source"]["avg"] == 0.9
+    assert rc["uncovered"] == [[30.0, 60.0]]
+    assert rc["uncovered"] == [w["range"] for w in rc["windows"] if w["kind"] == "uncovered"]
+    report_data = json.load(open(os.path.join(out[3], "recheck_report.json"), encoding="utf-8"))
+    assert "uncovered" not in report_data  # 保持既有结构：未覆盖已在 windows 明细留痕
+    assert report_data["same_source"]["avg"] == 0.9
 
 
 def test_process_item_content_txt_annotates_vision_lines(monkeypatch, tmp_path):

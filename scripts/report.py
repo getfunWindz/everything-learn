@@ -7,6 +7,27 @@ VERSION = "0.1.0"
 SUPPORTED_KINDS = {"timeline", "document"}
 
 
+def _fmt_hms(sec) -> str:
+    """秒 → HH:MM:SS（负值钳到 0）"""
+    total = max(0, int(round(float(sec))))
+    h, rem = divmod(total, 3600)
+    m, s = divmod(rem, 60)
+    return f"{h:02d}:{m:02d}:{s:02d}"
+
+
+def _fmt_uncovered(raw) -> str:
+    """未覆盖区间 [[start, end], ...] → 「00:01:00–00:02:00、…」；空/非法 → 「无」"""
+    if not isinstance(raw, (list, tuple)):
+        return str(raw) if raw else "无"
+    parts = []
+    for rng in raw:
+        try:
+            parts.append(f"{_fmt_hms(rng[0])}–{_fmt_hms(rng[1])}")
+        except (TypeError, IndexError, ValueError):
+            continue
+    return "、".join(parts) if parts else "无"
+
+
 def _recheck_section(info: dict) -> str:
     """复检说明小节（T16）：recheck 缺省时也渲染，注明「未记录」"""
     rc = info.get("recheck") or {}
@@ -16,7 +37,7 @@ def _recheck_section(info: dict) -> str:
     reasons = ", ".join(rc.get("reasons") or []) or "未记录"
     coverage = rc.get("coverage_pct")
     coverage = "-" if coverage is None else coverage
-    uncovered = rc.get("uncovered") or "无"
+    uncovered = _fmt_uncovered(rc.get("uncovered"))
     same_source = (rc.get("same_source") or {}).get("avg")
     if same_source is None:
         same_source = "未执行"
