@@ -15,12 +15,12 @@ def test_cache_key_platform_aware():
     """同 item_id 不同平台不串缓存"""
     cache.set_cached("bilibili", "BV1xx", "1", [{"start": 0, "end": 1, "text": "hi"}])
     assert cache.get_cached("youtube", "BV1xx", "1") is None
-    assert cache.get_cached("bilibili", "BV1xx", "1")[0]["text"] == "hi"
+    assert cache.get_cached("bilibili", "BV1xx", "1")["items"][0]["text"] == "hi"
 
 
 def test_cache_without_sub_id():
     cache.set_cached("bilibili", "BV1yy", "", [{"start": 0, "end": 1, "text": "a"}])
-    assert cache.get_cached("bilibili", "BV1yy")[0]["text"] == "a"
+    assert cache.get_cached("bilibili", "BV1yy")["items"][0]["text"] == "a"
     assert cache.get_cached("bilibili", "BV1yy", "2") is None
 
 
@@ -64,3 +64,21 @@ def test_retry_exponential_delays(monkeypatch):
     with pytest.raises(RuntimeError):
         retry_with_backoff(flaky, attempts=4, base_delay=1)
     assert sleeps == [1, 2, 4]  # 指数退避（不含最后一次失败后的等待）
+
+
+def test_cache_version_bumps_invalidate_legacy(tmp_path, monkeypatch):
+    from core import cache
+    monkeypatch.setattr(cache, "CACHE_DIR", str(tmp_path))
+    cache.set_cached("demo", "item1", "", {"kind": "timeline", "items": [{"start": 0, "end": 1, "text": "x"}]})
+    got = cache.get_cached("demo", "item1", "")
+    assert got and got["items"][0]["text"] == "x"
+    # 模拟旧版缓存（无 _cache_v）→ 视为未命中
+    import json, os
+    p = os.path.join(str(tmp_path), "demo_item2.json")
+    json.dump({"kind": "timeline", "items": [{"start": 0, "end": 1, "text": "old"}]},
+              open(p, "w", encoding="utf-8"))
+    assert cache.get_cached("demo", "item2", "") is None
+    # 旧格式（纯 list）同样失效
+    p3 = os.path.join(str(tmp_path), "demo_item3.json")
+    json.dump([{"start": 0, "end": 1, "text": "legacy"}], open(p3, "w", encoding="utf-8"))
+    assert cache.get_cached("demo", "item3", "") is None

@@ -4,6 +4,8 @@ import os
 
 CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "cache")
 
+CACHE_VERSION = 2  # M13：复检机制变更 → 旧缓存不携带复检信息，必须失效
+
 
 def _cache_path(platform: str, item_id: str, sub_id: str = "") -> str:
     name = f"{platform}_{item_id}"
@@ -13,23 +15,29 @@ def _cache_path(platform: str, item_id: str, sub_id: str = "") -> str:
 
 
 def get_cached(platform: str, item_id: str, sub_id: str = ""):
-    """命中缓存 → [{start,end,text}]；未命中/损坏 → None"""
+    """命中当前 schema 版本的缓存 → dict；未命中/损坏/旧版 → None"""
     path = _cache_path(platform, item_id, sub_id)
     if not os.path.exists(path):
         return None
     try:
-        return json.load(open(path, encoding="utf-8"))
+        data = json.load(open(path, encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return None
+    if not isinstance(data, dict) or data.get("_cache_v") != CACHE_VERSION:
+        return None
+    return data
 
 
-def set_cached(platform: str, item_id: str, sub_id: str, lines: list) -> None:
-    """写入缓存（原子写：先写临时文件再改名，防中断损坏）"""
+def set_cached(platform: str, item_id: str, sub_id: str, lines) -> None:
+    """写入缓存（原子写：先写临时文件再改名，防中断损坏）；纯 list 自动包装为 timeline"""
+    payload = lines if isinstance(lines, dict) else {"kind": "timeline", "items": lines}
+    payload = dict(payload)
+    payload["_cache_v"] = CACHE_VERSION
     os.makedirs(CACHE_DIR, exist_ok=True)
     path = _cache_path(platform, item_id, sub_id)
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(lines, f, ensure_ascii=False)
+        json.dump(payload, f, ensure_ascii=False)
     os.replace(tmp, path)
 
 
