@@ -194,15 +194,23 @@ def test_download_audio_headers_passthrough(tmp_path, monkeypatch):
 
 
 def test_extract_audio_clip(tmp_path):
-    av = __import__("pytest").importorskip("av")
+    pytest.importorskip("av")
     import numpy as np
     import av as _av
-    # 生成 3 秒 16k 正弦音频
+    # 生成 3 秒 16k 单声道 wav，分段常数振幅（非零信号：0-1s=6554，1-2s=16384，2-3s=26214）
+    pcm = np.concatenate([
+        np.full(16000, 6554, dtype=np.int16),
+        np.full(16000, 16384, dtype=np.int16),
+        np.full(16000, 26214, dtype=np.int16),
+    ])
     container = _av.open(str(tmp_path / "a.wav"), mode="w")
     stream = container.add_stream("pcm_s16le", rate=16000)
-    for i in range(0, 16000 * 3, 1024):
+    for i in range(0, len(pcm), 1024):
+        block = pcm[i:i + 1024]
+        if len(block) < 1024:
+            block = np.pad(block, (0, 1024 - len(block)))
         frame = _av.AudioFrame.from_ndarray(
-            np.zeros((1, 1024), dtype=np.int16), format="s16", layout="mono")
+            block.reshape(1, -1), format="s16", layout="mono")
         frame.sample_rate = 16000
         for p in stream.encode(frame):
             container.mux(p)
@@ -211,8 +219,10 @@ def test_extract_audio_clip(tmp_path):
     container.close()
     from transcriber import extract_audio_clip
     samples, sr = extract_audio_clip(str(tmp_path / "a.wav"), 1.0, 2.0)
-    assert sr == 16000
-    assert len(samples) > 0
+    assert sr == 16000                                  # API 契约
+    assert samples.dtype == np.float32                  # 归一化输出类型
+    assert 0.1 < float(np.abs(samples).max()) <= 1.0    # 有信号且已 /32768 归一化
+    assert 12000 <= len(samples) <= 20000               # ≈1s @16k（帧粒度）
 
 
 def test_transcribe_samples_uses_model(monkeypatch):
