@@ -127,8 +127,10 @@ class DemoAdapter:
 
 
 def _run(monkeypatch, adapter, tmp_path, same_source_passed=True, whisper_lines=None,
-         ss_override=None, attr_override=None, whisper_exc=None):
-    """process_item 离线跑：同源校验/归属兜底/Whisper 全部 mock，不落盘。"""
+         ss_override=None, attr_override=None, whisper_exc=None,
+         no_whisper=False, no_vision_check=False, calls=None):
+    """process_item 离线跑：同源校验/归属兜底/Whisper 全部 mock，不落盘。
+    calls：可选 dict，记录 {"attribution": [...], "transcribe": [...]} 调用证据。"""
     from core import config as core_config
     cfg = dict(core_config.DEFAULT_CONFIG)
     cfg["out_dir"] = str(tmp_path)
@@ -136,19 +138,28 @@ def _run(monkeypatch, adapter, tmp_path, same_source_passed=True, whisper_lines=
     ss = ss_override or {"checked": True, "passed": same_source_passed,
                          "avg": 0.9 if same_source_passed else 0.1}
     monkeypatch.setattr(pipeline, "_same_source_verify", lambda a, r, lines, c: dict(ss))
-    monkeypatch.setattr(pipeline, "_attribution_fallback",
-                        lambda a, r, lines, c: dict(attr_override or {"passed": False, "reason": "skipped"}))
+
+    def _attr_spy(a, r, lines, c):
+        if calls is not None:
+            calls.setdefault("attribution", []).append(lines)
+        return dict(attr_override or {"passed": False, "reason": "skipped"})
+
+    monkeypatch.setattr(pipeline, "_attribution_fallback", _attr_spy)
     import transcriber
-    if whisper_exc is not None:
-        monkeypatch.setattr(transcriber, "transcribe_url",
-                            lambda url, **kw: (_ for _ in ()).throw(whisper_exc))
-    else:
-        monkeypatch.setattr(transcriber, "transcribe_url",
-                            lambda url, **kw: (whisper_lines if whisper_lines is not None
-                                               else [{"start": 0, "end": 5, "text": "whisper 内容"}]))
+
+    def _transcribe(url, **kw):
+        if calls is not None:
+            calls.setdefault("transcribe", []).append(url)
+        if whisper_exc is not None:
+            raise whisper_exc
+        return (whisper_lines if whisper_lines is not None
+                else [{"start": 0, "end": 5, "text": "whisper 内容"}])
+
+    monkeypatch.setattr(transcriber, "transcribe_url", _transcribe)
     monkeypatch.setattr(pipeline.artifacts, "write_item_artifacts", lambda *a, **k: None)
     monkeypatch.setattr(pipeline.artifacts, "build_info", lambda meta, ref, **k: {"kind": "timeline", **k})
-    opts = pipeline.RunOptions(out_root=str(tmp_path), no_cache=True)
+    opts = pipeline.RunOptions(out_root=str(tmp_path), no_cache=True,
+                               no_whisper=no_whisper, no_vision_check=no_vision_check)
     return pipeline.process_item(adapter, ItemRef(platform="demo", item_id="1", duration=120),
                                  str(tmp_path), opts, single=True)
 
@@ -274,3 +285,122 @@ def test_attribution_fallback_delegates_to_vision(monkeypatch):
     cfg = {"vision": {"enabled": True, "api_key": "k"}}
     r = pipeline._attribution_fallback(A(), R(), [{"start": 0, "end": 1, "text": "x"}], cfg)
     assert r["passed"] is True and seen["url"] == "http://m/video-low"
+
+
+# ---------------- T12 评审修复：--no-whisper / --no-vision-check / 兜底契约 ----------------
+
+def test_no_whisper_keeps_unverified_candidate(monkeypatch, tmp_path):
+    """--no-whisper：同源校验没跑成（checked=False）→ 绝不转写，采信候选并标注"""
+    res = ContentResult(kind="timeline", status="ok", provenance="human",
+                        segments=[{"start": 0, "end": 5, "text": "人工字幕内容"}])
+    calls = {}
+    status, src, n, _, err = _run(
+        monkeypatch, DemoAdapter(res), tmp_path, no_whisper=True, calls=calls,
+        ss_override={"checked": False, "passed": False,
+                     "reason_code": "error", "reason": "转写异常"})
+    assert (status, src, n) == ("ok", "字幕（--no-whisper，未经同源校验）", 1)
+    assert "--no-whisper，未经同源校验" in src
+    assert calls.get("transcribe") in (None, [])
+
+
+def test_no_whisper_discards_verified_mismatch(monkeypatch, tmp_path):
+    """--no-whisper：已判定不同源（checked=True, passed=False）→ 丢弃候选 → no_subtitle"""
+    res = ContentResult(kind="timeline", status="ok", provenance="human",
+                        segments=[{"start": 0, "end": 5, "text": "串台字幕"}])
+    calls = {}
+    status, src, n, _, err = _run(
+        monkeypatch, DemoAdapter(res), tmp_path, no_whisper=True, calls=calls,
+        ss_override={"checked": True, "passed": False, "avg": 0.1})
+    assert status == "no_subtitle" and n == 0
+    assert calls.get("transcribe") in (None, [])
+
+
+def test_no_whisper_auto_candidate_keeps_with_label(monkeypatch, tmp_path):
+    """--no-whisper：auto（AI/自动字幕）无同源校验可言 → 采信并标注 AI 来源"""
+    res = ContentResult(kind="timeline", status="ok", provenance="auto", label="字幕(自动)",
+                        segments=[{"start": 0, "end": 5, "text": "ai 字幕内容"}])
+    calls = {}
+    status, src, n, _, err = _run(monkeypatch, DemoAdapter(res), tmp_path,
+                                  no_whisper=True, calls=calls)
+    assert (status, src, n) == ("ok", "字幕(AI)（--no-whisper，未经同源校验）", 1)
+    assert calls.get("transcribe") in (None, [])
+
+
+def test_no_vision_check_disables_attribution_fallback(monkeypatch, tmp_path):
+    """--no-vision-check：no_audio 时不调用付费视觉归属兜底，直接走 Whisper"""
+    res = ContentResult(kind="timeline", status="ok", provenance="human",
+                        segments=[{"start": 0, "end": 5, "text": "人工字幕内容"}])
+    calls = {}
+    status, src, n, _, err = _run(
+        monkeypatch, DemoAdapter(res), tmp_path, no_vision_check=True, calls=calls,
+        ss_override={"checked": False, "passed": False,
+                     "reason_code": "no_audio", "reason": "无可下载音频流"})
+    assert (status, src, n) == ("ok", "whisper", 1)
+    assert calls.get("attribution") in (None, [])
+
+
+def test_attribution_fallback_only_for_no_audio(monkeypatch, tmp_path):
+    """归属兜底仅服务 no_audio 降级；insufficient 等其他未过原因不得触发付费兜底"""
+    res = ContentResult(kind="timeline", status="ok", provenance="human",
+                        segments=[{"start": 0, "end": 5, "text": "人工字幕内容"}])
+    calls = {}
+    status, src, n, _, err = _run(
+        monkeypatch, DemoAdapter(res), tmp_path, calls=calls,
+        ss_override={"checked": False, "passed": False,
+                     "reason_code": "insufficient", "reason": "可比点不足"})
+    assert (status, src, n) == ("ok", "whisper", 1)
+    assert calls.get("attribution") in (None, [])
+    assert calls.get("transcribe")  # 确实走了 Whisper
+
+
+def test_attribution_fallback_fetch_error_contract(monkeypatch):
+    """归属兜底：fetch_media_url 异常 → passed=False/reason_code=error，且不触达 vision API"""
+    import vision
+    called = {"vision": 0}
+
+    def spy(conf, vp, lines, dur):
+        called["vision"] += 1
+        raise AssertionError("fetch 失败时不应调用 vision")
+
+    monkeypatch.setattr(vision, "check_attribution_aligned", spy)
+
+    class A:
+        def fetch_media_url(self, ref, media="audio", lowest=False):
+            raise RuntimeError("无画面流")
+
+    class R:
+        duration = 120
+
+    cfg = {"vision": {"enabled": True, "api_key": "k"}}
+    r = pipeline._attribution_fallback(A(), R(), [{"start": 0, "end": 1, "text": "x"}], cfg)
+    assert r["passed"] is False and r["reason_code"] == "error"
+    assert "无画面流" in r["reason"] and called["vision"] == 0
+
+
+def test_attribution_fallback_vision_error_cleans_tmpdir(monkeypatch, tmp_path):
+    """归属兜底：vision API 异常 → error + 临时目录清理（异常不外泄、不留垃圾）"""
+    import transcriber
+    import vision
+    tmpdir = tmp_path / "el_attr_tmp"
+    tmpdir.mkdir()
+    monkeypatch.setattr(pipeline.tempfile, "mkdtemp", lambda prefix="": str(tmpdir))
+    monkeypatch.setattr(transcriber, "download_audio",
+                        lambda url, dest, headers=None: dest)
+
+    def boom(conf, vp, lines, dur):
+        raise RuntimeError("vision API 挂了")
+
+    monkeypatch.setattr(vision, "check_attribution_aligned", boom)
+
+    class A:
+        def fetch_media_url(self, ref, media="audio", lowest=False):
+            return "http://m/video-low"
+
+    class R:
+        duration = 120
+
+    cfg = {"vision": {"enabled": True, "api_key": "k"}}
+    r = pipeline._attribution_fallback(A(), R(), [{"start": 0, "end": 1, "text": "x"}], cfg)
+    assert r["passed"] is False and r["reason_code"] == "error"
+    assert "vision API 挂了" in r["reason"]
+    assert not tmpdir.exists()
