@@ -85,3 +85,34 @@ def test_out_dir_cli_overrides_config(tmp_path, monkeypatch):
     monkeypatch.setattr(cfg, "CONFIG_PATH", str(p))
     assert cfg.resolve_out_dir("D:/CLI") == "D:/CLI"
     assert cfg.resolve_out_dir(None) == "D:/在配置里"
+
+
+import json
+
+def test_recheck_defaults_present():
+    from core import config
+    rc = config.DEFAULT_CONFIG["recheck"]
+    assert rc["tier_policy"] == "auto"
+    assert rc["tier2_score"] == 0.55
+    assert rc["frame_fps"] == 3
+    assert rc["window_sec"] == 30
+    assert rc["max_check_frames"] == 20000
+    assert rc["auto_approve_amount"] == 0.3
+    assert rc["confirm_over_sec"] == 3600
+    assert rc["tier3"] == {"allow": False, "max_density": 1.5, "max_gap_sec": 15}
+    assert config.DEFAULT_CONFIG["vision"]["pricing"]["tokens_per_frame"] == 600
+
+
+def test_load_config_deep_merges_nested(tmp_path, monkeypatch):
+    from core import config
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({"recheck": {"tier2_score": 0.7, "tier3": {"allow": True}},
+                             "vision": {"pricing": {"currency": "CNY"}}}), encoding="utf-8")
+    monkeypatch.setattr(config, "CONFIG_PATH", str(p))
+    cfg = config.load_config()
+    assert cfg["recheck"]["tier2_score"] == 0.7
+    assert cfg["recheck"]["window_sec"] == 30            # 缺省补齐
+    assert cfg["recheck"]["tier3"]["allow"] is True      # 用户覆盖
+    assert cfg["recheck"]["tier3"]["max_density"] == 1.5 # 嵌套缺省补齐
+    assert cfg["vision"]["pricing"]["currency"] == "CNY"
+    assert cfg["vision"]["pricing"]["input_per_1m"] == 0.3

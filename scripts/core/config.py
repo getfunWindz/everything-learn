@@ -34,14 +34,44 @@ DEFAULT_CONFIG = {
         "frame_interval": 10,   # 抽帧间隔（秒）
         "max_frames": 30,       # 最多帧数
         "max_rounds": 2,        # 复检最大轮数（一轮效果不佳可继续多轮）
-        "subtitle_check": "auto",  # 字幕归属复检：auto=防线初筛 / always=全量 / off=关闭
-        "prompt": ""            # 自定义视觉转写提示词（空则用默认）
+        "subtitle_check": "auto",  # 兼容旧键（新策略见 recheck.tier_policy）
+        "prompt": "",
+        "pricing": {"currency": "USD", "input_per_1m": 0.3,
+                    "output_per_1m": 1.2, "tokens_per_frame": 600},
+    },
+    "recheck": {                    # M13：保真复检（档位/区域/预算/同源）
+        "tier_policy": "auto",     # auto | off(=档3) | tier1 | tier2
+        "tier2_score": 0.55,
+        "region_top_n": 5,
+        "region_window_sec": 60,
+        "gap_sec": 20,
+        "frame_fps": 3,
+        "window_sec": 30,
+        "max_check_frames": 20000,
+        "dedup": True,
+        "auto_approve_amount": 0.3,
+        "confirm_over_sec": 3600,
+        "same_source_threshold": 0.45,
+        "same_source_model": "small",
+        "cross_check": True,
+        "tier3": {"allow": False, "max_density": 1.5, "max_gap_sec": 15},
     },
 }
 
 
 class ConfigError(Exception):
     """配置缺失（如 out_dir 未设置）"""
+
+
+def _deep_update(base: dict, user: dict) -> dict:
+    """用户配置覆盖默认：dict 递归合并，其余类型直接覆盖"""
+    out = dict(base)
+    for k, v in (user or {}).items():
+        if k in out and isinstance(out[k], dict) and isinstance(v, dict):
+            out[k] = _deep_update(out[k], v)
+        else:
+            out[k] = v
+    return out
 
 
 def load_config() -> dict:
@@ -51,12 +81,7 @@ def load_config() -> dict:
         try:
             with open(CONFIG_PATH, encoding="utf-8") as f:
                 user = json.load(f)
-            cfg.update({k: v for k, v in user.items() if k in DEFAULT_CONFIG})
-            # vision 块：缺失字段用默认补齐
-            if isinstance(cfg.get("vision"), dict):
-                base = dict(DEFAULT_CONFIG["vision"])
-                base.update({k: v for k, v in cfg["vision"].items() if k in base})
-                cfg["vision"] = base
+            cfg = _deep_update(dict(DEFAULT_CONFIG), user)
         except Exception:
             pass  # 配置损坏时静默用默认
     return cfg
