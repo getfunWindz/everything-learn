@@ -786,6 +786,46 @@ def test_window_recheck_budget_gate_b_keeps_capped_plan(monkeypatch):
     assert out["capped"] is True
 
 
+def test_budget_cap_forces_best_effort(monkeypatch):
+    """--budget 上限：估算超用户金额上限 → 直接 B（budget_cap），帧预算按金额上限裁剪"""
+    cfg = _rc_cfg()  # 默认免打扰阈值 0.3：本场景闸门不触发，仅金额上限生效
+    ref = ItemRef(platform="demo", item_id="1", duration=60)
+    monkeypatch.setattr(pipeline.recheck, "select_regions",
+                        lambda *a, **k: [{"start": 0, "end": 60, "reason": "r", "score": 3.0}])
+    seen = _patch_window_io(monkeypatch, frames=[(0.0, b"jpg")])
+    opts = pipeline.RunOptions(budget=0.02)  # 0.02/0.00018 ≈ 111 帧 < 180 帧
+    out = pipeline._run_window_recheck(_VideoAdapter(), ref, [], cfg,
+                                       {"tier": 1}, opts)
+    assert out["budget"]["user_choice"] == "B"
+    assert out["budget"]["reason"] == "budget_cap"
+    assert out["budget"]["cap"] == 0.02
+    assert out["budget"]["confirmed"] is None  # 未过闸门：上限是自动约束，无需询问
+    assert out["budget"]["estimate"]["frames"] == 180  # 估算保持超限原值
+    assert seen["sample"] == [(0.0, 30.0, 3, True)]    # 90 ≤ 111 → 第 2 窗超上限不抽
+    assert out["capped"] is True
+    assert out["windows"] == [{"range": [30.0, 60.0], "kind": "uncovered",
+                               "text": "超出复检帧预算（max_check_frames）"}]
+
+
+def test_budget_cap_none_no_effect(monkeypatch):
+    """不传 --budget：行为不变（needs_gate 照常出卡；cap=None 且闸门 reason 保留）"""
+    cfg = _rc_cfg(auto_approve_amount=0.001)
+    ref = ItemRef(platform="demo", item_id="1", duration=60)
+    monkeypatch.setattr(pipeline.sys, "stdin", _Stdin(False))
+    _no_input(monkeypatch)
+    monkeypatch.setattr(pipeline.recheck, "select_regions",
+                        lambda *a, **k: [{"start": 0, "end": 60, "reason": "r", "score": 3.0}])
+    seen = _patch_window_io(monkeypatch, frames=[(0.0, b"jpg")])
+    out = pipeline._run_window_recheck(_VideoAdapter(), ref, [], cfg,
+                                       {"tier": 1}, pipeline.RunOptions())
+    assert out["budget"]["user_choice"] == "B"                # 非 TTY 闸门默认 B
+    assert out["budget"]["confirmed"] is False
+    assert out["budget"]["reason"] == "non_tty_default"       # 闸门原因保留
+    assert out["budget"]["cap"] is None
+    assert seen["sample"] == [(0.0, 30.0, 3, True), (30.0, 60.0, 3, True)]  # 无上限裁剪
+    assert out["capped"] is False
+
+
 def test_window_recheck_choice_c_downgrades_to_tier1_regions(monkeypatch):
     """超阈值 + 用户选 C → 重新按档1 区域选择并重算帧预算"""
     cfg = _rc_cfg(auto_approve_amount=0.001)

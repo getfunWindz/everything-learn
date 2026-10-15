@@ -45,7 +45,7 @@ class RunOptions:
     resume: bool = False
     interval: float = 1.5
     page_count: int = 1          # 由 run_input 填入（全部 item 数）
-    recheck: str = None          # auto | off | tier1 | tier2（CLI 映射，T17）
+    recheck: str = None          # auto | off | 1 | 2 | 3（CLI 直传；等价 tier1/tier2 见 decide_tier）
     budget: float = None         # 本次运行金额上限（暂存）
     yes_recheck: bool = False    # 预授权完整档2
 
@@ -239,6 +239,8 @@ def _run_window_recheck(adapter, ref, lines, cfg, decision, opts):
         plan, est = _plan(regions)
         choice = "A"
         effective_tier = tier
+        budget_cap = getattr(opts, "budget", None)
+        budget_reason = ""
         budget_info = {"confirmed": None, "reason": ""}  # Q5：未过闸门=None；过闸门由 _budget_gate 回填
         if recheck.needs_gate(est, cfg, dur):
             choice = _budget_gate(est, cfg, opts, tier=tier, duration_sec=dur, info=budget_info)
@@ -250,6 +252,15 @@ def _run_window_recheck(adapter, ref, lines, cfg, decision, opts):
                 regions = recheck.select_regions(lines, dur, cfg, disputed=None)
                 plan, est = _plan(regions)
                 effective_tier = 1
+        if budget_cap is not None and est["amount"] > float(budget_cap):
+            choice = "B"                      # 超用户预算上限 → 直接帽内尽力（不询问）
+            budget_reason = "budget_cap"
+            pricing = conf.get("pricing", {})
+            per_frame_price = (pricing.get("tokens_per_frame", 600) / 1e6) * pricing.get("input_per_1m", 0.3)
+            if per_frame_price > 0:
+                allowed = int(max(0.0, float(budget_cap)) / per_frame_price)
+                cap = min(rc.get("max_check_frames", 20000), max(0, allowed))
+                plan = recheck.plan_frames(regions, fps=fps, max_frames=cap)
         # Q8：预先展平 planned windows；准入按理论帧数（去重前 ceil(时长×fps)）裁剪，
         # 统计另记实际去重后帧数（used_frames / frames_used）。
         planned_windows = []
@@ -333,7 +344,8 @@ def _run_window_recheck(adapter, ref, lines, cfg, decision, opts):
                 "windows": reports, "window_errors": window_errors,
                 "budget": {"estimate": est, "user_choice": choice,
                            "confirmed": budget_info.get("confirmed"),
-                           "reason": budget_info.get("reason", "")},
+                           "reason": budget_reason or budget_info.get("reason", ""),
+                           "cap": budget_cap},
                 "effective_tier": effective_tier, "capped": bool(uncovered),
                 "frames_used": used_frames}
     except Exception as e:
