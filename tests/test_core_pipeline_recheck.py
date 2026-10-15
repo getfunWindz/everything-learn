@@ -4,7 +4,7 @@ import os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
 from core import pipeline
-from core.models import ItemRef
+from core.models import ContentResult, ItemMeta, ItemRef
 
 
 def test_same_source_verify_orchestration(monkeypatch):
@@ -105,3 +105,159 @@ def test_same_source_verify_fetch_media_url_exception_degrades(monkeypatch):
     r = pipeline._same_source_verify(BoomAdapter(), ref, [], cfg)
     assert r["checked"] is False and r["reason_code"] == "error"
     assert "无音频流" in r["reason"]
+
+
+# ---------------- T12：来源策略接线（process_item） ----------------
+
+class DemoAdapter:
+    name = "demo"
+    language_hint = "zh"
+
+    def __init__(self, result, media="http://m/audio.m4s"):
+        self.result, self.media = result, media
+
+    def fetch_content(self, ref):
+        return self.result
+
+    def fetch_meta(self, ref):
+        return ItemMeta(title="t", author="a", duration=120)
+
+    def fetch_media_url(self, ref, media="audio", lowest=False):
+        return self.media
+
+
+def _run(monkeypatch, adapter, tmp_path, same_source_passed=True, whisper_lines=None,
+         ss_override=None, attr_override=None, whisper_exc=None):
+    """process_item 离线跑：同源校验/归属兜底/Whisper 全部 mock，不落盘。"""
+    from core import config as core_config
+    cfg = dict(core_config.DEFAULT_CONFIG)
+    cfg["out_dir"] = str(tmp_path)
+    monkeypatch.setattr(pipeline.config, "load_config", lambda: cfg)
+    ss = ss_override or {"checked": True, "passed": same_source_passed,
+                         "avg": 0.9 if same_source_passed else 0.1}
+    monkeypatch.setattr(pipeline, "_same_source_verify", lambda a, r, lines, c: dict(ss))
+    monkeypatch.setattr(pipeline, "_attribution_fallback",
+                        lambda a, r, lines, c: dict(attr_override or {"passed": False, "reason": "skipped"}))
+    import transcriber
+    if whisper_exc is not None:
+        monkeypatch.setattr(transcriber, "transcribe_url",
+                            lambda url, **kw: (_ for _ in ()).throw(whisper_exc))
+    else:
+        monkeypatch.setattr(transcriber, "transcribe_url",
+                            lambda url, **kw: (whisper_lines if whisper_lines is not None
+                                               else [{"start": 0, "end": 5, "text": "whisper 内容"}]))
+    monkeypatch.setattr(pipeline.artifacts, "write_item_artifacts", lambda *a, **k: None)
+    monkeypatch.setattr(pipeline.artifacts, "build_info", lambda meta, ref, **k: {"kind": "timeline", **k})
+    opts = pipeline.RunOptions(out_root=str(tmp_path), no_cache=True)
+    return pipeline.process_item(adapter, ItemRef(platform="demo", item_id="1", duration=120),
+                                 str(tmp_path), opts, single=True)
+
+
+def test_auto_provenance_goes_whisper(monkeypatch, tmp_path):
+    """auto（AI/自动字幕）→ 不采信字幕主选，直接 Whisper（spec §5.2）"""
+    res = ContentResult(kind="timeline", status="ok", provenance="auto",
+                        segments=[{"start": 0, "end": 5, "text": "ai 字幕内容"}])
+    status, src, n, _, err = _run(monkeypatch, DemoAdapter(res), tmp_path)
+    assert (status, src, n) == ("ok", "whisper", 1)
+
+
+def test_human_provenance_kept_when_same_source_passes(monkeypatch, tmp_path):
+    """human 字幕过同源校验 → 采信字幕，src=label"""
+    res = ContentResult(kind="timeline", status="ok", provenance="human", label="字幕(人工)",
+                        segments=[{"start": 0, "end": 5, "text": "人工字幕内容"}])
+    status, src, n, _, err = _run(monkeypatch, DemoAdapter(res), tmp_path, same_source_passed=True)
+    assert (status, src, n) == ("ok", "字幕(人工)", 1)
+
+
+def test_human_provenance_rejected_when_same_source_fails(monkeypatch, tmp_path):
+    """human 字幕未过同源校验（串台）→ 转 Whisper"""
+    res = ContentResult(kind="timeline", status="ok", provenance="human",
+                        segments=[{"start": 0, "end": 5, "text": "串台字幕"}])
+    status, src, n, _, err = _run(monkeypatch, DemoAdapter(res), tmp_path, same_source_passed=False)
+    assert (status, src, n) == ("ok", "whisper", 1)
+
+
+def test_no_audio_triggers_attribution_fallback(monkeypatch, tmp_path):
+    """无音频流（no_audio）→ 视觉归属兜底通过 → 采信字幕（spec §8.2 降级路径）"""
+    res = ContentResult(kind="timeline", status="ok", provenance="human",
+                        segments=[{"start": 0, "end": 5, "text": "人工字幕内容"}])
+    status, src, n, _, err = _run(
+        monkeypatch, DemoAdapter(res), tmp_path,
+        ss_override={"checked": False, "passed": False,
+                     "reason_code": "no_audio", "reason": "无可下载音频流"},
+        attr_override={"passed": True, "checked": True})
+    assert (status, src, n) == ("ok", "字幕", 1)
+
+
+def test_whisper_failure_falls_back_to_subtitle(monkeypatch, tmp_path):
+    """Whisper 抛异常且有字幕候选 → 回退候选并标注（spec §5.3）"""
+    res = ContentResult(kind="timeline", status="ok", provenance="auto",
+                        segments=[{"start": 0, "end": 5, "text": "AI 字幕"}])
+    status, src, n, _, err = _run(monkeypatch, DemoAdapter(res), tmp_path,
+                                  whisper_exc=RuntimeError("下载失败"))
+    assert (status, src, n) == ("ok", "whisper失败→字幕（未经同源校验）", 1)
+
+
+def test_whisper_empty_falls_back_to_subtitle(monkeypatch, tmp_path):
+    """Whisper 返回空（未抛异常）且有候选 → 同样回退（spec §5.3“失败/为空”）"""
+    res = ContentResult(kind="timeline", status="ok", provenance="auto",
+                        segments=[{"start": 0, "end": 5, "text": "AI 字幕"}])
+    status, src, n, _, err = _run(monkeypatch, DemoAdapter(res), tmp_path, whisper_lines=[])
+    assert (status, src, n) == ("ok", "whisper失败→字幕（未经同源校验）", 1)
+
+
+def test_whisper_failure_without_candidate_fails(monkeypatch, tmp_path):
+    """Whisper 失败且无字幕候选 → failed（现有报错语义保持）"""
+    res = ContentResult(kind="timeline", status="empty", provenance="none", segments=[])
+    status, src, n, _, err = _run(monkeypatch, DemoAdapter(res), tmp_path,
+                                  whisper_exc=RuntimeError("下载失败"))
+    assert status == "failed" and n == 0
+
+
+def test_attribution_fallback_requires_vision_config():
+    """归属兜底前置：未配置 vision → no_vision（不触碰画面流）"""
+    class A:
+        def fetch_media_url(self, *a, **k):
+            raise AssertionError("vision 未配置时不应取画面流")
+
+    r = pipeline._attribution_fallback(A(), None, [{"start": 0, "end": 1, "text": "x"}],
+                                       {"vision": {"enabled": False}})
+    assert r["passed"] is False and r["reason_code"] == "no_vision"
+
+
+def test_attribution_fallback_no_video_stream():
+    """归属兜底：最低画质画面流缺失 → no_video"""
+    calls = []
+
+    class A:
+        def fetch_media_url(self, ref, media="audio", lowest=False):
+            calls.append((media, lowest))
+            return None
+
+    cfg = {"vision": {"enabled": True, "api_key": "k"}}
+    r = pipeline._attribution_fallback(A(), None, [{"start": 0, "end": 1, "text": "x"}], cfg)
+    assert r["passed"] is False and r["reason_code"] == "no_video"
+    assert calls == [("video", True)]
+
+
+def test_attribution_fallback_delegates_to_vision(monkeypatch):
+    """归属兜底：下载最低画质视频 → vision.check_attribution_aligned 裁决"""
+    import transcriber
+    import vision
+    seen = {}
+
+    monkeypatch.setattr(transcriber, "download_audio",
+                        lambda url, dest, headers=None: seen.update(url=url) or dest)
+    monkeypatch.setattr(vision, "check_attribution_aligned",
+                        lambda conf, vp, lines, dur: {"passed": True, "checked": True, "verdicts": []})
+
+    class A:
+        def fetch_media_url(self, ref, media="audio", lowest=False):
+            return "http://m/video-low"
+
+    class R:
+        duration = 120
+
+    cfg = {"vision": {"enabled": True, "api_key": "k"}}
+    r = pipeline._attribution_fallback(A(), R(), [{"start": 0, "end": 1, "text": "x"}], cfg)
+    assert r["passed"] is True and seen["url"] == "http://m/video-low"

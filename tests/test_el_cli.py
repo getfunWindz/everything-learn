@@ -4,6 +4,15 @@ import pytest
 import el
 from core import pipeline
 
+
+@pytest.fixture(autouse=True)
+def _same_source_pass(monkeypatch):
+    """M13/T12：本文件聚焦 CLI 管线，字幕默认视为通过同源校验（避免真实下载/Whisper）；
+    来源策略本身由 tests/test_core_pipeline_recheck.py 覆盖，专项测试可自行覆盖此 patch。"""
+    monkeypatch.setattr(pipeline, "_same_source_verify",
+                        lambda *a, **k: {"checked": True, "passed": True, "avg": 1.0})
+
+
 VIEW = {"code": 0, "data": {
     "bvid": "BV1GJ411x7h7", "aid": 170001, "title": "测试视频",
     "owner": {"name": "测试UP"}, "duration": 300, "pubdate": 1600000000,
@@ -394,11 +403,13 @@ def test_invalid_pages_graceful(tmp_path, capsys):
     err = capsys.readouterr().err
     assert "无效" in err and "Traceback" not in err
 
-def test_run_vision_check_supplements(tmp_path, monkeypatch):
-    """复检固定路径：字幕有内容 + 复检发现遗漏 → 补充并入 + source 标记"""
-    monkeypatch.setattr(pipeline, "_vision_check",
-                        lambda adapter, ref, cfg, lines:
-                            [{"start": 6.0, "end": 8.0, "text": "白板公式补充"}])
+def test_legacy_vision_check_not_called(tmp_path, monkeypatch):
+    """M13/T12：旧步骤 5（_vision_check 内容完整性复检）已移除接线（T14 窗口复检替代）"""
+    called = {"n": 0}
+    def spy(*a, **k):
+        called["n"] += 1
+        return [{"start": 6.0, "end": 8.0, "text": "白板公式补充"}]
+    monkeypatch.setattr(pipeline, "_vision_check", spy)
     monkeypatch.setattr(el.config, "load_config",
                         lambda: {"vision": {"enabled": True, "api_key": "k"}})
     out = tmp_path / "out"
@@ -408,32 +419,23 @@ def test_run_vision_check_supplements(tmp_path, monkeypatch):
                  client=client)
     rd = report_dir(out)
     info = json.load(open(os.path.join(rd, "content_info.json"), encoding="utf-8"))
-    assert info["source"] == "字幕+vision补充"
-    sub = open(os.path.join(rd, "content.txt"), encoding="utf-8").read()
-    assert "白板公式补充" in sub
+    assert called["n"] == 0
+    assert info["source"] == "字幕"
 
-def test_run_vision_check_empty_transcript(tmp_path, monkeypatch):
-    """无转写 + 复检产出 → source=vision（纯视觉素材）"""
+def test_whisper_empty_transcript_fails(tmp_path, monkeypatch):
+    """M13/T12：无字幕候选且 Whisper 返回空 → failed（旧 vision 纯视觉兜底已退役）"""
     import transcriber as tr_mod
     monkeypatch.setattr(tr_mod, "transcribe_url", lambda *a, **k: [])
-    monkeypatch.setattr(pipeline, "_vision_check",
-                        lambda adapter, ref, cfg, lines:
-                            [{"start": 0.0, "end": 5.0, "text": "画面内容"}])
-    monkeypatch.setattr(el.config, "load_config",
-                        lambda: {"vision": {"enabled": True, "api_key": "k"}})
     out = tmp_path / "out"
     client = FakeClient(lines=None)
-    el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
-                                    no_whisper=False, pick=1, lang=None, model=None),
-                 client=client)
-    rd = report_dir(out)
-    info = json.load(open(os.path.join(rd, "content_info.json"), encoding="utf-8"))
-    assert info["source"] == "vision"
-    sub = open(os.path.join(rd, "content.txt"), encoding="utf-8").read()
-    assert "画面内容" in sub
+    with pytest.raises(SystemExit) as e:
+        el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
+                                        no_whisper=False, pick=1, lang=None, model=None),
+                     client=client)
+    assert e.value.code == 4
 
 def test_no_vision_check_flag(tmp_path, monkeypatch):
-    """--no-vision-check 关闭复检（不调用多模态）"""
+    """兼容开关：旧 _vision_check 已移除接线（不调用多模态）；--no-vision-check 仍被接受"""
     called = {"n": 0}
     def spy_check(*a, **k):
         called["n"] += 1
@@ -503,33 +505,28 @@ class InvalidClient(SuspectClient):
         return SubtitleResult([], "invalid", "时长越界")
 
 
-def test_suspect_subtitle_rescued_by_vision(tmp_path, monkeypatch):
-    """可疑字幕 + 多模态复检通过 → 采信字幕，不调用 Whisper"""
+def test_suspect_subtitle_kept_when_same_source_passes(tmp_path, monkeypatch):
+    """M13/T12：旧 status=suspect 分级退役；字幕候选过同源校验即采信，不调用 Whisper"""
     import transcriber as tr_mod
     monkeypatch.setattr(tr_mod, "transcribe_url",
                         lambda *a, **k: (_ for _ in ()).throw(AssertionError("不应调用 Whisper")))
-    monkeypatch.setattr(pipeline, "_vision_verify_subtitle", lambda *a, **k: True)
-    monkeypatch.setattr(pipeline, "_vision_check", lambda *a, **k: [])
-    monkeypatch.setattr(el.config, "load_config",
-                        lambda: {"vision": {"enabled": True, "api_key": "k"}})
     out = tmp_path / "out"
     el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
                                     no_whisper=False, pick=1, lang=None, model=None),
                  client=SuspectClient())
     rd = report_dir(out)
     info = json.load(open(os.path.join(rd, "content_info.json"), encoding="utf-8"))
-    assert info["source"] == "字幕+vision复核"
+    assert info["source"] == "字幕"
 
 
-def test_suspect_subtitle_mismatch_forces_whisper(tmp_path, monkeypatch):
-    """复检判定不一致 → 强制 Whisper（错乱字幕场景）"""
+def test_failed_same_source_forces_whisper(tmp_path, monkeypatch):
+    """M13/T12：同源校验未过（原 vision 判不一致场景）→ 强制 Whisper"""
     import transcriber as tr_mod
     monkeypatch.setattr(tr_mod, "transcribe_url",
                         lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "whisper 转写"}])
-    monkeypatch.setattr(pipeline, "_vision_verify_subtitle", lambda *a, **k: False)
-    monkeypatch.setattr(pipeline, "_vision_check", lambda *a, **k: [])
-    monkeypatch.setattr(el.config, "load_config",
-                        lambda: {"vision": {"enabled": True, "api_key": "k"}})
+    monkeypatch.setattr(pipeline, "_same_source_verify",
+                        lambda *a, **k: {"checked": False, "passed": False,
+                                         "reason_code": "error", "reason": "串台"})
     out = tmp_path / "out"
     el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
                                     no_whisper=False, pick=1, lang=None, model=None),
@@ -539,24 +536,24 @@ def test_suspect_subtitle_mismatch_forces_whisper(tmp_path, monkeypatch):
     assert info["source"] == "whisper"
 
 
-def test_invalid_subtitle_skips_vision_check(tmp_path, monkeypatch):
-    """硬不可信（越界）→ 不调用多模态，直接 Whisper（省成本）"""
+def test_no_candidate_skips_same_source(tmp_path, monkeypatch):
+    """M13/T12：无字幕候选（原 invalid 场景）→ 不做同源校验，直接 Whisper"""
     called = {"n": 0}
     def spy(*a, **k):
         called["n"] += 1
-        return True
+        return {"checked": True, "passed": True}
     import transcriber
     monkeypatch.setattr(transcriber, "transcribe_url",
                         lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "w"}])
-    monkeypatch.setattr(pipeline, "_vision_verify_subtitle", spy)
-    monkeypatch.setattr(pipeline, "_vision_check", lambda *a, **k: [])
-    monkeypatch.setattr(el.config, "load_config",
-                        lambda: {"vision": {"enabled": True, "api_key": "k"}})
+    monkeypatch.setattr(pipeline, "_same_source_verify", spy)
     out = tmp_path / "out"
     el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
                                     no_whisper=False, pick=1, lang=None, model=None),
                  client=InvalidClient())
     assert called["n"] == 0
+    rd = report_dir(out)
+    info = json.load(open(os.path.join(rd, "content_info.json"), encoding="utf-8"))
+    assert info["source"] == "whisper"
 
 
 # ---------- VAD / medium 默认（Task 5） ----------

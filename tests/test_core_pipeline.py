@@ -56,6 +56,11 @@ class FakeAdapter:
 def _isolate(tmp_path, monkeypatch):
     monkeypatch.setattr(cache_mod, "CACHE_DIR", str(tmp_path / "cache"))
     monkeypatch.setattr(core_config, "CONFIG_PATH", str(tmp_path / "config.json"))
+    # M13/T12：本文件 FakeAdapter 均以“字幕可用”为前提。新来源策略下 unknown 字幕需过
+    # 同源校验才会被采信；默认放行以避免真实下载/转写，来源策略本身由
+    # test_core_pipeline_recheck.py 覆盖（需失败/兜底的测试自行覆盖此 patch）。
+    monkeypatch.setattr(pipeline_mod, "_same_source_verify",
+                        lambda *a, **k: {"checked": True, "passed": True, "avg": 1.0})
     yield
 
 
@@ -96,43 +101,71 @@ def test_process_item_uses_adapter_label(tmp_path):
     assert (status, src) == ("ok", "字幕(自动)")
 
 
-def test_process_item_suspect_without_vision_forces_whisper(tmp_path, monkeypatch):
+def test_process_item_official_same_source_fail_forces_whisper(tmp_path, monkeypatch):
+    """M13/T12：旧 status 分级退役；official 字幕未过同源校验 → Whisper 重转"""
     import transcriber as tr
     monkeypatch.setattr(tr, "transcribe_url",
                         lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "whisper"}])
+    monkeypatch.setattr(pipeline_mod, "_same_source_verify",
+                        lambda *a, **k: {"checked": False, "passed": False, "reason_code": "error"})
+
+    class OfficialAdapter(FakeAdapter):
+        def __init__(self):
+            super().__init__()
+            self.content = ContentResult(kind="timeline", status="ok", provenance="official",
+                                         segments=[{"start": 0.0, "end": 1.0, "text": "官方字幕"}])
+
     out = str(tmp_path / "out")
-    status, src, n, out_dir, err = process_item(FakeAdapter(status="suspect"), _ref(), out,
+    status, src, n, out_dir, err = process_item(OfficialAdapter(), _ref(), out,
                                                 RunOptions(out_root=out), single=True)
     assert (status, src) == ("ok", "whisper")
     assert "whisper" in open(os.path.join(out_dir, "content.txt"), encoding="utf-8").read()
 
 
-def test_process_item_invalid_forces_whisper(tmp_path, monkeypatch):
+def test_process_item_none_provenance_goes_whisper(tmp_path, monkeypatch):
+    """M13/T12：provenance=none 且无字幕候选 → 直接 Whisper（旧 invalid 分级退役）"""
     import transcriber as tr
     monkeypatch.setattr(tr, "transcribe_url", lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "w"}])
+
+    class NoCandidateAdapter(FakeAdapter):
+        def __init__(self):
+            super().__init__(status="empty")
+            self.content = ContentResult(kind="timeline", status="empty", provenance="none",
+                                         segments=[])
+
     out = str(tmp_path / "out")
-    status, src, n, out_dir, err = process_item(FakeAdapter(status="invalid"), _ref(), out,
+    status, src, n, out_dir, err = process_item(NoCandidateAdapter(), _ref(), out,
                                                 RunOptions(out_root=out), single=True)
     assert (status, src) == ("ok", "whisper")
 
 
-def test_process_item_suspect_rescued_by_vision(tmp_path, monkeypatch):
-    monkeypatch.setattr(core_config, "load_config",
-                        lambda: {"vision": {"enabled": True, "api_key": "k",
-                                            "subtitle_check": "auto"}})
-    monkeypatch.setattr(pipeline_mod, "_vision_verify_subtitle", lambda *a, **k: True)
-    monkeypatch.setattr(pipeline_mod, "_vision_check", lambda *a, **k: None)
+def test_process_item_no_audio_attribution_fail_forces_whisper(tmp_path, monkeypatch):
+    """M13/T12：无音频流 → 视觉归属兜底；兜底失败 → Whisper（旧 vision 裁决路径退役）"""
+    import transcriber as tr
+    monkeypatch.setattr(tr, "transcribe_url",
+                        lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "w"}])
+    monkeypatch.setattr(pipeline_mod, "_same_source_verify",
+                        lambda *a, **k: {"checked": False, "passed": False,
+                                         "reason_code": "no_audio", "reason": "无可下载音频流"})
+    monkeypatch.setattr(pipeline_mod, "_attribution_fallback",
+                        lambda *a, **k: {"passed": False, "reason": "vision 未配置"})
     out = str(tmp_path / "out")
-    status, src, n, out_dir, err = process_item(FakeAdapter(status="suspect"), _ref(), out,
+    status, src, n, out_dir, err = process_item(FakeAdapter(), _ref(), out,
                                                 RunOptions(out_root=out), single=True)
-    assert (status, src) == ("ok", "字幕+vision复核")
+    assert (status, src) == ("ok", "whisper")
 
 
 def test_process_item_no_whisper(tmp_path):
+    """无字幕候选 + --no-whisper → no_subtitle（语义保持）"""
+    class EmptyAdapter(FakeAdapter):
+        def __init__(self):
+            super().__init__(status="empty")
+            self.content = ContentResult(kind="timeline", status="empty", provenance="none",
+                                         segments=[])
+
     out = str(tmp_path / "out")
     opts = RunOptions(out_root=out, no_whisper=True)
-    status, src, n, out_dir, err = process_item(FakeAdapter(status="empty"), _ref(), out,
-                                                opts, single=True)
+    status, src, n, out_dir, err = process_item(EmptyAdapter(), _ref(), out, opts, single=True)
     assert status == "no_subtitle"
 
 

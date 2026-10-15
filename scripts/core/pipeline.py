@@ -189,67 +189,64 @@ def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False)
             cache.set_cached(ref.platform, ref.item_id, ref.sub_id,
                              {"kind": "document", "items": res.blocks, "images": res.images})
         return "ok", src, len(res.blocks), out_dir, ""
-    # 3) timeline：分级 + 归属复检
-    lines = list(res.segments) if res.status in ("ok", "suspect") else []
-    if res.status == "suspect":
-        cfgv0 = config.load_config().get("vision", {})
-        verdict = None
-        if not opts.no_vision_check and _want_subtitle_check(cfgv0, res.status):
-            try:
-                verdict = _vision_verify_subtitle(adapter, ref, cfgv0, lines)
-            except Exception as e:
-                print(f"  P{label} 字幕归属复检失败（保守降级）：{str(e)[:80]}", file=sys.stderr)
-        if verdict is True:
-            src = "字幕+vision复核"
-            print(f"  P{label} 字幕归属复检通过（原判可疑：{res.reason}）", file=sys.stderr)
+    # 3) timeline：来源策略（spec §5.2：auto→Whisper；human/official/unknown→同源门槛）
+    provenance = (getattr(res, "provenance", "unknown") or "unknown") if res is not None else "none"
+    subtitle_candidate = list(res.segments) if (res is not None and res.segments) else []
+    secondary = list(subtitle_candidate) if provenance == "auto" else []  # T14.5 双 ASR 交叉比对用
+    lines = []
+    ss = {}
+    if subtitle_candidate and provenance in ("human", "official", "unknown"):
+        print(f"  P{label} 字幕来源={provenance} → 同源校验……", file=sys.stderr)
+        ss = _same_source_verify(adapter, ref, subtitle_candidate, config.load_config())
+        accepted = bool(ss.get("passed"))
+        if not accepted and ss.get("reason_code") == "no_audio":
+            fb = _attribution_fallback(adapter, ref, subtitle_candidate, config.load_config())
+            ss = dict(ss, attribution_fallback=fb)
+            accepted = bool(fb.get("passed"))
+        if accepted:
+            lines = subtitle_candidate
+            src = res.label or "字幕"
+            print(f"  P{label} 字幕采信（同源校验通过）", file=sys.stderr)
         else:
-            why = "归属复检不一致" if verdict is False else f"可疑（{res.reason}）"
-            print(f"  P{label} 字幕{why} → 强制 Whisper", file=sys.stderr)
-            lines = []
-    elif res.status == "invalid":
-        print(f"  P{label} 字幕不可信（{res.reason}）→ 强制 Whisper", file=sys.stderr)
-        lines = []
-    # 4) Whisper 兜底
+            print(f"  P{label} 未通过同源校验（{ss.get('reason') or ss.get('reason_code')}）→ 转 Whisper",
+                  file=sys.stderr)
+    elif provenance == "auto":
+        print(f"  P{label} 来源=AI/自动字幕 → Whisper 主选", file=sys.stderr)
+    # 4) Whisper（无 lines 时）
     if not lines:
         if opts.no_whisper:
             return "no_subtitle", src, 0, "", "无内容且 --no-whisper 跳过转写"
+        whisper_ok = False
         try:
             import transcriber
             media = adapter.fetch_media_url(ref, media="audio")
-            if not media:
-                return "failed", src, 0, "", "该来源无媒体流可转写"
-            print(f"  P{label} 无内容，启用 Whisper 转写……", file=sys.stderr)
-            cfg = config.load_config()
-            mode = cfg.get("whisper_vad", "auto")
-            vad_mode = opts.vad if opts.vad is not None else (None if mode == "auto" else bool(mode))
-            language = (opts.lang
-                        or getattr(adapter, "language_hint", None)
-                        or None)  # None = faster-whisper 自动检测
-            lines = transcriber.transcribe_url(
-                media,
-                model_size=opts.model or cfg.get("whisper_model") or "medium",
-                progress_callback=_progress_printer(),
-                vad=vad_mode, duration_sec=ref.duration,
-                vad_long_sec=cfg.get("vad_long_sec", 1800),
-                headers=_media_headers(adapter),
-                language=language)
-            print("", file=sys.stderr)
-            src = "whisper"
+            if media:
+                print(f"  P{label} 启用 Whisper 转写……", file=sys.stderr)
+                cfg = config.load_config()
+                mode = cfg.get("whisper_vad", "auto")
+                vad_mode = opts.vad if opts.vad is not None else (None if mode == "auto" else bool(mode))
+                language = (opts.lang
+                            or getattr(adapter, "language_hint", None)
+                            or None)  # None = faster-whisper 自动检测
+                lines = transcriber.transcribe_url(
+                    media,
+                    model_size=opts.model or cfg.get("whisper_model") or "medium",
+                    progress_callback=_progress_printer(),
+                    vad=vad_mode, duration_sec=ref.duration,
+                    vad_long_sec=cfg.get("vad_long_sec", 1800),
+                    headers=_media_headers(adapter),
+                    language=language)
+                print("", file=sys.stderr)
+                src = "whisper"
+                whisper_ok = bool(lines)  # “失败/为空”均回退字幕候选（spec §5.3）
         except transcriber.WhisperNotInstalled:
             return "whisper_missing", src, 0, "", "未安装 faster-whisper"
         except Exception as e:
-            return "failed", src, 0, "", str(e)[:100]
-    # 5) 内容完整性复检（配置 vision 时固定路径）
-    had_lines = bool(lines)
-    cfgv = config.load_config().get("vision", {})
-    if not opts.no_vision_check and cfgv.get("enabled"):
-        try:
-            sup = _vision_check(adapter, ref, cfgv, lines)
-            if sup:
-                lines = sorted(lines + sup, key=lambda x: x["start"])
-                src = (src + "+vision补充") if had_lines else "vision"
-        except Exception as e:
-            print(f"  P{label} 复检失败（不影响原流程）：{str(e)[:100]}", file=sys.stderr)
+            print(f"  P{label} Whisper 失败：{str(e)[:80]}", file=sys.stderr)
+        if not lines and subtitle_candidate and not whisper_ok:
+            lines = subtitle_candidate
+            src = "whisper失败→字幕（未经同源校验）"
+            print(f"  P{label} 回退使用字幕候选", file=sys.stderr)
     if not lines:
         return "failed", src, 0, "", "转写结果为空"
     # 6) 落盘 + 缓存
@@ -444,5 +441,26 @@ def _same_source_verify(adapter, ref, lines, cfg):
         return result
     except Exception as e:
         return {"checked": False, "reason": str(e)[:100], "reason_code": "error"}
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def _attribution_fallback(adapter, ref, lines, cfg):
+    """无音频流时的视觉归属兜底（spec §8.2 降级路径）"""
+    import vision
+    conf = cfg.get("vision", {})
+    if not conf.get("enabled") or not conf.get("api_key"):
+        return {"passed": False, "reason": "vision 未配置", "reason_code": "no_vision"}
+    tmpdir = tempfile.mkdtemp(prefix="el_attr_")
+    try:
+        url = adapter.fetch_media_url(ref, media="video", lowest=True)
+        if not url:
+            return {"passed": False, "reason": "无画面流", "reason_code": "no_video"}
+        vp = os.path.join(tmpdir, "video.m4s")
+        import transcriber as tr
+        tr.download_audio(url, vp, headers=_media_headers(adapter))
+        return vision.check_attribution_aligned(conf, vp, lines, ref.duration)
+    except Exception as e:
+        return {"passed": False, "reason": str(e)[:100], "reason_code": "error"}
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
