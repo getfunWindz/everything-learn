@@ -327,3 +327,35 @@ def check_subtitle_match(cfg_vision: dict, video_path: str, lines: list,
         raise VisionError("抽帧失败（无法解码或视频流不可用）")
     prompt = MATCH_PROMPT + "\n\n【待校验字幕片段（开头/中间/结尾）】\n" + _fmt_excerpt(lines)
     return parse_match_verdict(describe_video(cfg_vision, frames, prompt=prompt))
+
+
+def _thumb_diff(a: bytes, b: bytes) -> float:
+    """两帧缩略图平均像素差（0~1）；解码失败视为不同帧"""
+    from PIL import Image
+    import numpy as np
+    try:
+        ta = np.asarray(Image.open(io.BytesIO(a)).convert("L").resize((32, 32)), dtype=np.float32)
+        tb = np.asarray(Image.open(io.BytesIO(b)).convert("L").resize((32, 32)), dtype=np.float32)
+    except Exception:
+        return 1.0
+    return float(np.abs(ta - tb).mean() / 255.0)
+
+
+def sample_window_frames(video_path, start, end, fps=3, max_side=640,
+                         dedup=True, dedup_threshold=0.02, max_frames=100000):
+    """窗口抽帧：fps 帧/秒（默认 3=头中尾），缩放到 max_side，静帧去重。
+    → [(ts, jpeg)]"""
+    from PIL import Image
+    raw = extract_frames_range(video_path, start, end, fps=fps, max_frames=max_frames)
+    out = []
+    for ts, jpeg in raw:
+        img = Image.open(io.BytesIO(jpeg)).convert("RGB")
+        if max_side and img.width > max_side:
+            img = img.resize((max_side, max(1, int(img.height * max_side / img.width))))
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=70)
+        data = buf.getvalue()
+        if dedup and out and _thumb_diff(out[-1][1], data) < dedup_threshold:
+            continue
+        out.append((ts, data))
+    return out

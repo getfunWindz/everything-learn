@@ -3,8 +3,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 import pytest
 import vision
 
-def _make_test_video(path, seconds=2, fps=10, size=(64, 64)):
-    """用 PyAV 生成纯色测试视频（未装 av/numpy 时自动 skip）"""
+def _make_test_video(path, seconds=2, fps=10, size=(64, 64), static=False):
+    """用 PyAV 生成纯色测试视频（static=True 时逐帧同色；未装 av/numpy 时自动 skip）"""
     pytest.importorskip("av")
     pytest.importorskip("numpy")
     pytest.importorskip("PIL")
@@ -16,7 +16,7 @@ def _make_test_video(path, seconds=2, fps=10, size=(64, 64)):
     for i in range(seconds * fps):
         frame = av.VideoFrame(size[0], size[1], "rgb24")
         import numpy as np
-        arr = np.full((size[1], size[0], 3), i * 10 % 255, dtype=np.uint8)
+        arr = np.full((size[1], size[0], 3), 0 if static else i * 10 % 255, dtype=np.uint8)
         frame = av.VideoFrame.from_ndarray(arr, format="rgb24")
         for packet in stream.encode(frame):
             container.mux(packet)
@@ -280,3 +280,19 @@ def test_check_subtitle_match_mismatch(monkeypatch):
     lines = [{"start": 0, "end": 8, "text": "你还是人吗我的好夫人"} for _ in range(10)]
     assert vision.check_subtitle_match({"enabled": True}, "x.mp4", lines, duration=100) is False
 
+
+def test_sample_window_frames_dedup(tmp_path):
+    # 静帧去重需真静态素材：默认 i*10 渐变视频相邻帧差 ~0.15（远大于阈值 0.02），不是「纯色」
+    v = _make_test_video(str(tmp_path / "t.mp4"), seconds=3, fps=10, static=True)
+    frames = vision.sample_window_frames(v, 0, 3, fps=3, dedup=True)
+    assert frames, "应抽到帧"
+    # 纯色视频 → 去重后帧数远小于 3fps×3s=9
+    assert len(frames) <= 4
+    ts = [t for t, _ in frames]
+    assert ts == sorted(ts)
+
+
+def test_sample_window_frames_respects_cap(tmp_path):
+    v = _make_test_video(str(tmp_path / "t.mp4"), seconds=30, fps=10)
+    frames = vision.sample_window_frames(v, 0, 30, fps=3, max_frames=20)
+    assert len(frames) <= 20
