@@ -221,13 +221,17 @@ def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False)
             cfg = config.load_config()
             mode = cfg.get("whisper_vad", "auto")
             vad_mode = opts.vad if opts.vad is not None else (None if mode == "auto" else bool(mode))
+            language = (opts.lang
+                        or getattr(adapter, "language_hint", None)
+                        or None)  # None = faster-whisper 自动检测
             lines = transcriber.transcribe_url(
                 media,
                 model_size=opts.model or cfg.get("whisper_model") or "medium",
                 progress_callback=_progress_printer(),
                 vad=vad_mode, duration_sec=ref.duration,
                 vad_long_sec=cfg.get("vad_long_sec", 1800),
-                headers=_media_headers(adapter))
+                headers=_media_headers(adapter),
+                language=language)
             print("", file=sys.stderr)
             src = "whisper"
         except transcriber.WhisperNotInstalled:

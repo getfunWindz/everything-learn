@@ -295,3 +295,72 @@ def test_run_input_name_still_falls_back_to_default(tmp_path, monkeypatch):
     monkeypatch.setattr(registry, "default", lambda: _Namer())
     with pytest.raises(SearchNeeded):
         run_input("某个视频名", RunOptions(out_root=str(tmp_path / "out")))
+
+
+def test_whisper_language_resolution(monkeypatch):
+    """适配器 language_hint 应透传到 transcriber；--lang 优先"""
+    from core import pipeline
+    captured = {}
+
+    class Adapter:
+        name = "demo"
+        language_hint = "en"
+        def fetch_content(self, ref):
+            from core.models import ContentResult
+            return ContentResult(kind="timeline", status="empty", segments=[])
+        def fetch_meta(self, ref):
+            from core.models import ItemMeta
+            return ItemMeta(title="t", author="a", duration=60)
+        def fetch_media_url(self, ref, media="audio", lowest=False):
+            return "http://media.demo/audio.m4s"
+
+    def fake_transcribe_url(url, model_size="medium", language="zh", **kw):
+        captured["language"] = language
+        return [{"start": 0, "end": 1, "text": "hello"}]
+
+    import core.config as core_config
+    monkeypatch.setattr(pipeline.config, "load_config", lambda: dict(core_config.DEFAULT_CONFIG))
+    monkeypatch.setattr(pipeline.config, "apply_hf_env", lambda *a, **k: None)
+    import transcriber
+    monkeypatch.setattr(transcriber, "transcribe_url", fake_transcribe_url)
+    from core.models import ItemRef
+    opts = pipeline.RunOptions(out_root=".", no_cache=True)
+    monkeypatch.setattr(pipeline, "_item_out_dir", lambda *a, **k: "out")
+    monkeypatch.setattr(pipeline.artifacts, "write_item_artifacts", lambda *a, **k: None)
+    monkeypatch.setattr(pipeline.artifacts, "build_info", lambda meta, ref, **k: {"kind": "timeline", **k})
+    pipeline.process_item(Adapter(), ItemRef(platform="demo", item_id="1", duration=60), ".", opts, single=True)
+    assert captured["language"] == "en"
+
+
+def test_whisper_language_cli_override(monkeypatch):
+    """--lang 优先于适配器 language_hint"""
+    from core import pipeline
+    captured = {}
+
+    class Adapter:
+        name = "demo"
+        language_hint = "en"
+        def fetch_content(self, ref):
+            from core.models import ContentResult
+            return ContentResult(kind="timeline", status="empty", segments=[])
+        def fetch_meta(self, ref):
+            from core.models import ItemMeta
+            return ItemMeta(title="t", author="a", duration=60)
+        def fetch_media_url(self, ref, media="audio", lowest=False):
+            return "http://media.demo/audio.m4s"
+
+    import core.config as core_config
+    monkeypatch.setattr(pipeline.config, "load_config", lambda: dict(core_config.DEFAULT_CONFIG))
+    monkeypatch.setattr(pipeline.config, "apply_hf_env", lambda *a, **k: None)
+    import transcriber
+    monkeypatch.setattr(transcriber, "transcribe_url",
+                        lambda url, model_size="medium", language="zh", **kw: (
+                            captured.update(language=language) or
+                            [{"start": 0, "end": 1, "text": "x"}]))
+    from core.models import ItemRef
+    opts = pipeline.RunOptions(out_root=".", no_cache=True, lang="ja")
+    monkeypatch.setattr(pipeline, "_item_out_dir", lambda *a, **k: "out")
+    monkeypatch.setattr(pipeline.artifacts, "write_item_artifacts", lambda *a, **k: None)
+    monkeypatch.setattr(pipeline.artifacts, "build_info", lambda meta, ref, **k: {"kind": "timeline", **k})
+    pipeline.process_item(Adapter(), ItemRef(platform="demo", item_id="1", duration=60), ".", opts, single=True)
+    assert captured["language"] == "ja"
