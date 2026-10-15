@@ -94,9 +94,11 @@ def describe_video(cfg_vision: dict, frames: list, prompt: str = None) -> str:
         "messages": [{"role": "user", "content": content}],
         "max_tokens": 4096,
     }
-    r = requests.post(url, json=payload,
-                      headers={"Authorization": f"Bearer {cfg_vision['api_key']}"},
-                      timeout=300, trust_env=False)
+    session = requests.Session()
+    session.trust_env = False  # 不继承环境代理（requests.post 不接受 trust_env 参数，直接传会 TypeError）
+    r = session.post(url, json=payload,
+                     headers={"Authorization": f"Bearer {cfg_vision['api_key']}"},
+                     timeout=300)
     r.raise_for_status()
     data = r.json()
     try:

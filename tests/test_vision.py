@@ -47,16 +47,23 @@ def test_vision_not_configured():
 
 def test_describe_video_payload(monkeypatch):
     captured = {}
-    def fake_post(url, json=None, headers=None, timeout=None, trust_env=None):
-        captured["url"] = url
-        captured["json"] = json
-        captured["headers"] = headers
-        class R:
-            def raise_for_status(self): pass
-            def json(self):
-                return {"choices": [{"message": {"content": "画面描述结果"}}]}
-        return R()
-    monkeypatch.setattr(vision.requests, "post", fake_post)
+
+    class FakeSession:
+        def post(self, url, json=None, headers=None, timeout=None):
+            captured["url"] = url
+            captured["json"] = json
+            captured["headers"] = headers
+
+            class R:
+                def raise_for_status(self):
+                    pass
+
+                def json(self):
+                    return {"choices": [{"message": {"content": "画面描述结果"}}]}
+
+            return R()
+
+    monkeypatch.setattr(vision.requests, "Session", FakeSession)
     cfg = {"enabled": True, "base_url": "https://api.example.com/v1",
            "api_key": "sk-test", "model": "qwen-vl-max"}
     frames = [(0, b"\xff\xd8fakejpeg"), (10, b"\xff\xd8fakejpeg2")]
@@ -68,6 +75,43 @@ def test_describe_video_payload(monkeypatch):
     kinds = [c["type"] for c in msg]
     assert kinds.count("image_url") == 2
     assert any("base64" in c["image_url"]["url"] for c in msg if c["type"] == "image_url")
+
+def test_describe_video_uses_session_trust_env_false(monkeypatch):
+    """回归：requests.post 不接受 trust_env 参数（requests 2.34 实测 TypeError）。
+    必须走 Session.trust_env=False；旧实现 requests.post(trust_env=False) 会被 mock 掩盖，
+    真实调用必崩——本测试用严格签名直接堵住该回归。"""
+    captured = {}
+
+    class FakeSession:
+        def __init__(self):
+            self.trust_env = True  # 默认会继承环境代理，待实现显式关闭
+
+        def post(self, url, json=None, headers=None, timeout=None):
+            captured["trust_env"] = self.trust_env
+            captured["kwargs"] = {"json": json, "headers": headers, "timeout": timeout}
+
+            class R:
+                def raise_for_status(self):
+                    pass
+
+                def json(self):
+                    return {"choices": [{"message": {"content": "ok"}}]}
+
+            return R()
+
+    monkeypatch.setattr(vision.requests, "Session", FakeSession)
+
+    def must_not_call_post(*a, **k):
+        raise AssertionError("不应直接调用 requests.post（它不接受 trust_env 参数）")
+
+    monkeypatch.setattr(vision.requests, "post", must_not_call_post)
+    cfg = {"enabled": True, "base_url": "https://api.example.com/v1",
+           "api_key": "sk-test", "model": "m"}
+    out = vision.describe_video(cfg, [(0, b"jpeg")], prompt="p")
+    assert out == "ok"
+    assert captured["trust_env"] is False
+    assert "trust_env" not in captured["kwargs"]
+
 
 def test_vision_transcribe(monkeypatch, tmp_path):
     monkeypatch.setattr(vision, "extract_frames",
