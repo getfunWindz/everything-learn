@@ -191,3 +191,47 @@ def test_download_audio_headers_passthrough(tmp_path, monkeypatch):
     assert seen["headers"] == {"X": "1"}
     transcriber.download_audio("http://x/1", dest)
     assert seen["headers"] is transcriber.HEADERS
+
+
+def test_extract_audio_clip(tmp_path):
+    av = __import__("pytest").importorskip("av")
+    import numpy as np
+    import av as _av
+    # 生成 3 秒 16k 正弦音频
+    container = _av.open(str(tmp_path / "a.wav"), mode="w")
+    stream = container.add_stream("pcm_s16le", rate=16000)
+    for i in range(0, 16000 * 3, 1024):
+        frame = _av.AudioFrame.from_ndarray(
+            np.zeros((1, 1024), dtype=np.int16), format="s16", layout="mono")
+        frame.sample_rate = 16000
+        for p in stream.encode(frame):
+            container.mux(p)
+    for p in stream.encode():
+        container.mux(p)
+    container.close()
+    from transcriber import extract_audio_clip
+    samples, sr = extract_audio_clip(str(tmp_path / "a.wav"), 1.0, 2.0)
+    assert sr == 16000
+    assert len(samples) > 0
+
+
+def test_transcribe_samples_uses_model(monkeypatch):
+    import numpy as np
+    import transcriber
+
+    class Seg:
+        start, end, text = 0.0, 1.0, " 你好，世界 "
+
+    class FakeModel:
+        def __init__(self, *a, **k):
+            pass
+
+        def transcribe(self, samples, language=None, vad_filter=False):
+            assert isinstance(samples, np.ndarray)
+            return [Seg()], None
+
+    monkeypatch.setattr(transcriber, "_load_whisper", lambda: FakeModel)
+    monkeypatch.setattr(transcriber, "detect_device", lambda: "cpu")
+    out = transcriber.transcribe_samples(np.zeros(16000, dtype=np.float32),
+                                         model_size="small", language="zh")
+    assert "你好" in out

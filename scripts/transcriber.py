@@ -158,3 +158,51 @@ def transcribe_video_with_progress(client, bvid: str, cid: int, model_size: str 
     """带进度回调的转写（保留旧接口；内部映射为 log_progress）"""
     return transcribe_video(client, bvid, cid, model_size=model_size,
                             progress_callback=progress_callback, **kwargs)
+
+
+def extract_audio_clip(path: str, start_sec: float, end_sec: float, sample_rate: int = 16000):
+    """PyAV 截取音频片段 → (np.float32 单声道 16k 数组, sample_rate)"""
+    import av
+    import numpy as np
+    container = av.open(path)
+    try:
+        stream = container.streams.audio[0]
+        tbase = float(stream.time_base)
+        try:
+            container.seek(int(start_sec / tbase), stream=stream, backward=True)
+        except Exception:
+            pass
+        resampler = av.AudioResampler(format="s16", layout="mono", rate=sample_rate)
+        chunks = []
+        for frame in container.decode(stream):
+            ts = float(frame.pts * tbase) if frame.pts is not None else 0.0
+            if ts + frame.samples / sample_rate < start_sec:
+                continue
+            if ts > end_sec:
+                break
+            out_frames = resampler.resample(frame)
+            if out_frames is None:  # 极老版本可能返回 None
+                continue
+            if not isinstance(out_frames, (list, tuple)):  # PyAV<9 返回单帧，新版返回列表
+                out_frames = [out_frames]
+            for out in out_frames:
+                arr = out.to_ndarray().reshape(-1)
+                chunks.append(arr)
+        if chunks:
+            pcm = np.concatenate(chunks).astype(np.float32) / 32768.0
+        else:
+            pcm = np.zeros(0, dtype=np.float32)
+        return pcm, sample_rate
+    finally:
+        container.close()
+
+
+def transcribe_samples(samples, sample_rate: int = 16000, model_size: str = "small",
+                       language: str = None) -> str:
+    """短片段转写（同源校验用）→ 纯文本"""
+    WhisperModel = _load_whisper()
+    device = detect_device()
+    model = WhisperModel(model_size, device=device,
+                         compute_type="int8" if device == "cpu" else "float16")
+    segments, _ = model.transcribe(samples, language=language, vad_filter=False)
+    return clean_text(" ".join(s.text for s in segments))
