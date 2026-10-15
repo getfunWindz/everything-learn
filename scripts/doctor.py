@@ -131,6 +131,21 @@ def check_out_dir(path: str = "") -> dict:
         return {"ok": False, "path": path, "error": str(e)}
 
 
+def describe_out_dir() -> dict:
+    """输出目录状态：读 config.out_dir。未配置时明确标记（configured=False），
+    避免把 cwd 误报为可用输出目录（run 实际会拒绝运行）。"""
+    try:
+        from core import config
+        path = (config.load_config().get("out_dir") or "").strip()
+    except Exception:
+        path = ""
+    if not path:
+        return {"configured": False, "ok": False, "path": ""}
+    result = check_out_dir(path)
+    result["configured"] = True
+    return result
+
+
 def main(argv=None) -> int:
     """CLI 入口。bili.py 子命令 doctor 调用本函数。"""
     _ensure_utf8_stdout()
@@ -164,9 +179,13 @@ def main(argv=None) -> int:
     y = check_ytdlp()
     print(f"{'✅' if y['installed'] else '⚠️'} yt-dlp："
           f"{'v' + y['version'] if y['installed'] else '未安装'}（{y['hint']}）")
-    # 输出目录
-    o = check_out_dir()
-    print(f"{'✅' if o['ok'] else '❌'} 输出目录：{o['path']}")
+    # 输出目录（以 config.out_dir 为准；未配置明确提示，不误报 cwd）
+    o = describe_out_dir()
+    if not o["configured"]:
+        print("⚠️ 输出目录：未配置（首次使用需自选：--out 指定或写入 config.json 的 out_dir）")
+    else:
+        suffix = "" if o["ok"] else f"（{o.get('error', '不可写')}）"
+        print(f"{'✅' if o['ok'] else '❌'} 输出目录：{o['path']}{suffix}")
     return 0
 
 

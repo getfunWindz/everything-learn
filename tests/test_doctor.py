@@ -131,6 +131,22 @@ def test_check_ytdlp_installed():
     assert r["installed"] is True and r["version"]
 
 
+def test_describe_out_dir_unconfigured(monkeypatch):
+    """未配置 out_dir → configured=False（doctor 不得把 cwd 误报为可用输出目录）"""
+    from core import config as cfg
+    monkeypatch.setattr(cfg, "load_config", lambda: {"out_dir": ""})
+    r = doctor.describe_out_dir()
+    assert r["configured"] is False and r["ok"] is False
+
+
+def test_describe_out_dir_configured(tmp_path, monkeypatch):
+    from core import config as cfg
+    target = str(tmp_path / "学习笔记")
+    monkeypatch.setattr(cfg, "load_config", lambda: {"out_dir": target})
+    r = doctor.describe_out_dir()
+    assert r["configured"] is True and r["ok"] is True and r["path"] == target
+
+
 def test_check_ytdlp_missing(monkeypatch):
     monkeypatch.setitem(sys.modules, "yt_dlp", None)
     r = doctor.check_ytdlp()
