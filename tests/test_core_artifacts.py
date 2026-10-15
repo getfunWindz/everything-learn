@@ -111,3 +111,53 @@ def test_render_document_template_sections():
     tpl = render_template_for("document", info)
     for kw in ("一句话总结", "知识地图", "知识详解", "关键概念", "金句", "学习路径", "延伸阅读", "元信息"):
         assert kw in tpl
+
+
+def test_render_timeline_template_recheck_section():
+    """T16：timeline 骨架在正文前渲染「复检说明」（档位/评分/理由/覆盖/同源校验）"""
+    from report import render_template_for
+    ref = ItemRef(platform="bilibili", item_id="BV1r", url="u")
+    meta = ItemMeta(title="视频", author="UP", duration=600, published="2024-01-01")
+    info = build_info(meta, ref, kind="timeline", source="whisper", recheck={
+        "tier": 1, "effective_tier": 2, "score": 0.72,
+        "reasons": ["关键点密度高", "whisper 来源"],
+        "coverage_pct": 90.0, "uncovered": [[60.0, 120.0]],
+        "same_source": {"checked": True, "passed": True, "avg": 0.9},
+    })
+    tpl = render_template_for("timeline", info)
+    assert "## 复检说明" in tpl
+    assert "档位：2（评分 0.72）" in tpl          # effective_tier 优先于 tier
+    assert "理由：关键点密度高, whisper 来源" in tpl
+    assert "覆盖：90.0%；未覆盖区间：" in tpl
+    assert "60.0" in tpl and "120.0" in tpl        # 未覆盖区间已展开
+    assert "同源校验：0.9" in tpl
+    assert "【画面补充】" in tpl and "【画面校正】" in tpl  # R13：标注必须保留
+    assert "recheck_report.json" in tpl
+    assert tpl.index("## 复检说明") < tpl.index("## 一句话总结")  # 正文之前
+
+
+def test_render_timeline_template_recheck_missing():
+    """T16：recheck 缺省时仍渲染「复检说明」并注明未记录"""
+    from report import render_template_for
+    ref = ItemRef(platform="bilibili", item_id="BV2", url="u")
+    meta = ItemMeta(title="视频2", author="UP", duration=60, published="2024-01-01")
+    info = build_info(meta, ref, kind="timeline", source="字幕")
+    assert "recheck" not in info
+    tpl = render_template_for("timeline", info)
+    assert "## 复检说明" in tpl
+    assert "档位：未记录" in tpl
+    assert "理由：未记录" in tpl
+    assert "同源校验：未执行" in tpl
+    assert "未覆盖区间：无" in tpl
+
+
+def test_render_timeline_template_recheck_tier_fallback():
+    """T16：无 effective_tier 时回退判决档；无 reasons 时注明未记录"""
+    from report import render_template_for
+    ref = ItemRef(platform="bilibili", item_id="BV3", url="u")
+    meta = ItemMeta(title="视频3", author="UP", duration=60, published="2024-01-01")
+    info = build_info(meta, ref, kind="timeline", source="whisper",
+                      recheck={"tier": 2})
+    tpl = render_template_for("timeline", info)
+    assert "档位：2（评分 -）" in tpl
+    assert "理由：未记录" in tpl

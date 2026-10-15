@@ -90,6 +90,10 @@ python scripts/el.py run <链接/名称> [--page N | --pages "1-10" | --all] --o
 - **R11 名词注释（书籍式脚注）**：每个知识点末尾附「**名词注释**」，对前置未提及的专业名词逐条注释；
   先查 `references/glossary.json`（命中直接引用），未命中新写并 `python scripts/glossary.py add` 沉淀；
   交付前运行 `python scripts/glossary.py check <报告.md> <content.txt>` 校验到 0 遗漏。
+- **R13 复检透明（必守）**：撰写报告前核对产物目录 `recheck_report.json`；
+  - 保留正文中的【画面补充】【画面校正】标记并在报告中解释来源；
+  - 对 `uncertain`/未复检区间如实说明，不得把「不确定」静默写成结论；
+  - 档位/覆盖/同源校验结论写入报告「复检说明」小节。
 - 各形态均保留：关键概念/术语表、金句与重要观点。
 
 ### timeline 专属（B站/YouTube/播客）

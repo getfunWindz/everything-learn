@@ -7,6 +7,28 @@ VERSION = "0.1.0"
 SUPPORTED_KINDS = {"timeline", "document"}
 
 
+def _recheck_section(info: dict) -> str:
+    """复检说明小节（T16）：recheck 缺省时也渲染，注明「未记录」"""
+    rc = info.get("recheck") or {}
+    tier = rc.get("effective_tier") or rc.get("tier") or "未记录"
+    score = rc.get("score")
+    score = "-" if score is None else score
+    reasons = ", ".join(rc.get("reasons") or []) or "未记录"
+    coverage = rc.get("coverage_pct")
+    coverage = "-" if coverage is None else coverage
+    uncovered = rc.get("uncovered") or "无"
+    same_source = (rc.get("same_source") or {}).get("avg")
+    if same_source is None:
+        same_source = "未执行"
+    return ("## 复检说明\n\n"
+            f"- 档位：{tier}（评分 {score}）\n"
+            f"- 理由：{reasons}\n"
+            f"- 覆盖：{coverage}%；未覆盖区间：{uncovered}\n"
+            f"- 同源校验：{same_source}\n"
+            "- 复检补充/校正：正文中带【画面补充】【画面校正】标注，"
+            "撰写报告时**必须保留**并解释；不确定项见 recheck_report.json")
+
+
 def render_template(info: dict) -> str:
     return f"""# {info['title']}
 
@@ -27,6 +49,8 @@ def render_template(info: dict) -> str:
 | 内容来源 | {info['source']} |
 
 > 简介：{info['desc'] or '（无）'}
+
+{_recheck_section(info)}
 
 ## 一句话总结
 
