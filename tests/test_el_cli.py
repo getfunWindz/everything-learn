@@ -479,6 +479,60 @@ def test_vad_flags_mutually_exclusive():
         el.main(["run", "BV1GJ411x7h7", "--vad", "--no-vad"])
 
 
+def test_run_recheck_args_parsed(monkeypatch):
+    """T17：run 解析 --recheck/--budget/--yes-recheck → args 值正确"""
+    captured = {}
+    monkeypatch.setattr(el, "cmd_run", lambda args: captured.update(vars(args)))
+    el.main(["run", "BV1GJ411x7h7", "--recheck", "2", "--budget", "1.5", "--yes-recheck"])
+    assert captured["recheck"] == "2"
+    assert captured["budget"] == 1.5
+    assert captured["yes_recheck"] is True
+    assert captured["no_recheck"] is False
+
+
+def _capture_run_opts(tmp_path, monkeypatch):
+    """运行 cmd_run（mock pipeline.run_input）并返回捕获容器（含 RunOptions）"""
+    captured = {}
+
+    def fake_run(inp, opts, adapter=None, client=None):
+        captured["opts"] = opts
+        return "ok", "正文", 1, str(tmp_path / "out"), ""
+
+    monkeypatch.setattr(el.pipeline, "run_input", fake_run)
+    return captured
+
+
+def test_run_no_recheck_maps_off(tmp_path, monkeypatch):
+    """T17：--no-recheck 映射为 opts.recheck=='off'（显式豁免）"""
+    captured = _capture_run_opts(tmp_path, monkeypatch)
+    el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(tmp_path / "out"),
+                                  no_whisper=False, pick=1, no_cache=False, interval=1.5,
+                                  no_recheck=True), client=object())
+    assert captured["opts"].recheck == "off"
+
+
+def test_run_recheck_budget_yes_passed(tmp_path, monkeypatch):
+    """T17：--recheck/--budget/--yes-recheck 透传进 RunOptions"""
+    captured = _capture_run_opts(tmp_path, monkeypatch)
+    el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(tmp_path / "out"),
+                                  no_whisper=False, pick=1, no_cache=False, interval=1.5,
+                                  recheck="2", budget=1.5, yes_recheck=True), client=object())
+    assert captured["opts"].recheck == "2"
+    assert captured["opts"].budget == 1.5
+    assert captured["opts"].yes_recheck is True
+
+
+def test_run_recheck_defaults_none(tmp_path, monkeypatch):
+    """T17：默认（不传）→ opts.recheck is None / budget None / yes_recheck False"""
+    captured = _capture_run_opts(tmp_path, monkeypatch)
+    el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(tmp_path / "out"),
+                                  no_whisper=False, pick=1, no_cache=False, interval=1.5),
+               client=object())
+    assert captured["opts"].recheck is None
+    assert captured["opts"].budget is None
+    assert captured["opts"].yes_recheck is False
+
+
 def test_want_subtitle_check_modes():
     """字幕复检模式三态：auto=仅可疑 / always=恒查 / off=关闭（用户可自选）"""
     cfg_on = {"enabled": True, "api_key": "k"}

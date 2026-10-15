@@ -383,6 +383,9 @@ def cmd_run(args, client: ApiClient = None):
         vad=getattr(args, "vad", None),
         resume=getattr(args, "resume", False),
         interval=getattr(args, "interval", 1.5),
+        recheck=("off" if getattr(args, "no_recheck", False) else getattr(args, "recheck", None)),
+        budget=getattr(args, "budget", None),
+        yes_recheck=getattr(args, "yes_recheck", False),
     )
 
     def _run(inp):
@@ -508,6 +511,13 @@ def main(argv=None):
     gv.add_argument("--no-vad", dest="vad", action="store_false", help="强制关闭 Whisper VAD")
     run.set_defaults(vad=None)
     run.add_argument("--no-vision-check", action="store_true", help="关闭多模态复检（默认开启：配置 vision 后固定执行）")
+    run.add_argument("--recheck", default=None, choices=["auto", "1", "2", "3"],
+                     help="复检档位：auto 评分 / 1 定向 / 2 全量 / 3 不复检（默认 config.recheck.tier_policy）")
+    run.add_argument("--no-recheck", dest="no_recheck", action="store_true",
+                     help="= --recheck 3（显式豁免，产物标注）")
+    run.add_argument("--budget", type=float, default=None, help="本次运行复检预算上限（金额）")
+    run.add_argument("--yes-recheck", dest="yes_recheck", action="store_true",
+                     help="预授权超阈值按完整档2 执行")
     run.add_argument("--out", default=None, help="报告输出根目录（未配置时必传：首次使用需用户自选）")
     run.add_argument("--no-whisper", action="store_true", help="无字幕时不转写直接失败")
     run.add_argument("--no-cache", dest="no_cache", action="store_true", help="不使用字幕/转写缓存（重新获取）")
