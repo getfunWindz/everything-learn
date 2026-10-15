@@ -87,14 +87,16 @@ def check_models() -> dict:
 
 
 def check_vision() -> dict:
-    """vision 配置状态与字幕复检模式（配置后告知用户可自选 auto/always/off）"""
+    """vision 配置状态与复检档位策略（D2：旧 subtitle_check 死键退役，改展示 recheck.tier_policy）"""
     try:
         from core import config
-        v = (config.load_config().get("vision") or {})
+        cfg = config.load_config()
+        v = cfg.get("vision") or {}
+        rc = cfg.get("recheck") or {}
     except Exception:
-        v = {}
+        v, rc = {}, {}
     return {"enabled": bool(v.get("enabled")),
-            "subtitle_check": v.get("subtitle_check", "auto")}
+            "tier_policy": rc.get("tier_policy", "auto")}
 
 
 def check_ytdlp() -> dict:
@@ -170,11 +172,11 @@ def main(argv=None) -> int:
         print(f"✅ 模型缓存：{', '.join(m['models'])}（{m['cache_dir']}）")
     else:
         print(f"⚠️ 模型缓存为空：首次转写将自动下载（国内网络可设 HF_ENDPOINT=https://hf-mirror.com）")
-    # vision 复检模式（配置后告知用户可自选）
+    # vision 复检档位（配置后告知用户可自选 auto/off/tier1/tier2）
     vi = check_vision()
     if vi["enabled"]:
-        print(f"👁️ vision：已启用；字幕复检模式={vi['subtitle_check']}"
-              f"（可选 auto/always/off，以你的选择为准）")
+        print(f"👁️ vision：已启用；复检档位策略={vi['tier_policy']}"
+              f"（可选 auto/off/tier1/tier2，以你的选择为准）")
     # yt-dlp（YouTube 适配器）
     y = check_ytdlp()
     print(f"{'✅' if y['installed'] else '⚠️'} yt-dlp："

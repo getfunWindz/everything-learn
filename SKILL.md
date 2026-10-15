@@ -34,7 +34,7 @@ description: 将多平台学习内容（视频/音频/图文/帖子）总结为�
    - 用户选定后写入 `scripts/config.json` 的 `out_dir`（可在运行时用 `--out` 临时覆盖）。
 2. **Whisper 模型**：默认 `medium`；用户可 `--model tiny/small/large-v3` 降级或升级。
 3. **多模态复检（可选）**：在 `scripts/config.json` 配置 `vision`（OpenAI 兼容端点）后启用；
-   - 配置完成后**必须告知用户**：字幕归属复检支持 `subtitle_check: auto`（默认，防线初筛）/ `always`（全量把关）/ `off`（关闭），**以用户选择为准**；
+   - 配置完成后**必须告知用户**：复检档位由 `recheck.tier_policy` 控制（`auto` 评分 / `off`=档3 不检 / `tier1` 定向 / `tier2` 全量），**以用户选择为准**；
    - 未配置 / 调用失败时自动跳过，不阻塞原流程。
 4. **VAD 策略**：长视频（≥ `vad_long_sec`，默认 1800 秒）默认禁用 VAD；`--vad` 手动开启、`--no-vad` 强制关闭。
 5. **需要 cookie 的平台（知乎 / B 站 / 微博 / 抖音）**：优先用内置导出器

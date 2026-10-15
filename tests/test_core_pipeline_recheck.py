@@ -535,7 +535,8 @@ _WIRING_SIGNALS = {"dur_min": 2.0, "kp_density": 4.0,
 def _run_wiring(monkeypatch, tmp_path, *, tier=1, vision_enabled=True,
                 no_vision_check=False, provenance="human", language_hint="zh",
                 window_meta=None, opts_extra=None, has_video=True, real_decide=False,
-                cfg_recheck=None, whisper_lines=None, segment_text="人工字幕内容",
+                cfg_recheck=None, cfg_vision_extra=None, res_language="",
+                whisper_lines=None, segment_text="人工字幕内容",
                 ss_override=None):
     """process_item 档位接线测试：recheck 判决 mock，复检/落盘 mock。
     real_decide=True 走真实 decide_tier（仅 gather_signals 被 mock），锁定 policy/has_video 接线。
@@ -547,6 +548,8 @@ def _run_wiring(monkeypatch, tmp_path, *, tier=1, vision_enabled=True,
     cfg["vision"] = dict(cfg["vision"], enabled=vision_enabled,
                          api_key="k" if vision_enabled else "",
                          base_url="http://x" if vision_enabled else "")
+    if cfg_vision_extra:
+        cfg["vision"] = dict(cfg["vision"], **cfg_vision_extra)
     if cfg_recheck:
         cfg["recheck"] = dict(cfg["recheck"], **cfg_recheck)
     cfg["out_dir"] = str(tmp_path)
@@ -595,7 +598,7 @@ def _run_wiring(monkeypatch, tmp_path, *, tier=1, vision_enabled=True,
     A.has_video = has_video
 
     res = ContentResult(kind="timeline", status="ok", provenance=provenance,
-                        label="字幕(人工)",
+                        label="字幕(人工)", language=res_language,
                         segments=[{"start": 0, "end": 5, "text": segment_text}])
     opts = pipeline.RunOptions(out_root=str(tmp_path), no_cache=True,
                                no_vision_check=no_vision_check)
@@ -668,6 +671,66 @@ def test_process_item_recheck_tier3_marks_skip(monkeypatch, tmp_path):
     rc = cap["info"]["recheck"]
     assert rc["tier"] == 3 and "不检" in rc["skipped"]
     assert "window_args" not in cap
+
+
+# ---------------- D2：旧 subtitle_check 键降级（T18-20 评审修复） ----------------
+
+def test_process_item_legacy_subtitle_check_off_downgrades_policy(monkeypatch, tmp_path):
+    """D2：旧键 vision.subtitle_check=off（+ tier_policy=auto，未传 --recheck）
+    → decide_tier policy=off（档3 不检），旧配置语义平滑降级。"""
+    out, cap = _run_wiring(monkeypatch, tmp_path, real_decide=True,
+                           cfg_vision_extra={"subtitle_check": "off"})
+    assert out[0] == "ok"
+    assert cap["decide_calls"][0]["policy"] == "off"
+    assert cap["info"]["recheck"]["tier"] == 3
+
+
+def test_process_item_legacy_key_yields_to_explicit_cli_policy(monkeypatch, tmp_path):
+    """D2：显式 --recheck 优先于旧键降级"""
+    out, cap = _run_wiring(monkeypatch, tmp_path, real_decide=True,
+                           cfg_vision_extra={"subtitle_check": "off"},
+                           opts_extra={"recheck": "tier1"})
+    assert cap["decide_calls"][0]["policy"] == "tier1"
+    assert cap["info"]["recheck"]["tier"] == 1
+
+
+def test_process_item_legacy_key_yields_to_configured_tier_policy(monkeypatch, tmp_path):
+    """D2：仅当 tier_policy=auto 时才吃旧键；已配置策略保持不变"""
+    out, cap = _run_wiring(monkeypatch, tmp_path, real_decide=True,
+                           cfg_vision_extra={"subtitle_check": "off"},
+                           cfg_recheck={"tier_policy": "tier2"})
+    assert cap["decide_calls"][0]["policy"] is None   # 旧键不越权改写显式策略
+    assert cap["info"]["recheck"]["tier"] == 2
+
+
+# ---------------- D3：产物 language 断链（T18-20 评审修复） ----------------
+
+def test_process_item_language_from_subtitle_result(monkeypatch, tmp_path):
+    """D3：字幕采信路径 → 产物 language 取 res.language（YouTube 形态：无 language_hint）"""
+    out, cap = _run_wiring(monkeypatch, tmp_path, language_hint=None, res_language="en")
+    assert out[1] == "字幕(人工)"
+    assert cap["info"]["language"] == "en"
+
+
+def test_process_item_language_falls_back_to_adapter_hint(monkeypatch, tmp_path):
+    """D3：字幕未声明语言 → 回退适配器主语言（bilibili 形态 → zh）"""
+    out, cap = _run_wiring(monkeypatch, tmp_path, language_hint="zh", res_language="")
+    assert cap["info"]["language"] == "zh"
+
+
+def test_process_item_language_whisper_autodetect_is_none(monkeypatch, tmp_path):
+    """D3：Whisper 自动检测（无 --lang / 无 language_hint）→ 不写 language 键"""
+    out, cap = _run_wiring(monkeypatch, tmp_path, language_hint=None, provenance="auto")
+    assert out[1] == "whisper"
+    assert cap["info"]["language"] is None
+
+
+def test_process_item_language_from_subtitle_on_whisper_fallback(monkeypatch, tmp_path):
+    """D3：Whisper 失败回退字幕 → language 仍取字幕声明"""
+    out, cap = _run_wiring(monkeypatch, tmp_path, language_hint=None, res_language="ja",
+                           provenance="auto", whisper_lines=[])
+    assert out[1].startswith("whisper失败→字幕")
+    assert cap["info"]["language"] == "ja"
 
 
 # ---------------- T14.5：双 ASR 交叉比对接线 ----------------

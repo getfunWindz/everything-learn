@@ -100,20 +100,43 @@ def test_doctor_main_runs():
     assert code == 0
 
 
-def test_check_vision_reports_mode(monkeypatch):
-    """vision 已配置时报告字幕复检模式（配置后告知用户可自选 auto/always/off）"""
+def test_check_vision_reports_tier_policy(monkeypatch):
+    """D2：doctor 展示 recheck.tier_policy（旧 subtitle_check 死键不再宣传）"""
     from core import config as cfg
     monkeypatch.setattr(cfg, "load_config",
-                        lambda: {"vision": {"enabled": True, "subtitle_check": "auto"}})
+                        lambda: {"vision": {"enabled": True},
+                                 "recheck": {"tier_policy": "tier2"}})
     v = doctor.check_vision()
-    assert v["enabled"] is True and v["subtitle_check"] == "auto"
+    assert v["enabled"] is True and v["tier_policy"] == "tier2"
+    assert "subtitle_check" not in v
 
 
 def test_check_vision_defaults_when_unconfigured(monkeypatch):
     from core import config as cfg
     monkeypatch.setattr(cfg, "load_config", lambda: {})
     v = doctor.check_vision()
-    assert v["enabled"] is False and v["subtitle_check"] == "auto"
+    assert v["enabled"] is False and v["tier_policy"] == "auto"
+
+
+def test_doctor_main_shows_tier_policy_not_dead_key(monkeypatch, capsys):
+    """D2：doctor 输出复检档位策略，不再出现 subtitle_check/字幕复检模式 死键宣传"""
+    monkeypatch.setattr(doctor, "check_cookie", lambda client=None: True)
+    monkeypatch.setattr(doctor, "check_gpu",
+                        lambda: {"device": "cpu", "cublas_ok": False,
+                                 "cudnn_ok": False, "hint": ""})
+    monkeypatch.setattr(doctor, "check_whisper",
+                        lambda: {"installed": False, "compatible": False,
+                                 "version": "", "hint": ""})
+    monkeypatch.setattr(doctor, "check_models", lambda: {"models": [], "cache_dir": "x"})
+    monkeypatch.setattr(doctor, "check_vision", lambda: {"enabled": True, "tier_policy": "tier1"})
+    monkeypatch.setattr(doctor, "check_ytdlp",
+                        lambda: {"installed": False, "version": "", "hint": ""})
+    monkeypatch.setattr(doctor, "describe_out_dir",
+                        lambda: {"configured": False, "ok": False, "path": ""})
+    assert doctor.main(["cookie"]) == 0
+    out = capsys.readouterr().out
+    assert "复检档位策略=tier1" in out
+    assert "subtitle_check" not in out and "字幕复检模式" not in out
 
 
 def test_doctor_main_survives_gbk_console(monkeypatch):

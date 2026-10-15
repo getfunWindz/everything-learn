@@ -402,6 +402,7 @@ def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False)
     provenance = getattr(res, "provenance", "unknown") or "unknown"
     language = (opts.lang or getattr(adapter, "language_hint", None)
                 or None)  # None = faster-whisper 自动检测
+    language_used = None  # D3：产物 language —— 实际采信路径使用的语言（Whisper 路径回填）
     subtitle_candidate = list(res.segments) if res.segments else []
     secondary = list(subtitle_candidate) if provenance == "auto" else []  # T14.5：auto 字幕作第二 ASR 意见
     lines = []
@@ -417,6 +418,9 @@ def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False)
         if accepted:
             lines = subtitle_candidate
             src = res.label or "字幕"
+            # D3：字幕采信 → 产物语言取字幕声明 > 适配器主语言 > --lang
+            language_used = (res.language or getattr(adapter, "language_hint", None)
+                             or opts.lang or None)
             print(f"  P{label} 字幕采信（同源校验通过）", file=sys.stderr)
         else:
             why = ss.get("reason") or ss.get("reason_code")
@@ -435,6 +439,9 @@ def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False)
                 lines = subtitle_candidate
                 src = ("字幕(AI)（--no-whisper，未经同源校验）" if provenance == "auto"
                        else "字幕（--no-whisper，未经同源校验）")
+                # D3：--no-whisper 采信字幕 → 语言同字幕采信路径
+                language_used = (res.language or getattr(adapter, "language_hint", None)
+                                 or opts.lang or None)
                 print(f"  P{label} --no-whisper：采信未同源校验的字幕候选", file=sys.stderr)
             if not lines:
                 return "no_subtitle", src, 0, "", "无内容且 --no-whisper 跳过转写"
@@ -457,6 +464,7 @@ def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False)
                         language=language)
                     print("", file=sys.stderr)
                     src = "whisper"
+                    language_used = language  # D3：Whisper 实际使用的语言（None=自动检测）
             except transcriber.WhisperNotInstalled:
                 return "whisper_missing", src, 0, "", "未安装 faster-whisper"
             except Exception as e:
@@ -464,6 +472,9 @@ def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False)
             if not lines and subtitle_candidate:
                 lines = subtitle_candidate
                 src = "whisper失败→字幕（未经同源校验）"
+                # D3：回退字幕 → 语言同字幕采信路径
+                language_used = (res.language or getattr(adapter, "language_hint", None)
+                                 or opts.lang or None)
                 print(f"  P{label} 回退使用字幕候选", file=sys.stderr)
     if not lines:
         return "failed", src, 0, "", "转写结果为空"
@@ -473,8 +484,14 @@ def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False)
     provenance_for_risk = "whisper" if (src or "").startswith("whisper") else provenance
     glossary_terms = _load_glossary_terms()
     signals = recheck.gather_signals(lines, ref.duration, provenance_for_risk, glossary_terms)
+    rc_cfg = cfg_full.get("recheck") or {}
+    vision_cfg = cfg_full.get("vision") or {}
+    policy = opts.recheck
+    if (policy is None and rc_cfg.get("tier_policy", "auto") == "auto"
+            and vision_cfg.get("subtitle_check", "auto") in ("off", False)):
+        policy = "off"  # D2：旧键 vision.subtitle_check=off 平滑降级到新策略（不复检）
     decision = recheck.decide_tier(signals, cfg_full, provenance_for_risk,
-                                   has_video=has_video, policy=opts.recheck)
+                                   has_video=has_video, policy=policy)
     recheck_meta = {"tier": decision["tier"], "score": decision["score"],
                     "reasons": decision["reasons"],
                     "signals": {k: signals[k] for k in ("dur_min", "kp_density", "kp_spread",
@@ -519,7 +536,8 @@ def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False)
                                    if w.get("kind") == "uncertain"]
     out_dir = _item_out_dir(meta, ref, out_root, single, opts)
     info = artifacts.build_info(meta, ref, kind="timeline", source=src, page_count=opts.page_count,
-                                recheck=recheck_meta, provenance=provenance, language=language)
+                                recheck=recheck_meta, provenance=provenance,
+                                language=language_used or None)
     artifacts.write_item_artifacts(out_dir, info, TimelineContent(segments=lines))
     artifacts.write_recheck_report(out_dir, recheck_report)
     if not opts.no_cache:

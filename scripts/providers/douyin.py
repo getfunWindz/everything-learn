@@ -297,10 +297,12 @@ class DouyinAdapter:
         try:
             self._info(ref)
         except DouyinError as e:
-            return ContentResult(kind="timeline", status="empty", reason=str(e)[:120], label="无字幕")
+            return ContentResult(kind="timeline", status="empty", reason=str(e)[:120],
+                                 label="无字幕", provenance="none")
         # 抖音无平台字幕（如未来出现 subtitle 轨，可在此接入 vtt 解析）
         return ContentResult(kind="timeline", status="empty",
-                             reason="抖音无平台字幕（将走 Whisper 转写）", label="无字幕")
+                             reason="抖音无平台字幕（将走 Whisper 转写）", label="无字幕",
+                             provenance="none")
 
     def media_headers(self):
         """媒体 CDN 请求头（douyinvod 拒裸 UA/bilibili Referer；api-play 转跳后也依赖正常 UA）"""
