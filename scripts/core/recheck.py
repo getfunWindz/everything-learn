@@ -111,7 +111,7 @@ def gap_stats(lines, duration_sec, min_gap=5.0):
 def kp_spread(lines, duration_sec, segments=10, glossary_terms=None):
     """知识点分散度（HHI 归一化）：0=全集中，1=全均匀"""
     dur = _effective_duration(lines, duration_sec)
-    if dur <= 0:
+    if dur <= 0 or int(segments) < 2:
         return 0.0
     step = dur / segments
     counts = []

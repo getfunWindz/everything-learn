@@ -142,6 +142,14 @@ def test_kp_spread_uniform_vs_concentrated():
     assert s_u > s_c
 
 
+def test_kp_spread_guard_invalid_segments():
+    from core import recheck
+    lines = [{"start": 0, "end": 50, "text": "定义 公式"}]
+    assert recheck.kp_spread(lines, 600, segments=1) == 0.0
+    assert recheck.kp_spread(lines, 600, segments=0) == 0.0
+    assert recheck.kp_spread([], 0) == 0.0
+
+
 def test_gap_stats():
     from core import recheck
     lines = [{"start": 0, "end": 50, "text": "a"}]
