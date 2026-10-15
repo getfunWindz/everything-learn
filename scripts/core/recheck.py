@@ -80,3 +80,119 @@ def kp_density(lines, duration_sec, win_sec=60, glossary_terms=None):
         windows.append({"start": s, "end": e, "score": round(sc, 2), "score_raw": sc,
                         "blocks": n, "detail": detail})
     return blocks / dur_min, {"blocks": blocks, "windows": windows}
+
+
+def _gaps(lines, duration_sec, min_gap=5.0):
+    """转写空档 → [(start, end)]（含末尾）"""
+    dur = _effective_duration(lines, duration_sec)
+    if dur <= 0:
+        return []
+    gaps, prev_end = [], 0.0
+    for l in sorted(lines or [], key=lambda x: float(x["start"])):
+        s = float(l["start"])
+        if s - prev_end >= min_gap:
+            gaps.append((prev_end, s))
+        prev_end = max(prev_end, float(l["end"]))
+    if dur - prev_end >= min_gap:
+        gaps.append((prev_end, dur))
+    return gaps
+
+
+def gap_stats(lines, duration_sec, min_gap=5.0):
+    """→ (空档占比, 最长空档秒)"""
+    dur = _effective_duration(lines, duration_sec)
+    if dur <= 0:
+        return 0.0, 0.0
+    gaps = _gaps(lines, duration_sec, min_gap)
+    coverage = sum(e - s for s, e in gaps)
+    return min(1.0, coverage / dur), max((e - s for s, e in gaps), default=0.0)
+
+
+def kp_spread(lines, duration_sec, segments=10, glossary_terms=None):
+    """知识点分散度（HHI 归一化）：0=全集中，1=全均匀"""
+    dur = _effective_duration(lines, duration_sec)
+    if dur <= 0:
+        return 0.0
+    step = dur / segments
+    counts = []
+    for i in range(segments):
+        s, e = i * step, (i + 1) * step
+        # kp_density 的窗口自 0 起扫（绝对时间轴），故将片段字幕平移到段内相对时间
+        seg = [{"start": float(l["start"]) - s, "end": float(l["end"]) - s, "text": l["text"]}
+               for l in (lines or []) if s <= float(l["start"]) < e]
+        density, _ = kp_density(seg, max(e - s, 1e-9), glossary_terms=glossary_terms)
+        counts.append(density * max(e - s, 1e-9) / 60.0)
+    total = sum(counts)
+    if total <= 0:
+        return 0.0
+    p = [c / total for c in counts]
+    hhi = sum(x * x for x in p)
+    return max(0.0, min(1.0, (1 - hhi) / (1 - 1 / segments)))
+
+
+def vis_ref_density(lines, duration_sec):
+    """画面引导词密度（个/10min）"""
+    text = " ".join(l["text"] for l in (lines or []))
+    n = sum(text.count(c) for c in VIS_CUES)
+    return n / max(_effective_duration(lines, duration_sec) / 600.0, 1e-9)
+
+
+def _clamp(x, lo=0.0, hi=1.0):
+    return max(lo, min(hi, x))
+
+
+_SRC_RISK = {"whisper": 1.0, "auto": 1.0, "unknown": 0.8, "human": 0.3, "official": 0.2}
+
+
+def gather_signals(lines, duration_sec, provenance, glossary_terms=None):
+    """汇总全部确定性信号 → dict"""
+    density, detail = kp_density(lines, duration_sec, glossary_terms=glossary_terms)
+    ratio, longest = gap_stats(lines, duration_sec)
+    return {"dur_min": _effective_duration(lines, duration_sec) / 60.0,
+            "kp_density": density, "kp_density_detail": detail,
+            "kp_spread": kp_spread(lines, duration_sec, glossary_terms=glossary_terms),
+            "src_risk": _SRC_RISK.get(provenance, 0.8),
+            "vis_ref": vis_ref_density(lines, duration_sec),
+            "gap_ratio": ratio, "max_gap": longest}
+
+
+def decide_tier(signals, cfg, provenance, has_video=True, policy=None):
+    """档位判决 → {"tier": 1|2|3|"n/a", "score": float, "reasons": [str]}"""
+    rc = cfg.get("recheck", {})
+    policy = policy or rc.get("tier_policy", "auto")
+    if policy in ("off", 3, "3"):
+        return {"tier": 3, "score": 0.0, "reasons": ["用户指定不复检（tier_policy=off）"]}
+    if policy in ("tier1", 1, "1"):
+        return {"tier": 1, "score": 0.0, "reasons": ["用户强制档1"]}
+    if policy in ("tier2", 2, "2"):
+        return {"tier": 2, "score": 1.0, "reasons": ["用户强制档2"]}
+    if not has_video:
+        return {"tier": "n/a", "score": 0.0, "reasons": ["纯音频来源：多模态复检不适用"]}
+
+    density, dur = signals["kp_density"], signals["dur_min"]
+    t3 = rc.get("tier3", {})
+    no_visual_risk = signals["vis_ref"] <= 0.5 and signals["max_gap"] < t3.get("max_gap_sec", 15)
+    if (t3.get("allow") and provenance in ("human", "official")
+            and no_visual_risk and density < t3.get("max_density", 1.5)):
+        return {"tier": 3, "score": 0.0,
+                "reasons": ["档3 白名单：人工/官方来源 + 无画面风险 + 低密度"]}
+
+    if dur <= 15 and density >= 3:
+        return {"tier": 2, "score": 1.0,
+                "reasons": [f"短视频+高密度（{dur:.0f}min, {density:.1f}/min）"]}
+    if dur >= 120 and density <= 1:
+        return {"tier": 1, "score": 0.0,
+                "reasons": [f"超长+低密度（{dur:.0f}min, {density:.1f}/min）"]}
+
+    density_n = _clamp(density / 6.0)
+    vis_n = _clamp(signals["vis_ref"] / 5.0)
+    dur_n = _clamp(dur / 120.0)
+    score = (1.0 * density_n + 0.6 * signals["kp_spread"] + 0.5 * signals["src_risk"]
+             + 0.4 * vis_n - 0.5 * dur_n)
+    tier = 2 if score >= rc.get("tier2_score", 0.55) else 1
+    return {"tier": tier, "score": round(score, 4),
+            "reasons": [f"density={density:.1f}/min", f"spread={signals['kp_spread']:.2f}",
+                        f"src_risk={signals['src_risk']:.1f}",
+                        f"vis_ref={signals['vis_ref']:.1f}/10min",
+                        f"dur={dur:.0f}min", f"score={score:.2f}"]}
+
