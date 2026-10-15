@@ -181,6 +181,11 @@ def test_gather_signals_contract_and_duration_fallback():
         assert k in sig
     assert sig["src_risk"] == 0.3
     assert recheck.gather_signals(lines, 0, provenance="none")["src_risk"] == 1.0
+    lines2 = [{"start": 0, "end": 5, "text": "如图"}]
+    sig2 = recheck.gather_signals(lines2, 600, provenance="whisper")
+    assert sig2["vis_ref"] == 1.0            # 1 个 / 10min
+    assert sig2["src_risk"] == 1.0
+    assert sig2["gap_ratio"] > 0.9           # 595s 空档 / 600s
 
 
 def test_decide_tier_score_threshold_boundary():
@@ -192,3 +197,13 @@ def test_decide_tier_score_threshold_boundary():
     assert d["tier"] == 2
     cfg2 = _cfg(); cfg2["recheck"]["tier2_score"] = 0.7
     assert recheck.decide_tier(sig, cfg2, provenance="unknown", has_video=True)["tier"] == 1
+
+
+def test_decide_tier_score_includes_vis_ref_term():
+    from core import recheck
+    sig = {"dur_min": 30, "kp_density": 1.0, "kp_spread": 0.3, "src_risk": 0.8,
+           "vis_ref": 2.5, "gap_ratio": 0.02, "max_gap": 5.0}
+    d = recheck.decide_tier(sig, _cfg(), provenance="unknown", has_video=True)
+    # 0.6217 + 0.4*(2.5/5) = 0.8217
+    assert abs(d["score"] - 0.8217) < 0.001
+    assert d["tier"] == 2
