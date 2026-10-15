@@ -214,6 +214,19 @@ def test_whisper_failure_without_candidate_fails(monkeypatch, tmp_path):
     assert status == "failed" and n == 0
 
 
+def test_whisper_missing_with_candidate_still_fails(monkeypatch, tmp_path):
+    """T12 裁决：未安装 faster-whisper 是环境问题 → 保留 whisper_missing，
+    即使有字幕候选也不回退（与“转写失败/为空 → 回退字幕”区分开）"""
+    import transcriber
+
+    res = ContentResult(kind="timeline", status="ok", provenance="auto",
+                        segments=[{"start": 0, "end": 5, "text": "ai 字幕"}])
+    status, src, n, _, err = _run(monkeypatch, DemoAdapter(res), tmp_path,
+                                  whisper_exc=transcriber.WhisperNotInstalled("未安装"))
+    assert status == "whisper_missing"
+    assert n == 0 and err == "未安装 faster-whisper"
+
+
 def test_attribution_fallback_requires_vision_config():
     """归属兜底前置：未配置 vision → no_vision（不触碰画面流）"""
     class A:
