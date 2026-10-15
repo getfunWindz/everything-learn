@@ -534,16 +534,20 @@ _WIRING_SIGNALS = {"dur_min": 2.0, "kp_density": 4.0,
 
 def _run_wiring(monkeypatch, tmp_path, *, tier=1, vision_enabled=True,
                 no_vision_check=False, provenance="human", language_hint="zh",
-                window_meta=None, opts_extra=None, has_video=True, real_decide=False):
+                window_meta=None, opts_extra=None, has_video=True, real_decide=False,
+                cfg_recheck=None, whisper_lines=None, segment_text="人工字幕内容"):
     """process_item 档位接线测试：recheck 判决 mock，复检/落盘 mock。
     real_decide=True 走真实 decide_tier（仅 gather_signals 被 mock），锁定 policy/has_video 接线。
     → (process 结果, captured)：captured["info"]=build_info 关键字，captured["window_args"]=复检参数，
+      captured["window_disputed"]=透传给 _run_window_recheck 的 disputed，
       captured["decide_calls"]=decide_tier 实参记录"""
     from core import config as core_config
     cfg = dict(core_config.DEFAULT_CONFIG)
     cfg["vision"] = dict(cfg["vision"], enabled=vision_enabled,
                          api_key="k" if vision_enabled else "",
                          base_url="http://x" if vision_enabled else "")
+    if cfg_recheck:
+        cfg["recheck"] = dict(cfg["recheck"], **cfg_recheck)
     cfg["out_dir"] = str(tmp_path)
     monkeypatch.setattr(pipeline.config, "load_config", lambda: cfg)
     monkeypatch.setattr(pipeline, "_same_source_verify",
@@ -564,8 +568,9 @@ def _run_wiring(monkeypatch, tmp_path, *, tier=1, vision_enabled=True,
     monkeypatch.setattr(pipeline.recheck, "decide_tier", _decide)
     captured["decide_calls"] = decide_calls
 
-    def _fake_window_recheck(adapter, ref, lines, cfg_, decision, opts_):
+    def _fake_window_recheck(adapter, ref, lines, cfg_, decision, opts_, disputed=None):
         captured["window_args"] = (adapter, ref, lines, cfg_, decision, opts_)
+        captured["window_disputed"] = disputed
         return dict(window_meta) if window_meta is not None else {}
 
     monkeypatch.setattr(pipeline, "_run_window_recheck", _fake_window_recheck)
@@ -578,7 +583,9 @@ def _run_wiring(monkeypatch, tmp_path, *, tier=1, vision_enabled=True,
     monkeypatch.setattr(pipeline.artifacts, "write_item_artifacts", lambda *a, **k: None)
     import transcriber
     monkeypatch.setattr(transcriber, "transcribe_url",
-                        lambda url, **kw: [{"start": 0, "end": 5, "text": "whisper 内容"}])
+                        lambda url, **kw: ([dict(l) for l in whisper_lines]
+                                           if whisper_lines is not None
+                                           else [{"start": 0, "end": 5, "text": "whisper 内容"}]))
 
     class A(DemoAdapter):
         pass
@@ -588,7 +595,7 @@ def _run_wiring(monkeypatch, tmp_path, *, tier=1, vision_enabled=True,
 
     res = ContentResult(kind="timeline", status="ok", provenance=provenance,
                         label="字幕(人工)",
-                        segments=[{"start": 0, "end": 5, "text": "人工字幕内容"}])
+                        segments=[{"start": 0, "end": 5, "text": segment_text}])
     opts = pipeline.RunOptions(out_root=str(tmp_path), no_cache=True,
                                no_vision_check=no_vision_check)
     for k, v in (opts_extra or {}).items():
@@ -660,6 +667,53 @@ def test_process_item_recheck_tier3_marks_skip(monkeypatch, tmp_path):
     rc = cap["info"]["recheck"]
     assert rc["tier"] == 3 and "不检" in rc["skipped"]
     assert "window_args" not in cap
+
+
+# ---------------- T14.5：双 ASR 交叉比对接线 ----------------
+
+def test_process_item_cross_check_auto_secondary_wired(monkeypatch, tmp_path):
+    """T14.5：auto 字幕作第二 ASR 意见 —— Whisper 成功后比对落盘 cross_check，
+    分歧区间透传给档1 _run_window_recheck（disputed kwarg）"""
+    out, cap = _run_wiring(monkeypatch, tmp_path, tier=1, provenance="auto")
+    assert out[0] == "ok" and out[1] == "whisper"
+    cc = cap["info"]["recheck"]["cross_check"]
+    assert cc["compared"] == 1 and cc["agree_pct"] == 0.0
+    assert cc["disputed"] == [[0.0, 5.0]]
+    assert cap["window_disputed"] == [[0.0, 5.0]]
+
+
+def test_process_item_cross_check_agree_texts(monkeypatch, tmp_path):
+    """T14.5：双 ASR 文本一致 → agree_pct=1.0、disputed 空透传"""
+    out, cap = _run_wiring(monkeypatch, tmp_path, tier=1, provenance="auto",
+                           segment_text="今天讲注意力机制",
+                           whisper_lines=[{"start": 0, "end": 5, "text": "今天讲注意力机制"}])
+    assert cap["info"]["recheck"]["cross_check"] == {"agree_pct": 1.0, "compared": 1,
+                                                     "disputed": []}
+    assert cap["window_disputed"] == []
+
+
+def test_process_item_cross_check_threshold_from_config(monkeypatch, tmp_path):
+    """T14.5：cross_threshold 可选键（rc.get 读取）——阈值 0.0 时全部分歧转一致"""
+    out, cap = _run_wiring(monkeypatch, tmp_path, tier=1, provenance="auto",
+                           cfg_recheck={"cross_threshold": 0.0})
+    cc = cap["info"]["recheck"]["cross_check"]
+    assert cc["agree_pct"] == 1.0 and cc["disputed"] == []
+
+
+def test_process_item_cross_check_disabled_config(monkeypatch, tmp_path):
+    """T14.5：recheck.cross_check=False → 不比对、不写 cross_check、disputed 为空"""
+    out, cap = _run_wiring(monkeypatch, tmp_path, tier=1, provenance="auto",
+                           cfg_recheck={"cross_check": False})
+    assert "cross_check" not in cap["info"]["recheck"]
+    assert cap["window_disputed"] == []
+
+
+def test_process_item_cross_check_absent_when_subtitle_not_whisper(monkeypatch, tmp_path):
+    """T14.5：采信字幕（未跑 Whisper）→ 保持现状不写 cross_check"""
+    out, cap = _run_wiring(monkeypatch, tmp_path, tier=1, provenance="human")
+    assert out[1] == "字幕(人工)"
+    assert "cross_check" not in cap["info"]["recheck"]
+    assert cap["window_disputed"] == []
 
 
 # ---------------- _run_window_recheck 直接执行（全 mock） ----------------
@@ -1003,6 +1057,45 @@ def test_window_recheck_choice_c_downgrades_to_tier1_regions(monkeypatch):
     assert calls == ["select"]
     assert out["budget"]["estimate"]["frames"] == 90  # 重算：30s × 3fps
     assert out["capped"] is False
+
+
+def test_window_recheck_forwards_disputed_to_select_regions(monkeypatch):
+    """T14.5：档1 区域选择收到 disputed（双 ASR 分歧区进入重点复检候选）"""
+    cfg = _rc_cfg()
+    ref = ItemRef(platform="demo", item_id="1", duration=60)
+    seen = {}
+
+    def _select(lines_, dur, cfg_, disputed=None):
+        seen["disputed"] = disputed
+        return [{"start": 0, "end": 30, "reason": "r", "score": 3.0}]
+
+    monkeypatch.setattr(pipeline.recheck, "select_regions", _select)
+    _patch_window_io(monkeypatch, frames=[])
+    pipeline._run_window_recheck(_VideoAdapter(), ref, [], cfg,
+                                 {"tier": 1}, pipeline.RunOptions(),
+                                 disputed=[[10.0, 20.0]])
+    assert seen["disputed"] == [[10.0, 20.0]]
+
+
+def test_window_recheck_choice_c_forwards_disputed(monkeypatch):
+    """T14.5：档2 选 C 降档1 重选区域时同样透传 disputed"""
+    cfg = _rc_cfg(auto_approve_amount=0.001)
+    ref = ItemRef(platform="demo", item_id="1", duration=300)
+    monkeypatch.setattr(pipeline.sys, "stdin", _Stdin(True))
+    monkeypatch.setattr("builtins.input", lambda *a: "C")
+    seen = {}
+
+    def _select(lines_, dur, cfg_, disputed=None):
+        seen["disputed"] = disputed
+        return [{"start": 0, "end": 30, "reason": "r", "score": 3.0}]
+
+    monkeypatch.setattr(pipeline.recheck, "select_regions", _select)
+    _patch_window_io(monkeypatch, frames=[])
+    out = pipeline._run_window_recheck(_VideoAdapter(), ref, [], cfg,
+                                       {"tier": 2}, pipeline.RunOptions(),
+                                       disputed=[[50.0, 80.0]])
+    assert out["effective_tier"] == 1
+    assert seen["disputed"] == [[50.0, 80.0]]
 
 
 def test_window_recheck_tier2_full_region_coverage(monkeypatch):
@@ -1354,7 +1447,9 @@ _WM_T15 = {"coverage_pct": 50.0,
 
 
 def _run_full_artifacts(monkeypatch, tmp_path, *, window_meta=None, tier=1,
-                        vision_enabled=True, mutate_lines=None):
+                        vision_enabled=True, mutate_lines=None,
+                        provenance="human", segment_text="他说到了注意利机制",
+                        whisper_lines=None):
     """T15：真实落盘路径（build_info/write_item_artifacts 均不 mock），
     仅 mock 网络/模型；mutate_lines 用于模拟窗口复检对 lines 的补充/校正。"""
     from core import config as core_config
@@ -1373,22 +1468,27 @@ def _run_full_artifacts(monkeypatch, tmp_path, *, window_meta=None, tier=1,
                         lambda *a, **k: {"tier": tier, "score": 0.7, "reasons": ["r"]})
     calls = {"window": 0}
 
-    def _fake_window(adapter, ref, lines, cfg_, decision, opts_):
+    def _fake_window(adapter, ref, lines, cfg_, decision, opts_, disputed=None):
         calls["window"] += 1
         if mutate_lines is not None:
             mutate_lines(lines)
         return dict(window_meta or {})
 
     monkeypatch.setattr(pipeline, "_run_window_recheck", _fake_window)
+    import transcriber
+    monkeypatch.setattr(transcriber, "transcribe_url",
+                        lambda url, **kw: ([dict(l) for l in whisper_lines]
+                                           if whisper_lines is not None
+                                           else [{"start": 0, "end": 5, "text": "whisper 内容"}]))
 
     class A(DemoAdapter):
         pass
 
     A.language_hint = "zh"
     A.has_video = True
-    res = ContentResult(kind="timeline", status="ok", provenance="human",
+    res = ContentResult(kind="timeline", status="ok", provenance=provenance,
                         label="字幕(人工)",
-                        segments=[{"start": 0, "end": 5, "text": "他说到了注意利机制"}])
+                        segments=[{"start": 0, "end": 5, "text": segment_text}])
     opts = pipeline.RunOptions(out_root=str(tmp_path), no_cache=True)
     out = pipeline.process_item(A(res), ItemRef(platform="demo", item_id="1", duration=120),
                                 str(tmp_path), opts, single=True)
@@ -1467,6 +1567,19 @@ def test_process_item_content_txt_annotates_vision_lines(monkeypatch, tmp_path):
     content = open(os.path.join(out[3], "content.txt"), encoding="utf-8").read()
     assert "[0.0-5.0] 他说到了注意力机制 【画面校正：原「注意利机制」】" in content
     assert "[10.0-11.0] 画面公式 【画面补充】" in content
+
+
+def test_process_item_cross_check_persisted_to_recheck_report(monkeypatch, tmp_path):
+    """T14.5：auto + Whisper + 字幕候选 → cross_check 真实落盘（content_info + recheck_report）"""
+    out, _ = _run_full_artifacts(
+        monkeypatch, tmp_path, tier=1, provenance="auto", segment_text="人工字幕内容",
+        whisper_lines=[{"start": 0, "end": 5, "text": "whisper 内容"}])
+    assert out[0] == "ok" and out[1] == "whisper"
+    info = json.load(open(os.path.join(out[3], "content_info.json"), encoding="utf-8"))
+    report = json.load(open(os.path.join(out[3], "recheck_report.json"), encoding="utf-8"))
+    expected = {"agree_pct": 0.0, "compared": 1, "disputed": [[0.0, 5.0]]}
+    assert info["recheck"]["cross_check"] == expected
+    assert report["cross_check"] == expected
 
 
 def test_process_item_recheck_report_skipped_branch(monkeypatch, tmp_path):

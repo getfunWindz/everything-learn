@@ -339,3 +339,82 @@ def test_pick_spot_times_within_bounds():
     assert len(pts) == 3
     for a, b in pts:
         assert 0 <= a < b <= 600
+
+
+# ---------------- T14.5：双 ASR 交叉比对 ----------------
+
+def test_merge_ranges_adjacent_and_overlapping():
+    """相邻（相接）与重叠区间都合并，乱序输入先排序"""
+    from core import recheck
+    assert recheck._merge_ranges([[0, 5], [5, 10], [20, 25], [22, 30], [12, 13]]) == \
+        [[0, 10], [12, 13], [20, 30]]
+
+
+def test_merge_ranges_empty_and_none():
+    from core import recheck
+    assert recheck._merge_ranges([]) == []
+    assert recheck._merge_ranges(None) == []
+    assert recheck._merge_ranges([[9, 12], [0, 3]]) == [[0, 3], [9, 12]]
+
+
+def test_cross_check_identical_texts_full_agreement():
+    """双侧文本逐窗一致 → agree_pct=1.0，无分歧区间"""
+    from core import recheck
+    primary = [{"start": 0, "end": 5, "text": "今天讲注意力机制"},
+               {"start": 20, "end": 25, "text": "接下来是扩散模型"}]
+    cc = recheck.cross_check(primary, [dict(l) for l in primary], window_sec=15)
+    assert cc == {"agree_pct": 1.0, "compared": 2, "disputed": []}
+
+
+def test_cross_check_divergent_texts_zero_and_disputed_merged():
+    """逐窗完全分歧 → agree_pct=0.0；相邻分歧窗合并为整段"""
+    from core import recheck
+    primary = [{"start": 0, "end": 5, "text": "今天讲注意力机制"},
+               {"start": 20, "end": 25, "text": "接下来是扩散模型"}]
+    secondary = [{"start": 0, "end": 5, "text": "欢迎收看影视剧"},
+                 {"start": 20, "end": 25, "text": "插播一段广告"}]
+    cc = recheck.cross_check(primary, secondary, window_sec=15)
+    assert cc["agree_pct"] == 0.0 and cc["compared"] == 2
+    assert cc["disputed"] == [[0.0, 25.0]]  # [0,15)+[15,25) 相邻 → 合并
+
+
+def test_cross_check_mixed_agreement_pct_and_ranges():
+    """有比较窗与空白窗交错：空窗不计入 compared，只按可比窗算比例"""
+    from core import recheck
+    primary = [{"start": 0, "end": 5, "text": "今天讲注意力机制"},
+               {"start": 30, "end": 35, "text": "接下来是扩散模型"}]
+    secondary = [{"start": 0, "end": 5, "text": "今天讲注意力机制"},
+                 {"start": 30, "end": 35, "text": "插播一段广告"}]
+    cc = recheck.cross_check(primary, secondary, window_sec=15)
+    # 窗 [0,15) 一致；[15,30) 两侧皆空 → 不比较；[30,35) 分歧
+    assert cc["agree_pct"] == 0.5 and cc["compared"] == 2
+    assert cc["disputed"] == [[30.0, 35.0]]
+
+
+def test_cross_check_no_comparable_windows_returns_none():
+    """无两侧均非空的比较窗 → agree_pct=None（不是 0，避免误报全分歧）"""
+    from core import recheck
+    primary = [{"start": 0, "end": 5, "text": "今天讲注意力机制"}]
+    cc = recheck.cross_check(primary, [], window_sec=15)
+    assert cc == {"agree_pct": None, "compared": 0, "disputed": []}
+    assert recheck.cross_check([], primary)["agree_pct"] is None
+
+
+def test_cross_check_duration_from_primary_only():
+    """总时长取主侧：副侧越界/超长不扩窗"""
+    from core import recheck
+    primary = [{"start": 0, "end": 4, "text": "abcd"}]
+    secondary = [{"start": 5, "end": 100, "text": "wxyz"}]  # 超出主侧时长 → 不参与
+    assert recheck.cross_check(primary, secondary, window_sec=15) == \
+        {"agree_pct": None, "compared": 0, "disputed": []}
+
+
+def test_cross_check_nonpositive_window_no_hang():
+    """win_sec<=0 夹到 1.0：不悬挂；逐窗全部比较/分歧合并"""
+    from core import recheck
+    primary = [{"start": i, "end": i + 1, "text": "abcd"} for i in range(4)]
+    secondary = [{"start": i, "end": i + 1, "text": "wxyz"} for i in range(4)]
+    cc = recheck.cross_check(primary, secondary, window_sec=0)
+    assert cc["compared"] == 4  # 仅主侧时长 4s 内的 4 个 1s 窗
+    assert cc["agree_pct"] == 0.0
+    assert cc["disputed"] == [[0.0, 4.0]]

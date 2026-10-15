@@ -204,9 +204,11 @@ def _correction_target(lines, ts, orig):
     return None
 
 
-def _run_window_recheck(adapter, ref, lines, cfg, decision, opts):
+def _run_window_recheck(adapter, ref, lines, cfg, decision, opts, disputed=None):
     """执行档位复检：区域/全量 → 预算闸门 → 下载画面流 → 逐区逐窗抽帧复检
     → 合并补充/校正（+不确定/异常记录）→ 覆盖统计。
+
+    disputed：T14.5 双 ASR 分歧区间，档1 select_regions 作为重点复检候选（档2 全量不适用）。
 
     契约：
     - 闸门 A 且判决档1 → 真正升级完整档2（全量区域，effective_tier=2）；
@@ -239,7 +241,7 @@ def _run_window_recheck(adapter, ref, lines, cfg, decision, opts):
         tier = decision.get("tier")
         regions = ([{"start": 0.0, "end": dur, "reason": "全量档2", "score": 1.0}]
                    if tier == 2
-                   else recheck.select_regions(lines, dur, cfg, disputed=None))
+                   else recheck.select_regions(lines, dur, cfg, disputed=disputed))
         plan, est = _plan(regions)
         choice = "A"
         effective_tier = tier
@@ -278,7 +280,7 @@ def _run_window_recheck(adapter, ref, lines, cfg, decision, opts):
                 est_used = est
                 effective_tier = 2
             elif choice == "C":  # 降档1：重选定向区域并重算预算（B 保持已裁剪 plan 不变）
-                regions = recheck.select_regions(lines, dur, cfg, disputed=None)
+                regions = recheck.select_regions(lines, dur, cfg, disputed=disputed)
                 plan, est = _plan(regions)
                 est_used = est
                 effective_tier = 1
@@ -451,6 +453,7 @@ def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False)
     language = (opts.lang or getattr(adapter, "language_hint", None)
                 or None)  # None = faster-whisper 自动检测
     subtitle_candidate = list(res.segments) if res.segments else []
+    secondary = list(subtitle_candidate) if provenance == "auto" else []  # T14.5：auto 字幕作第二 ASR 意见
     lines = []
     ss = {}
     if subtitle_candidate and provenance in ("human", "official", "unknown"):
@@ -526,10 +529,21 @@ def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False)
                     "reasons": decision["reasons"],
                     "signals": {k: signals[k] for k in ("dur_min", "kp_density", "kp_spread",
                                                         "src_risk", "vis_ref", "gap_ratio", "max_gap")}}
+    # T14.5：Whisper 成功后，auto 字幕作第二 ASR 意见按时间窗交叉比对；分歧区间进入
+    # 档1 重点复检区域（由画面仲裁）。未跑 Whisper（采信字幕）不比对、保持现状不落盘。
+    # cross_window_sec / cross_threshold 为 recheck 可选键（无默认配置），rc.get 兜底。
+    disputed = []
+    if src == "whisper" and secondary and cfg_full.get("recheck", {}).get("cross_check", True):
+        rc = cfg_full.get("recheck", {})
+        cc = recheck.cross_check(lines, secondary, rc.get("cross_window_sec", 15),
+                                 rc.get("cross_threshold", 0.65))
+        recheck_meta["cross_check"] = cc
+        disputed = cc.get("disputed") or []
     window_result = {}
     if decision["tier"] in (1, 2):
         if cfg_full.get("vision", {}).get("enabled") and not opts.no_vision_check:
-            window_result = _run_window_recheck(adapter, ref, lines, cfg_full, decision, opts) or {}
+            window_result = _run_window_recheck(adapter, ref, lines, cfg_full, decision, opts,
+                                                disputed=disputed) or {}
             recheck_meta.update(window_result)
             # Q1：实际执行档（闸门 A 可从档1 升级档2）；result 未携带时回退判决档
             recheck_meta["effective_tier"] = window_result.get("effective_tier", decision["tier"])

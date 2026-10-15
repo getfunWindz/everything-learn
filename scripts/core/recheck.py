@@ -229,6 +229,43 @@ def select_regions(lines, duration_sec, cfg, disputed=None):
     return sorted(merged, key=lambda r: -r["score"])
 
 
+def _merge_ranges(ranges):
+    """合并相邻/重叠区间：[[s,e],...] → 按 start 升序、相接即合并的 [[s,e],...]"""
+    out = []
+    for s, e in sorted((float(a), float(b)) for a, b in (ranges or [])):
+        if out and s <= out[-1][1]:
+            out[-1][1] = max(out[-1][1], e)
+        else:
+            out.append([s, e])
+    return out
+
+
+def cross_check(primary_lines, secondary_lines, window_sec=15, threshold=0.65):
+    """T14.5 双 ASR 交叉比对：主（Whisper）/副（auto 字幕）转写按非重叠时间窗逐窗比对。
+
+    总时长取主侧 `_effective_duration(primary_lines, None)`（±0 容差，副侧超长不扩窗）；
+    仅当窗内两侧归一化文本均非空才计入 compared（空窗不是分歧证据，与 same_source_check
+    口径一致）；归一化相似度 >= threshold 记 agree，否则该窗记入 disputed。
+    → {"agree_pct": round(agreed/compared,3) if compared else None,
+       "compared": int, "disputed": [[s,e],...]}（相邻/重叠分歧窗已合并）
+    """
+    secondary_lines = secondary_lines or []
+    compared = agreed = 0
+    disputed = []
+    for t, end, primary_text in _windows(primary_lines, None, window_sec):
+        secondary_text = " ".join(l["text"] for l in secondary_lines
+                                  if t <= float(l["start"]) < end)
+        if not _norm_for_match(primary_text) or not _norm_for_match(secondary_text):
+            continue
+        compared += 1
+        if _similarity(primary_text, secondary_text) >= float(threshold):
+            agreed += 1
+        else:
+            disputed.append([float(t), float(end)])
+    return {"agree_pct": round(agreed / compared, 3) if compared else None,
+            "compared": compared, "disputed": _merge_ranges(disputed)}
+
+
 def plan_frames(regions, fps=3, max_frames=20000):
     """区域 → 帧预算（含硬帽裁剪）"""
     wanted = int(sum(max(0.0, r["end"] - r["start"]) for r in regions) * fps + 1e-9)
