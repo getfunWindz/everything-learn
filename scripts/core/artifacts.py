@@ -7,9 +7,13 @@ import report
 
 
 def build_info(meta, ref, kind: str, source: str, page_count: int = 1,
-               tool: str = "everything-learn v0.1", assets=None) -> dict:
-    """组装 content_info.json 的字段（meta: ItemMeta；ref: ItemRef）"""
-    return {
+               tool: str = "everything-learn v0.1", assets=None,
+               recheck=None, provenance=None, language=None) -> dict:
+    """组装 content_info.json 的字段（meta: ItemMeta；ref: ItemRef）
+
+    可选扩展（M13/T13）：recheck=复检元数据；provenance=来源分级；language=实际使用的语言。
+    为空则字段缺省，保持旧产物向后兼容。"""
+    info = {
         "platform": ref.platform,
         "item_id": ref.item_id,
         "sub_id": ref.sub_id,
@@ -29,6 +33,13 @@ def build_info(meta, ref, kind: str, source: str, page_count: int = 1,
         "fetched_at": datetime.now().isoformat(timespec="seconds"),
         "tool": tool,
     }
+    if provenance:
+        info["provenance"] = provenance
+    if language:
+        info["language"] = language
+    if recheck:
+        info["recheck"] = recheck
+    return info
 
 
 def render_content_txt(content) -> str:

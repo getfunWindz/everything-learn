@@ -4,6 +4,7 @@
 """
 import json
 import logging
+import math
 import os
 import re
 import shutil
@@ -15,7 +16,7 @@ from datetime import datetime
 
 from core import pagespec
 import report
-from core import artifacts, cache, config, images
+from core import artifacts, cache, config, images, recheck
 from core.models import DocumentContent, TimelineContent
 
 _LOGGER = logging.getLogger("el")
@@ -44,6 +45,9 @@ class RunOptions:
     resume: bool = False
     interval: float = 1.5
     page_count: int = 1          # 由 run_input 填入（全部 item 数）
+    recheck: str = None          # auto | off | tier1 | tier2（CLI 映射，T17）
+    budget: float = None         # 本次运行金额上限（暂存）
+    yes_recheck: bool = False    # 预授权完整档2
 
 
 def _safe_name(title: str, maxlen: int = 60) -> str:
@@ -129,6 +133,145 @@ def _vision_check(adapter, ref, cfg_vision: dict, lines: list):
     return sup
 
 
+# ---------------- 档位复检执行（T13/T14：预算闸门 + 窗口复检） ----------------
+
+def _load_glossary_terms():
+    """术语表（供知识点密度评分）：读取 references/glossary.json 的词条；失败返回 []"""
+    try:
+        import glossary
+        return [k for k in (glossary.load_glossary() or {}) if k and not k.startswith("_")]
+    except Exception:
+        return []
+
+
+def _budget_gate(est, cfg, opts) -> str:
+    """预算闸门 → 'A' 完整档2 / 'B' 帽内尽力 / 'C' 降档1"""
+    rc = cfg.get("recheck", {})
+    symbol = est.get("currency", "")
+    print(f"\n⚠️ 档2 复检预算预测（免打扰阈值 {rc.get('auto_approve_amount', 0.3)} {symbol}）\n"
+          f"   计划帧数：约 {est['frames']}（静帧去重前）\n"
+          f"   预估金额：{est['low']} ~ {est['high']} {symbol}\n"
+          f"   预计窗口：{est['windows']} 个；Whisper 预计 {est.get('whisper_secs', 0):.0f}s\n"
+          f"   选择：[A] 完整档2  [B] 帽内尽力（默认）  [C] 降档1\n", file=sys.stderr)
+    if getattr(opts, "yes_recheck", False):
+        return "A"
+    if getattr(opts, "recheck", None) == "1":
+        return "C"
+    if not sys.stdin.isatty():
+        print("（非交互环境：按【帽内尽力】执行）", file=sys.stderr)
+        return "B"
+    try:
+        choice = input("请输入选择 [A/B/C]（默认 B）：").strip().upper() or "B"
+    except (EOFError, KeyboardInterrupt):
+        choice = "B"
+    return choice if choice in ("A", "B", "C") else "B"
+
+
+def _run_window_recheck(adapter, ref, lines, cfg, decision, opts):
+    """执行档位复检：区域/全量 → 预算闸门 → 下载画面流 → 逐区逐窗抽帧复检
+    → 合并补充/校正（+不确定/异常记录）→ 覆盖统计。
+
+    任何异常/画面流不可用 → {"skipped": ...}，不阻塞主流程。"""
+    import transcriber
+    import vision
+    rc = cfg.get("recheck", {})
+    conf = cfg.get("vision", {})
+    fps = rc.get("frame_fps", 3)
+    win = max(float(rc.get("window_sec", 30) or 30), 1.0)
+    max_frames = rc.get("max_check_frames", 20000)
+    dur = float(ref.duration or 0)
+
+    def _plan(regions):
+        p = recheck.plan_frames(regions, fps=fps, max_frames=max_frames)
+        w = sum(math.ceil((float(r["end"]) - float(r["start"])) / win) for r in regions)
+        return p, recheck.estimate_budget(p["frames"], w, conf.get("pricing", {}) or {})
+
+    try:
+        regions = ([{"start": 0.0, "end": dur, "reason": "全量档2", "score": 1.0}]
+                   if decision.get("tier") == 2
+                   else recheck.select_regions(lines, dur, cfg, disputed=None))
+        plan, est = _plan(regions)
+        choice = "A"
+        if recheck.needs_gate(est, cfg, dur):
+            choice = _budget_gate(est, cfg, opts)
+            if choice == "C":  # 降档1：重选定向区域并重算预算（B 保持已裁剪 plan 不变）
+                regions = recheck.select_regions(lines, dur, cfg, disputed=None)
+                plan, est = _plan(regions)
+        url = adapter.fetch_media_url(ref, media="video", lowest=True)
+        if not url:
+            return {"skipped": "无可下载画面流"}
+        print("  · 复检：下载画面流……", file=sys.stderr)
+        tmpdir = tempfile.mkdtemp(prefix="el_rc_")
+        covered = 0.0
+        reports = []
+        added = []
+        try:
+            vp = os.path.join(tmpdir, "video.m4s")
+            transcriber.download_audio(url, vp, headers=_media_headers(adapter))
+            used_frames = 0
+            for region in regions:
+                cursor = float(region["start"])
+                region_end = float(region["end"])
+                while cursor < region_end:
+                    seg_end = min(cursor + win, region_end)
+                    window_frames = max(1, int(math.ceil((seg_end - cursor) * fps)))
+                    if plan["capped"] and used_frames + window_frames > plan["frames"]:
+                        # 硬帽保护（spec §8.1）：A/B 均不得超 max_check_frames，超出部分标未复检
+                        reports.append({"range": [cursor, seg_end], "kind": "uncovered",
+                                        "text": "超出复检帧预算（max_check_frames）"})
+                        cursor = seg_end
+                        continue
+                    frames = vision.sample_window_frames(vp, cursor, seg_end, fps=fps,
+                                                         dedup=rc.get("dedup", True))
+                    if not frames:
+                        cursor = seg_end
+                        continue
+                    used_frames += len(frames)
+                    ctx = " ".join(l["text"] for l in lines
+                                   if cursor - 1 <= float(l["start"]) < seg_end)
+                    try:
+                        items = vision.check_window(conf, frames, transcript_text=ctx)
+                    except Exception as ex:
+                        print(f"    窗口复检失败（跳过）：{str(ex)[:80]}", file=sys.stderr)
+                        reports.append({"range": [cursor, seg_end], "kind": "error",
+                                        "text": str(ex)[:100]})
+                        items = []
+                    for it in items or []:
+                        kind = it.get("kind")
+                        if kind == "supplement":
+                            added.append({"start": float(it["ts"]), "end": float(it["ts"]) + 1,
+                                          "text": it.get("text", ""), "source": "vision补充"})
+                        elif kind == "correction":
+                            orig = it.get("original") or ""
+                            fixed = False
+                            if orig:
+                                for l in lines:
+                                    if orig in (l.get("text") or ""):
+                                        l["text"] = l["text"].replace(orig, it.get("text", ""))
+                                        l["source"] = "vision校正"
+                                        l["corrected_from"] = orig
+                                        fixed = True
+                                        break
+                            if not fixed:  # 找不到原句：转待人工关注，不误改
+                                reports.append({"range": [cursor, seg_end],
+                                                "kind": "correction_unmatched",
+                                                "text": it.get("text", ""), "original": orig})
+                        else:
+                            reports.append({"range": [cursor, seg_end], "kind": "uncertain",
+                                            "text": it.get("text", "")})
+                    covered += seg_end - cursor
+                    cursor = seg_end
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+        lines.extend(added)
+        lines.sort(key=lambda x: float(x["start"]))
+        return {"coverage_pct": round(covered / dur * 100, 1) if dur else 0.0,
+                "windows": reports, "budget": {"estimate": est, "user_choice": choice},
+                "capped": plan["capped"]}
+    except Exception as e:
+        return {"skipped": str(e)[:100]}
+
+
 # ---------------- 单 item 处理 ----------------
 
 def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False):
@@ -191,6 +334,8 @@ def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False)
         return "ok", src, len(res.blocks), out_dir, ""
     # 3) timeline：来源策略（spec §5.2：auto→Whisper；human/official/unknown→同源门槛）
     provenance = getattr(res, "provenance", "unknown") or "unknown"
+    language = (opts.lang or getattr(adapter, "language_hint", None)
+                or None)  # None = faster-whisper 自动检测
     subtitle_candidate = list(res.segments) if res.segments else []
     lines = []
     ss = {}
@@ -235,9 +380,6 @@ def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False)
                     cfg = config.load_config()
                     mode = cfg.get("whisper_vad", "auto")
                     vad_mode = opts.vad if opts.vad is not None else (None if mode == "auto" else bool(mode))
-                    language = (opts.lang
-                                or getattr(adapter, "language_hint", None)
-                                or None)  # None = faster-whisper 自动检测
                     lines = transcriber.transcribe_url(
                         media,
                         model_size=opts.model or cfg.get("whisper_model") or "medium",
@@ -258,9 +400,31 @@ def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False)
                 print(f"  P{label} 回退使用字幕候选", file=sys.stderr)
     if not lines:
         return "failed", src, 0, "", "转写结果为空"
-    # 5) 落盘 + 缓存
+    # 5) 档位评分 + 复检执行（T13/T14：预算闸门 → 窗口复检 → 补充/校正合并）
+    cfg_full = config.load_config()
+    has_video = getattr(adapter, "has_video", True)
+    provenance_for_risk = "whisper" if (src or "").startswith("whisper") else provenance
+    glossary_terms = _load_glossary_terms()
+    signals = recheck.gather_signals(lines, ref.duration, provenance_for_risk, glossary_terms)
+    decision = recheck.decide_tier(signals, cfg_full, provenance_for_risk,
+                                   has_video=has_video, policy=opts.recheck)
+    recheck_meta = {"tier": decision["tier"], "score": decision["score"],
+                    "reasons": decision["reasons"],
+                    "signals": {k: signals[k] for k in ("dur_min", "kp_density", "kp_spread",
+                                                        "src_risk", "vis_ref", "gap_ratio", "max_gap")}}
+    if decision["tier"] in (1, 2):
+        if cfg_full.get("vision", {}).get("enabled") and not opts.no_vision_check:
+            recheck_meta.update(_run_window_recheck(adapter, ref, lines, cfg_full, decision, opts) or {})
+        else:
+            recheck_meta["skipped"] = ("vision 未配置：档位复检未执行"
+                                       if not cfg_full.get("vision", {}).get("enabled")
+                                       else "用户关闭 vision（--no-vision-check）")
+    else:
+        recheck_meta["skipped"] = "档位=不检（用户指定或白名单）"
+    # 6) 落盘 + 缓存
     out_dir = _item_out_dir(meta, ref, out_root, single, opts)
-    info = artifacts.build_info(meta, ref, kind="timeline", source=src, page_count=opts.page_count)
+    info = artifacts.build_info(meta, ref, kind="timeline", source=src, page_count=opts.page_count,
+                                recheck=recheck_meta, provenance=provenance, language=language)
     artifacts.write_item_artifacts(out_dir, info, TimelineContent(segments=lines))
     if not opts.no_cache:
         cache.set_cached(ref.platform, ref.item_id, ref.sub_id,
@@ -427,7 +591,6 @@ def _same_source_verify(adapter, ref, lines, cfg):
     任何异常/不可用 → checked=False（reason_code: no_audio|insufficient|error），
     降级不阻塞主流程"""
     import transcriber as tr
-    from core import recheck
     tmpdir = tempfile.mkdtemp(prefix="el_ss_")
     try:
         url = adapter.fetch_media_url(ref, media="audio")

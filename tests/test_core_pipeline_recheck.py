@@ -404,3 +404,435 @@ def test_attribution_fallback_vision_error_cleans_tmpdir(monkeypatch, tmp_path):
     assert r["passed"] is False and r["reason_code"] == "error"
     assert "vision API 挂了" in r["reason"]
     assert not tmpdir.exists()
+
+
+# ---------------- T13/14：预算闸门 / 档位接线 / 窗口复检执行 ----------------
+
+class _Stdin:
+    """最小 stdin 替身：只提供 isatty（避免依赖 pytest 捕获对象的可写属性）"""
+
+    def __init__(self, is_tty):
+        self._is_tty = is_tty
+
+    def isatty(self):
+        return self._is_tty
+
+
+def _no_input(monkeypatch):
+    """任何交互询问都应视为失败"""
+    def _boom(*a, **k):
+        raise AssertionError("不应进入交互询问")
+    monkeypatch.setattr("builtins.input", _boom)
+
+
+def _gate_est():
+    return {"amount": 5.0, "low": 3.5, "high": 6.5, "currency": "USD",
+            "frames": 10000, "windows": 34, "whisper_secs": 120}
+
+
+def _gate_cfg():
+    return {"recheck": {"auto_approve_amount": 0.3, "confirm_over_sec": 3600}}
+
+
+def test_budget_gate_non_tty_defaults_to_capped(monkeypatch, capsys):
+    """非 TTY：不询问，默认【帽内尽力】= B"""
+    monkeypatch.setattr(pipeline.sys, "stdin", _Stdin(False))
+    _no_input(monkeypatch)
+    assert pipeline._budget_gate(_gate_est(), _gate_cfg(), pipeline.RunOptions()) == "B"
+    err = capsys.readouterr().err
+    assert "预算预测" in err and "帽内尽力" in err
+
+
+def test_budget_gate_tty_user_choice_a(monkeypatch, capsys):
+    """TTY：用户输入 A → 完整档2"""
+    monkeypatch.setattr(pipeline.sys, "stdin", _Stdin(True))
+    monkeypatch.setattr("builtins.input", lambda *a: "a")
+    assert pipeline._budget_gate(_gate_est(), _gate_cfg(), pipeline.RunOptions()) == "A"
+    assert "档2 复检预算预测" in capsys.readouterr().err
+
+
+def test_budget_gate_invalid_choice_defaults_b(monkeypatch):
+    """非法输入 → 回退默认 B"""
+    monkeypatch.setattr(pipeline.sys, "stdin", _Stdin(True))
+    monkeypatch.setattr("builtins.input", lambda *a: "x")
+    assert pipeline._budget_gate(_gate_est(), _gate_cfg(), pipeline.RunOptions()) == "B"
+
+
+def test_budget_gate_yes_recheck_preauthorizes_full_tier2(monkeypatch):
+    """--yes-recheck：预授权完整档2，即使非 TTY 也不询问 → A"""
+    monkeypatch.setattr(pipeline.sys, "stdin", _Stdin(False))
+    _no_input(monkeypatch)
+    opts = pipeline.RunOptions(yes_recheck=True)
+    assert pipeline._budget_gate(_gate_est(), _gate_cfg(), opts) == "A"
+
+
+def test_budget_gate_recheck_1_downgrades_without_prompt(monkeypatch):
+    """--recheck 1：预算闸门下直接降档1（C），不询问"""
+    monkeypatch.setattr(pipeline.sys, "stdin", _Stdin(True))
+    _no_input(monkeypatch)
+    opts = pipeline.RunOptions(recheck="1")
+    assert pipeline._budget_gate(_gate_est(), _gate_cfg(), opts) == "C"
+
+
+def test_budget_gate_eof_defaults_b(monkeypatch):
+    """EOF（管道断开）→ 默认 B"""
+    monkeypatch.setattr(pipeline.sys, "stdin", _Stdin(True))
+
+    def _eof(*a, **k):
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", _eof)
+    assert pipeline._budget_gate(_gate_est(), _gate_cfg(), pipeline.RunOptions()) == "B"
+
+
+# ---------------- artifacts.build_info 扩展 ----------------
+
+def test_build_info_recheck_provenance_language_fields():
+    from core import artifacts
+    meta = ItemMeta(title="t", author="a", duration=120)
+    ref = ItemRef(platform="demo", item_id="1", sub_id="1", url="u", duration=120)
+    info = artifacts.build_info(meta, ref, kind="timeline", source="whisper",
+                                recheck={"tier": 2}, provenance="auto", language="zh")
+    assert info["recheck"] == {"tier": 2}
+    assert info["provenance"] == "auto" and info["language"] == "zh"
+    assert info["source"] == "whisper" and info["platform"] == "demo" and info["title"] == "t"
+
+
+def test_build_info_optional_fields_omitted_when_absent():
+    from core import artifacts
+    meta = ItemMeta(title="t", author="a", duration=120)
+    ref = ItemRef(platform="demo", item_id="1")
+    info = artifacts.build_info(meta, ref, kind="timeline", source="字幕")
+    assert "recheck" not in info and "provenance" not in info and "language" not in info
+
+
+# ---------------- 术语表加载 ----------------
+
+def test_load_glossary_terms_returns_str_list():
+    terms = pipeline._load_glossary_terms()
+    assert isinstance(terms, list) and all(isinstance(t, str) and t for t in terms)
+
+
+def test_load_glossary_terms_degrades_to_empty(monkeypatch):
+    import glossary
+    monkeypatch.setattr(glossary, "load_glossary",
+                        lambda: (_ for _ in ()).throw(RuntimeError("坏了")))
+    assert pipeline._load_glossary_terms() == []
+
+
+# ---------------- process_item 档位接线 ----------------
+
+_WIRING_SIGNALS = {"dur_min": 2.0, "kp_density": 4.0,
+                   "kp_density_detail": {"blocks": 8, "windows": []},
+                   "kp_spread": 0.5, "src_risk": 1.0, "vis_ref": 1.0,
+                   "gap_ratio": 0.1, "max_gap": 3.0}
+
+
+def _run_wiring(monkeypatch, tmp_path, *, tier=1, vision_enabled=True,
+                no_vision_check=False, provenance="human", language_hint="zh",
+                window_meta=None, opts_extra=None):
+    """process_item 档位接线测试：recheck 判决 mock，复检/落盘 mock。
+    → (process 结果, captured)：captured["info"]=build_info 关键字，captured["window_args"]=复检参数"""
+    from core import config as core_config
+    cfg = dict(core_config.DEFAULT_CONFIG)
+    cfg["vision"] = dict(cfg["vision"], enabled=vision_enabled,
+                         api_key="k" if vision_enabled else "",
+                         base_url="http://x" if vision_enabled else "")
+    cfg["out_dir"] = str(tmp_path)
+    monkeypatch.setattr(pipeline.config, "load_config", lambda: cfg)
+    monkeypatch.setattr(pipeline, "_same_source_verify",
+                        lambda a, r, lines, c: {"checked": True, "passed": True, "avg": 0.9})
+    monkeypatch.setattr(pipeline.recheck, "gather_signals", lambda *a, **k: dict(_WIRING_SIGNALS))
+    monkeypatch.setattr(pipeline.recheck, "decide_tier",
+                        lambda *a, **k: {"tier": tier, "score": 0.7, "reasons": ["r"]})
+    captured = {}
+
+    def _fake_window_recheck(adapter, ref, lines, cfg_, decision, opts_):
+        captured["window_args"] = (adapter, ref, lines, cfg_, decision, opts_)
+        return dict(window_meta) if window_meta is not None else {}
+
+    monkeypatch.setattr(pipeline, "_run_window_recheck", _fake_window_recheck)
+
+    def _fake_info(meta, ref, **kw):
+        captured["info"] = kw
+        return {"kind": "timeline", **kw}
+
+    monkeypatch.setattr(pipeline.artifacts, "build_info", _fake_info)
+    monkeypatch.setattr(pipeline.artifacts, "write_item_artifacts", lambda *a, **k: None)
+    import transcriber
+    monkeypatch.setattr(transcriber, "transcribe_url",
+                        lambda url, **kw: [{"start": 0, "end": 5, "text": "whisper 内容"}])
+
+    class A(DemoAdapter):
+        pass
+
+    A.language_hint = language_hint
+
+    res = ContentResult(kind="timeline", status="ok", provenance=provenance,
+                        label="字幕(人工)",
+                        segments=[{"start": 0, "end": 5, "text": "人工字幕内容"}])
+    opts = pipeline.RunOptions(out_root=str(tmp_path), no_cache=True,
+                               no_vision_check=no_vision_check)
+    for k, v in (opts_extra or {}).items():
+        setattr(opts, k, v)
+    out = pipeline.process_item(A(res), ItemRef(platform="demo", item_id="1", duration=120),
+                                str(tmp_path), opts, single=True)
+    return out, captured
+
+
+def test_process_item_wires_tier2_recheck_into_info(monkeypatch, tmp_path):
+    """档2：复检结果并入 content_info.recheck（含 estimates/coverage/capped）"""
+    wm = {"coverage_pct": 90.0, "windows": [],
+          "budget": {"estimate": {"frames": 1}, "user_choice": "A"}, "capped": False}
+    out, cap = _run_wiring(monkeypatch, tmp_path, tier=2, window_meta=wm)
+    assert out[0] == "ok"
+    info = cap["info"]
+    assert info["recheck"]["tier"] == 2
+    assert info["recheck"]["coverage_pct"] == 90.0 and info["recheck"]["capped"] is False
+    assert info["provenance"] == "human" and info["language"] == "zh"
+    assert set(info["recheck"]["signals"]) == {"dur_min", "kp_density", "kp_spread",
+                                                "src_risk", "vis_ref", "gap_ratio", "max_gap"}
+    assert len(cap["window_args"]) == 6 and cap["window_args"][4]["tier"] == 2
+
+
+def test_process_item_recheck_skipped_without_vision(monkeypatch, tmp_path):
+    """vision 未配置：档1/2 判决也跳过执行，并记录 skipped"""
+    out, cap = _run_wiring(monkeypatch, tmp_path, tier=1, vision_enabled=False)
+    rc = cap["info"]["recheck"]
+    assert rc["tier"] == 1 and "未配置" in rc["skipped"]
+    assert "window_args" not in cap
+
+
+def test_process_item_recheck_skipped_by_no_vision_check(monkeypatch, tmp_path):
+    """--no-vision-check：即使 vision 已配置也不执行付费复检"""
+    out, cap = _run_wiring(monkeypatch, tmp_path, tier=1, no_vision_check=True)
+    rc = cap["info"]["recheck"]
+    assert "用户关闭" in rc["skipped"] and "--no-vision-check" in rc["skipped"]
+    assert "window_args" not in cap
+
+
+def test_process_item_recheck_tier3_marks_skip(monkeypatch, tmp_path):
+    """档3（不检）：记录不检原因，不执行窗口复检"""
+    out, cap = _run_wiring(monkeypatch, tmp_path, tier=3)
+    rc = cap["info"]["recheck"]
+    assert rc["tier"] == 3 and "不检" in rc["skipped"]
+    assert "window_args" not in cap
+
+
+# ---------------- _run_window_recheck 直接执行（全 mock） ----------------
+
+class _VideoAdapter:
+    name = "demo"
+
+    def __init__(self, url="http://m/video-low"):
+        self.url = url
+        self.calls = []
+
+    def fetch_media_url(self, ref, media="audio", lowest=False):
+        self.calls.append((media, lowest))
+        return self.url
+
+
+def _rc_cfg(**over):
+    from core import config as core_config
+    cfg = dict(core_config.DEFAULT_CONFIG)
+    cfg["recheck"] = dict(cfg["recheck"], **over)
+    cfg["vision"] = dict(cfg["vision"], enabled=True, api_key="k", base_url="http://x")
+    return cfg
+
+
+def _patch_window_io(monkeypatch, frames=None, items=None, download_exc=None, check_exc=None):
+    """mock：下载 / 抽帧 / 模型调用。frames=None 时默认给 1 帧"""
+    import transcriber
+    import vision
+    seen = {"download": [], "sample": [], "check": []}
+
+    def _download(url, dest, headers=None):
+        seen["download"].append(url)
+        if download_exc is not None:
+            raise download_exc
+        with open(dest, "wb") as f:
+            f.write(b"video")
+        return dest
+
+    monkeypatch.setattr(transcriber, "download_audio", _download)
+
+    def _sample(vp, start, end, fps=3, dedup=True):
+        seen["sample"].append((start, end, fps, dedup))
+        return list(frames) if frames is not None else [(0.0, b"jpg")]
+
+    monkeypatch.setattr(vision, "sample_window_frames", _sample)
+
+    def _check(conf, fr, transcript_text="", secondary_text=""):
+        seen["check"].append((transcript_text, list(fr)))
+        if check_exc is not None:
+            raise check_exc
+        return list(items or [])
+
+    monkeypatch.setattr(vision, "check_window", _check)
+    return seen
+
+
+def test_window_recheck_tier1_supplement_merged_sorted(monkeypatch):
+    """档1：补充行以 source=vision补充 并入并按 start 排序；预算未触发 → A"""
+    cfg = _rc_cfg()
+    ref = ItemRef(platform="demo", item_id="1", duration=60)
+    lines = [{"start": 40, "end": 45, "text": "后段内容"}]
+    monkeypatch.setattr(pipeline.recheck, "select_regions",
+                        lambda lines_, dur, cfg_, disputed=None:
+                        [{"start": 0, "end": 30, "reason": "知识点密集区", "score": 3.0}])
+    adapter = _VideoAdapter()
+    seen = _patch_window_io(monkeypatch, items=[
+        {"ts": 10.0, "kind": "supplement", "text": "画面公式", "original": ""}])
+    out = pipeline._run_window_recheck(adapter, ref, lines, cfg,
+                                       {"tier": 1, "score": 0.4, "reasons": []},
+                                       pipeline.RunOptions())
+    assert adapter.calls == [("video", True)]
+    assert seen["download"] == ["http://m/video-low"]
+    assert seen["sample"] == [(0.0, 30.0, 3, True)]
+    assert seen["check"] == [("", [(0.0, b"jpg")])]
+    assert out["coverage_pct"] == 50.0
+    assert out["budget"]["user_choice"] == "A" and out["capped"] is False
+    assert lines == [
+        {"start": 10.0, "end": 11.0, "text": "画面公式", "source": "vision补充"},
+        {"start": 40, "end": 45, "text": "后段内容"},
+    ]
+
+
+def test_window_recheck_correction_replaces_line(monkeypatch):
+    """校正：原转写命中行内文本 → 替换并标 source/corrected_from"""
+    cfg = _rc_cfg()
+    ref = ItemRef(platform="demo", item_id="1", duration=60)
+    lines = [{"start": 0, "end": 5, "text": "他说到了注意利机制"}]
+    monkeypatch.setattr(pipeline.recheck, "select_regions",
+                        lambda *a, **k: [{"start": 0, "end": 30, "reason": "r", "score": 3.0}])
+    _patch_window_io(monkeypatch, items=[
+        {"ts": 2.0, "kind": "correction", "text": "注意力机制", "original": "注意利机制"}])
+    out = pipeline._run_window_recheck(_VideoAdapter(), ref, lines, cfg,
+                                       {"tier": 1}, pipeline.RunOptions())
+    assert lines[0]["text"] == "他说到了注意力机制"
+    assert lines[0]["source"] == "vision校正"
+    assert lines[0]["corrected_from"] == "注意利机制"
+    assert out["windows"] == []
+
+
+def test_window_recheck_uncertain_records_report_and_sorts(monkeypatch):
+    """不确定项进 reports；lines 收尾按 start 排序"""
+    cfg = _rc_cfg()
+    ref = ItemRef(platform="demo", item_id="1", duration=60)
+    lines = [{"start": 40, "end": 45, "text": "后段"},
+             {"start": 2, "end": 3, "text": "前段"}]
+    monkeypatch.setattr(pipeline.recheck, "select_regions",
+                        lambda *a, **k: [{"start": 0, "end": 30, "reason": "r", "score": 3.0}])
+    _patch_window_io(monkeypatch, items=[
+        {"ts": 3.0, "kind": "uncertain", "text": "画面过暗", "original": ""}])
+    out = pipeline._run_window_recheck(_VideoAdapter(), ref, lines, cfg,
+                                       {"tier": 1}, pipeline.RunOptions())
+    assert out["windows"] == [{"range": [0.0, 30.0], "kind": "uncertain", "text": "画面过暗"}]
+    assert [l["start"] for l in lines] == [2, 40]
+
+
+def test_window_recheck_per_window_exception_recorded(monkeypatch):
+    """单窗模型调用异常 → 记录 error 并继续，不阻塞整条链路"""
+    cfg = _rc_cfg()
+    ref = ItemRef(platform="demo", item_id="1", duration=60)
+    lines = []
+    monkeypatch.setattr(pipeline.recheck, "select_regions",
+                        lambda *a, **k: [{"start": 0, "end": 30, "reason": "r", "score": 3.0}])
+    _patch_window_io(monkeypatch, check_exc=RuntimeError("多模态 API 超时"))
+    out = pipeline._run_window_recheck(_VideoAdapter(), ref, lines, cfg,
+                                       {"tier": 1}, pipeline.RunOptions())
+    assert out["windows"][0]["kind"] == "error"
+    assert "多模态 API 超时" in out["windows"][0]["text"]
+    assert out["coverage_pct"] == 50.0  # 帧已取到，仅模型调用失败
+
+
+def test_window_recheck_budget_gate_b_keeps_capped_plan(monkeypatch):
+    """超阈值 + 非 TTY → B（帽内尽力）；plan_frames 已按硬帽裁剪并保持"""
+    cfg = _rc_cfg(auto_approve_amount=0.001, max_check_frames=30)
+    ref = ItemRef(platform="demo", item_id="1", duration=60)
+    monkeypatch.setattr(pipeline.sys, "stdin", _Stdin(False))
+    _no_input(monkeypatch)
+    monkeypatch.setattr(pipeline.recheck, "select_regions",
+                        lambda *a, **k: [{"start": 0, "end": 60, "reason": "r", "score": 3.0}])
+    _patch_window_io(monkeypatch, frames=[])
+    out = pipeline._run_window_recheck(_VideoAdapter(), ref, [], cfg,
+                                       {"tier": 1}, pipeline.RunOptions())
+    assert out["budget"]["user_choice"] == "B"
+    assert out["capped"] is True
+    assert out["budget"]["estimate"]["frames"] == 30
+
+
+def test_window_recheck_choice_c_downgrades_to_tier1_regions(monkeypatch):
+    """超阈值 + 用户选 C → 重新按档1 区域选择并重算帧预算"""
+    cfg = _rc_cfg(auto_approve_amount=0.001)
+    ref = ItemRef(platform="demo", item_id="1", duration=300)
+    calls = []
+    monkeypatch.setattr(pipeline.sys, "stdin", _Stdin(True))
+    monkeypatch.setattr("builtins.input", lambda *a: "C")
+    monkeypatch.setattr(pipeline.recheck, "select_regions",
+                        lambda *a, **k: calls.append("select") or
+                        [{"start": 0, "end": 30, "reason": "r", "score": 3.0}])
+    _patch_window_io(monkeypatch, frames=[])
+    out = pipeline._run_window_recheck(_VideoAdapter(), ref, [], cfg,
+                                       {"tier": 2}, pipeline.RunOptions())
+    assert out["budget"]["user_choice"] == "C"
+    assert calls == ["select"]
+    assert out["budget"]["estimate"]["frames"] == 90  # 重算：30s × 3fps
+    assert out["capped"] is False
+
+
+def test_window_recheck_tier2_full_region_coverage(monkeypatch):
+    """档2：不调用区域选择，全量时长按 window_sec 窗口化（60s → 2 窗）"""
+    cfg = _rc_cfg()
+    ref = ItemRef(platform="demo", item_id="1", duration=60)
+    monkeypatch.setattr(pipeline.recheck, "select_regions",
+                        lambda *a, **k: (_ for _ in ()).throw(
+                            AssertionError("档2 不应调用 select_regions")))
+    seen = _patch_window_io(monkeypatch, frames=[(0.0, b"jpg")])
+    out = pipeline._run_window_recheck(_VideoAdapter(), ref, [], cfg,
+                                       {"tier": 2}, pipeline.RunOptions())
+    assert seen["sample"] == [(0.0, 30.0, 3, True), (30.0, 60.0, 3, True)]
+    assert out["coverage_pct"] == 100.0
+    assert out["budget"]["estimate"]["windows"] == 2
+
+
+def test_window_recheck_without_video_stream_skipped(monkeypatch):
+    """无可下载画面流 → skipped，不下载不抽帧"""
+    cfg = _rc_cfg()
+    ref = ItemRef(platform="demo", item_id="1", duration=60)
+    monkeypatch.setattr(pipeline.recheck, "select_regions",
+                        lambda *a, **k: [{"start": 0, "end": 30, "reason": "r", "score": 3.0}])
+    seen = _patch_window_io(monkeypatch)
+    out = pipeline._run_window_recheck(_VideoAdapter(url=None), ref, [], cfg,
+                                       {"tier": 1}, pipeline.RunOptions())
+    assert out == {"skipped": "无可下载画面流"}
+    assert seen["download"] == [] and seen["sample"] == []
+
+
+def test_window_recheck_download_failure_degrades(monkeypatch):
+    """画面流下载异常 → skipped（不阻塞主流程）"""
+    cfg = _rc_cfg()
+    ref = ItemRef(platform="demo", item_id="1", duration=60)
+    monkeypatch.setattr(pipeline.recheck, "select_regions",
+                        lambda *a, **k: [{"start": 0, "end": 30, "reason": "r", "score": 3.0}])
+    _patch_window_io(monkeypatch, download_exc=RuntimeError("画面流下载中断"))
+    out = pipeline._run_window_recheck(_VideoAdapter(), ref, [], cfg,
+                                       {"tier": 1}, pipeline.RunOptions())
+    assert "skipped" in out and "画面流下载中断" in out["skipped"]
+
+
+def test_window_recheck_capped_stops_at_frame_budget(monkeypatch):
+    """硬帽：帧预算耗尽后剩余窗口记 uncovered，不再抽帧（A/B 均受 max_check_frames 保护）"""
+    cfg = _rc_cfg(max_check_frames=90)  # 仅够 30s×3fps 一窗
+    ref = ItemRef(platform="demo", item_id="1", duration=60)
+    monkeypatch.setattr(pipeline.recheck, "select_regions",
+                        lambda *a, **k: [{"start": 0, "end": 60, "reason": "r", "score": 3.0}])
+    seen = _patch_window_io(monkeypatch, frames=[(0.0, b"jpg")])
+    out = pipeline._run_window_recheck(_VideoAdapter(), ref, [], cfg,
+                                       {"tier": 1}, pipeline.RunOptions())
+    assert out["capped"] is True
+    assert seen["sample"] == [(0.0, 30.0, 3, True)]  # 第二窗超帽不抽
+    assert out["coverage_pct"] == 50.0
+    assert out["windows"] == [{"range": [30.0, 60.0], "kind": "uncovered",
+                               "text": "超出复检帧预算（max_check_frames）"}]
