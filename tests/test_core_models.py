@@ -31,3 +31,10 @@ def test_content_result_label_default_and_custom():
 def test_item_meta_fields():
     m = ItemMeta(title="标题", author="UP", duration=100, stats={"view": 1})
     assert m.title == "标题" and m.stats["view"] == 1
+
+
+def test_content_result_provenance_language_defaults():
+    from core.models import ContentResult
+    r = ContentResult(kind="timeline", status="ok")
+    assert r.provenance == "unknown"
+    assert r.language == ""
