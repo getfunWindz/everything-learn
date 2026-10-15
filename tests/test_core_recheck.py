@@ -300,15 +300,37 @@ def test_same_source_ratio_and_verdict():
     clips_ok = [(0, 10, "今天讲注意力机制"), (100, 110, "接下来是扩散模型")]
     r = recheck.same_source_check(clips_ok, subs, {"recheck": {"same_source_threshold": 0.45}})
     assert r["passed"] is True and r["avg"] > 0.8
+    assert r["checked"] is True and r["compared"] == 2 and r["empty"] == 0
     clips_bad = [(0, 10, "欢迎收看影视剧第九集"), (100, 110, "插播一段广告")]
     r2 = recheck.same_source_check(clips_bad, subs, {"recheck": {"same_source_threshold": 0.45}})
     assert r2["passed"] is False
+
+
+def test_same_source_single_comparable_point_not_checked():
+    """最少可比点保护：仅 1 个可比点 → checked=False（fail-safe）"""
+    from core import recheck
+    subs = [{"start": 0, "end": 10, "text": "今天讲注意力机制"}]
+    r = recheck.same_source_check([(0, 10, "今天讲注意力机制")], subs, {"recheck": {}})
+    assert r["checked"] is False and r["passed"] is False
+    assert r["compared"] == 1 and r["reason_code"] == "insufficient"
+
+
+def test_same_source_empty_text_points_skipped_as_empty_not_zero():
+    """空文本点不计入比值、只计 empty（稀疏字幕不误杀）"""
+    from core import recheck
+    subs = [{"start": 0, "end": 10, "text": "今天讲注意力机制"},
+            {"start": 100, "end": 110, "text": "接下来是扩散模型"}]
+    clips = [(0, 10, ""), (100, 110, "接下来是扩散模型"), (300, 310, "")]
+    r = recheck.same_source_check(clips, subs, {"recheck": {}})
+    assert r["compared"] == 1 and r["empty"] == 2
+    assert r["checked"] is False and r["reason_code"] == "insufficient"
 
 
 def test_same_source_no_clips_is_not_checked():
     from core import recheck
     r = recheck.same_source_check([], [{"start": 0, "end": 1, "text": "x"}], {"recheck": {}})
     assert r["checked"] is False and r["passed"] is False
+    assert r["compared"] == 0 and r["reason_code"] == "insufficient"
 
 
 def test_pick_spot_times_within_bounds():

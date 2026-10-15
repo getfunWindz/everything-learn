@@ -417,16 +417,17 @@ def run_input(input_str: str, opts: RunOptions, adapter=None, client=None):
 # ---------------- 同源校验（音频抽查 + difflib 判定） ----------------
 
 def _same_source_verify(adapter, ref, lines, cfg):
-    """同源校验：音频抽查 3 点 → Whisper small → 相似度判定；
-    异常返回 checked=False（降级不阻塞）"""
+    """同源校验：音频抽查 → Whisper small → 相似度判定；
+    任何异常/不可用 → checked=False（reason_code: no_audio|insufficient|error），
+    降级不阻塞主流程"""
     import transcriber as tr
     from core import recheck
-    url = adapter.fetch_media_url(ref, media="audio")
-    if not url:
-        return {"checked": False, "reason": "无可下载音频流"}
-    spots = recheck.pick_spot_times(ref.duration)
     tmpdir = tempfile.mkdtemp(prefix="el_ss_")
     try:
+        url = adapter.fetch_media_url(ref, media="audio")
+        if not url:
+            return {"checked": False, "reason": "无可下载音频流", "reason_code": "no_audio"}
+        spots = recheck.pick_spot_times(ref.duration)
         media_path = os.path.join(tmpdir, "audio.m4s")
         tr.download_audio(url, media_path, headers=_media_headers(adapter))
         clips = []
@@ -437,8 +438,11 @@ def _same_source_verify(adapter, ref, lines, cfg):
             text = tr.transcribe_samples(
                 samples, sr, model_size=cfg.get("recheck", {}).get("same_source_model", "small"))
             clips.append((s, e, text))
-        return recheck.same_source_check(clips, lines, cfg)
+        result = recheck.same_source_check(clips, lines, cfg)
+        if not result["checked"] and not result.get("reason_code"):
+            result["reason_code"] = "insufficient"
+        return result
     except Exception as e:
-        return {"checked": False, "reason": str(e)[:100]}
+        return {"checked": False, "reason": str(e)[:100], "reason_code": "error"}
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)

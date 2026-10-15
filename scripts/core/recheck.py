@@ -277,21 +277,29 @@ def _similarity(a, b):
 
 
 def same_source_check(clips, subtitle_lines, cfg):
-    """同源判定：clips=[(start,end,asr_text)] → {checked, ratios, avg, passed, threshold}
+    """同源判定：clips=[(start,end,asr_text)] → {checked, ratios, avg, passed,
+    threshold, compared, empty, reason_code}
 
-    仅统计「两侧都含文本」的可比对抽查点：字幕在该点无文本（正常说话空档/纯音乐段）
-    不是异源证据，若计 0 会把正常空档误判为串台；无任何可比对片段时 checked=False。
+    仅统计「ASR 与字幕区间文本两侧均非空」的可比点；空文本点（说话空档/纯音乐段/无字幕）
+    不是异源证据，计 0 会系统性误杀稀疏正确字幕，故只计 empty 并跳过。
+    可比点 <2 → checked=False（fail-safe，单点一致不足以放行），reason_code=insufficient。
     """
     thr = cfg.get("recheck", {}).get("same_source_threshold", 0.45)
-    ratios = []
+    ratios, empty = [], 0
     for s, e, asr in clips:
         ref_text = _text_in_range(subtitle_lines, s, e)
-        if _norm_for_match(asr) and _norm_for_match(ref_text):
-            ratios.append(_similarity(asr, ref_text))
-    avg = sum(ratios) / len(ratios) if ratios else 0.0
-    return {"checked": bool(ratios), "ratios": [round(r, 3) for r in ratios],
-            "avg": round(avg, 3), "passed": bool(ratios) and avg >= thr,
-            "threshold": thr}
+        if not _norm_for_match(asr) or not _norm_for_match(ref_text):
+            empty += 1
+            continue
+        ratios.append(_similarity(asr, ref_text))
+    compared = len(ratios)
+    avg = (sum(ratios) / compared) if compared else 0.0
+    checked = compared >= 2
+    return {"checked": checked, "ratios": [round(r, 3) for r in ratios],
+            "avg": round(avg, 3),
+            "passed": checked and avg >= thr,
+            "threshold": thr, "compared": compared, "empty": empty,
+            "reason_code": "" if checked else "insufficient"}
 
 
 def pick_spot_times(duration_sec, n=3):
