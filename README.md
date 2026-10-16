@@ -8,12 +8,12 @@
 <p align="center">
   <a href="https://github.com/getfunWindz/everything-learn/actions/workflows/tests.yml"><img src="https://github.com/getfunWindz/everything-learn/actions/workflows/tests.yml/badge.svg" alt="tests"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="license: MIT"></a>
-  <img src="https://img.shields.io/badge/tests-479%20offline-brightgreen.svg" alt="479 offline tests">
+  <img src="https://img.shields.io/badge/tests-664%20offline-brightgreen.svg" alt="664 offline tests">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python 3.10+">
 </p>
 
 **11 个平台，一个命令**：把视频、播客、图文与社媒内容整理成结构化的中文学习报告。
-字幕分级校验 → 多模态 3 帧归属复检 → Whisper 兜底；账号级内容（收藏 / 关注 / 合集 / 主页）可枚举、筛选、批量出合集。
+来源分级（AI 字幕 → Whisper 主选 / 人工·官方 → 同源校验）→ 档位评分 → 预算闸门 → 3 帧/秒窗口复检；账号级内容（收藏 / 关注 / 合集 / 主页）可枚举、筛选、批量出合集。
 
 ## 平台能力
 
@@ -46,11 +46,12 @@
 
 <p align="center">
   <img src="./assets/readme/pipeline.svg" width="100%"
-       alt="统一流水线：输入 → 路由（core 注册表）→ 取内容 → 复检（分级、3 帧归属、Whisper 兜底）→ 产物">
+       alt="统一流水线：输入 → 路由（core 注册表）→ 取内容 → 来源分级/同源校验 → 档位评分 → 预算闸门 → 窗口复检 → 产物">
 </p>
 
-- **适配器只做路由与取数**：`match → resolve → list_items → fetch_meta → fetch_content → fetch_media_url`。
-- **复检、转写、落盘全部复用 `core/`**：多模态复检通道是适配器标准必接项（`fetch_media_url(media="video", lowest=True)`），无画面平台返回 `None` 自动跳过；契约测试会校验签名。
+- **适配器只做路由与取数**：`match → resolve → list_items → fetch_meta → fetch_content → fetch_media_url`，并声明内容来源（`provenance`/`language_hint`）。
+- **保真复检全部在 `core/`**：`core/recheck.py` 统一来源分级 → 同源校验 → 档位评分 → 区域选择 → 预算闸门；多模态复检通道是适配器标准必接项（`fetch_media_url(media="video", lowest=True)`），无画面平台返回 `None` 自动跳过；契约测试会校验签名。
+- **产物透明**：档位/评分理由/预算估算/同源校验/交叉比对/不确定项落入 `recheck_report.json`；正文标注【画面补充】【画面校正】，未覆盖区间如实留痕。
 
 ## 快速开始
 
@@ -68,6 +69,11 @@ python scripts/el.py run "<视频链接/BV号>" --out "D:/学习笔记"
 # 批量与断点续跑
 python scripts/el.py run "<BV号>" --all --out "D:/学习笔记"
 python scripts/el.py run "<BV号>" --pages "1-10" --out "D:/学习笔记" --resume
+
+# 复检档位与预算（超阈值会展示金额预算卡）
+python scripts/el.py run "<链接>" --recheck 2 --out "D:/学习笔记"    # 强制全量（1 定向 / 3 不检）
+python scripts/el.py run "<链接>" --budget 1.5 --out "D:/学习笔记"  # 本次运行复检金额总上限
+python scripts/el.py run "<链接>" --no-recheck --out "D:/学习笔记"  # 显式豁免复检（产物标注）
 ```
 
 需要 cookie 的平台一键导出（Playwright + 系统浏览器，首次在窗口内登录一次）：
@@ -110,21 +116,22 @@ python scripts/el.py export "<报告目录>" --format html    # 或 docx
 
 ## 平台细节
 
-- **B 站**：字幕分级校验（ok / suspect / invalid）→ 多模态 3 帧归属复检 → Whisper 兜底（默认 `medium`，长视频默认禁 VAD）。
+- **复检与成本**：AI 字幕不再直接入库（转 Whisper，字幕留作交叉比对）；人工/官方字幕先过同源校验；复检档位 1/2/3（档3 需白名单、默认关闭），档1 定向、档2 全量（3 帧/秒 + 静帧去重）；金额超阈值先出预算卡。
+- **B 站**：AI 字幕（`lan=ai-*`）→ Whisper 主选（AI 字幕留作双 ASR 交叉比对）；人工字幕先过同源校验；评分定档后执行窗口复检（默认 `medium`，长视频默认禁 VAD）。
 - **YouTube**：自动字幕为滚动式，已做重复清洗并标注「字幕(自动)」；自动翻译轨被限流时自动回退其它语言轨。
-- **播客 / TED**：无画面的来源自动跳过画面复检；TED 优先官方多语字幕。
+- **播客 / TED**：播客纯音频——档位复检记 n/a，仅同理源校验；TED 官方字幕优先（同源校验 + 档位复检照常）。
 - **知乎 / 公众号 / Medium**：SSR 正文 → 章节式报告；公众号图片走 `data-src` 懒加载链，Medium 走 SSR 块抽取。
-- **微博 / X / 小红书 / 抖音**：社交内容映射为 document；视频帖附「视频口播内容」；均按平台缓速（6–12s）并给出可读的风控提示。
+- **微博 / X / 小红书 / 抖音**：社交内容映射为 document；视频帖附「视频口播内容」（视频口播的档位复检为 Phase 2，暂不阻塞主流程）；均按平台缓速（6–12s）并给出可读的风控提示。
 - **反爬纪律**：平台级缓速 + 退避重试 + 持久化浏览器 profile（Cloudflare / 签名平台统一走 `browserfetch`，不逆向签名）。
 
 ## 测试与工程
 
 ```bash
-python -m pytest tests/ -q     # 479 passed（全部 mock 网络，离线可跑，约 2 分钟）
+python -m pytest tests/ -q     # 664 passed（全部 mock 网络，离线可跑，约 2 分钟）
 ```
 
 - **CI**：GitHub Actions（Windows × Python 3.10 / 3.11）。
-- **架构**：`core/`（契约、注册表、配置、缓存、重试、缓速、流水线、复检、产物、HTML→块、图片下载）+ `providers/`（每平台一个适配器；B 站为参考实现）。
+- **架构**：`core/`（契约、注册表、配置、缓存、重试、缓速、流水线、保真复检 `recheck.py`、产物、HTML→块、图片下载）+ `providers/`（每平台一个适配器；B 站为参考实现）。
 - **自进化**：名单外平台按 `docs/ADAPTER_SPEC.md` §6 尽调 → `docs/ADAPTER_TEMPLATE.md` + `scripts/providers/_template.py` 搭建 → fixture / 契约 / 冒烟三件套；未通过不合入。
 - **上游**：[bilibili-learn](https://github.com/getfunWindz/bilibili-learn)（只做 B 站的轻量版，保持原样）。
 
