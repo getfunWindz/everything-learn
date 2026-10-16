@@ -2,6 +2,26 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本。
 
+## [0.2.1] - 2026-10-16
+
+**Backlog 清空（B1/B2/B3）**：抖音取数路径修复、视频帖档位复检、缓存 provenance。
+
+### Fixed
+
+- **抖音取数**：detail 直连接口被 Argus 硬拦（`403 Uifid Not Found`）→ 改走浏览器上下文（browserfetch 拦截页面自身请求 + 页内 fetch 兜底；yt-dlp 保留兜底）；媒体选择支持最低码率档（抽帧省带宽）。`scan` 修 SPA 水合时序（点击 tab 前等待），生产复核枚举通过。
+
+### Added
+
+- **视频帖 lite 档位复检**（X / 小红书）：`ContentResult.video_lines/video_duration` → pipeline document 分支复用确定性评分（`gather_signals/decide_tier`）产出 `recheck_report.json` 与 `content_info.recheck`（窗口级复检为后续项，`lite/skipped` 如实标注）；document 报告模板增「复检说明」小节。
+
+### Changed
+
+- **缓存 schema v3**：payload 持久化 `provenance`/`language`/`recheck`/`recheck_report`；命中缓存时产物恢复相关字段并补写 `recheck_report.json`；v2 旧缓存失效。
+
+### 测试
+
+- **707 项离线测试**（B1/B2/B3 新增 16 项）。
+
 ## [0.2.0] - 2026-10-16
 
 **字幕保真与复检优先级（M13）**：AI 字幕不再直接入库；人工/官方字幕须过同源校验；复检分档执行且成本透明。
