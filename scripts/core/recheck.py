@@ -6,9 +6,14 @@ import difflib  # 后续任务（同源校验 §8.2）预留
 import re
 
 DISCOURSE_MARKERS = ("定义", "公式", "步骤", "首先", "其次", "因此", "综上", "注意", "定理", "结论")
+TEACHING_MARKERS = ("性质", "大小", "方向", "概念", "规律", "单位", "物理量", "数值", "等于",
+                    "实验", "现象", "条件", "作用", "特点", "方法", "过程", "关系", "比较",
+                    "变化", "比如", "例如", "说明", "表示", "称为", "叫做", "计算", "推导",
+                    "证明", "意义", "区别", "联系", "应用")
 _LATIN = re.compile(r"[A-Za-z][A-Za-z0-9_\-]{2,}")
 _FORMULA = re.compile(r"[=≈≤≥∑∫√]")
 _NUMUNIT = re.compile(r"\d+(?:\.\d+)?\s*(?:%|次|倍|ms|GB|万|亿)")  # spec §7.3 正则
+_CN_NUMUNIT = re.compile(r"[零一二三四五六七八九十百千万两]+\s*(?:米|秒|千克|公斤|公里|千米|厘米|毫米|克|牛|焦|度|倍|分钟|小时|立方米|平方米)")
 _ENUM = re.compile(r"[①②③④⑤⑥⑦⑧⑨⑩]|(?:^|\s)\d+[.、)]|\([a-cA-C]\)")
 _WORD = re.compile(r"[A-Za-z]+")  # TTR token：英文按词
 _CJK = re.compile(r"[\u4e00-\u9fff]+")  # TTR token：中文连续片段
@@ -57,15 +62,18 @@ def score_window_text(text, glossary_terms=None):
     gloss = sum(1 for w in set(terms) if w and w in t)
     latin = len(_LATIN.findall(t))
     formula = len(_FORMULA.findall(t))
-    numunit = len(_NUMUNIT.findall(t))
+    numunit = len(_NUMUNIT.findall(t)) + len(_CN_NUMUNIT.findall(t))
     enum = len(_ENUM.findall(t))
     markers = sum(t.count(m) for m in DISCOURSE_MARKERS)
+    teach = sum(t.count(m) for m in TEACHING_MARKERS)
     toks = _ttr_tokens(t)
     ttr = (len(set(toks)) / len(toks)) if toks else 0.0
     ttr_n = max(0.0, min(1.0, (ttr - 0.3) / 0.4))
-    score = 2.0 * gloss + 1.5 * (latin + formula + numunit) + 1.0 * (markers + enum) + 0.5 * ttr_n
+    score = (2.0 * gloss + 1.5 * (latin + formula + numunit) + 1.0 * (markers + enum)
+             + 1.5 * teach + 0.5 * ttr_n)
     return score, {"glossary": gloss, "latin": latin, "formula": formula,
-                   "numunit": numunit, "enum": enum, "markers": markers, "ttr": round(ttr, 3)}
+                   "numunit": numunit, "enum": enum, "markers": markers,
+                   "teach": teach, "ttr": round(ttr, 3)}
 
 
 def kp_density(lines, duration_sec, win_sec=60, glossary_terms=None):
@@ -190,7 +198,7 @@ def decide_tier(signals, cfg, provenance, has_video=True, policy=None):
     dur_n = _clamp(dur / 120.0)
     score = (1.0 * density_n + 0.6 * signals["kp_spread"] + 0.5 * signals["src_risk"]
              + 0.4 * vis_n - 0.5 * dur_n)
-    tier = 2 if score >= rc.get("tier2_score", 0.55) else 1
+    tier = 2 if score >= rc.get("tier2_score", 0.45) else 1
     return {"tier": tier, "score": round(score, 4),
             "reasons": [f"density={density:.1f}/min", f"spread={signals['kp_spread']:.2f}",
                         f"src_risk={signals['src_risk']:.1f}",
@@ -226,6 +234,13 @@ def select_regions(lines, duration_sec, cfg, disputed=None):
         merged.append(c)
         if len(merged) >= top_n:
             break
+    if not merged:
+        wins = _windows(lines or [], duration_sec, win)
+        if wins:
+            scored = sorted(((score_window_text(t)[0], s, e) for s, e, t in wins),
+                            key=lambda x: -x[0])
+            _sc, s, e = scored[0]
+            merged = [{"start": s, "end": e, "reason": "保底采样（无显著信号）", "score": 0.1}]
     return sorted(merged, key=lambda r: -r["score"])
 
 

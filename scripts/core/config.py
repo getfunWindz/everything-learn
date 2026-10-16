@@ -41,7 +41,7 @@ DEFAULT_CONFIG = {
     },
     "recheck": {                    # M13：保真复检（档位/区域/预算/同源）
         "tier_policy": "auto",     # auto | off(=档3) | tier1 | tier2
-        "tier2_score": 0.55,
+        "tier2_score": 0.45,
         "region_top_n": 5,
         "region_window_sec": 60,
         "gap_sec": 20,

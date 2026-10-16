@@ -106,7 +106,7 @@ def test_recheck_defaults_present():
     from core import config
     rc = config.DEFAULT_CONFIG["recheck"]
     assert rc["tier_policy"] == "auto"
-    assert rc["tier2_score"] == 0.55
+    assert rc["tier2_score"] == 0.45
     assert rc["frame_fps"] == 3
     assert rc["window_sec"] == 30
     assert rc["max_check_frames"] == 20000

@@ -76,6 +76,26 @@ def test_numunit_spec_regex():
     assert det["numunit"] == 7  # MB/秒 不在 spec 正则内
 
 
+# ---------------- M13 评分校准：教学信号 / 中文数字单位 / 档1 保底采样 ----------------
+
+def test_teaching_markers_boost_score_and_breakdown_count():
+    from core import recheck
+    teach = "性质 大小 方向 变化 比如 单位 计算"
+    chat = "嗯 然后 这个 就是 那个 随便 说说"
+    sc_t, det_t = recheck.score_window_text(teach)
+    sc_c, _ = recheck.score_window_text(chat)
+    assert sc_t > sc_c
+    assert det_t["teach"] == 7                 # 按出现次数计权（不去重）
+    assert recheck.score_window_text("性质性质性质")[1]["teach"] == 3
+
+
+def test_cn_numunit_counted_in_numunit_bucket():
+    from core import recheck
+    _, det = recheck.score_window_text("一百米 三秒 五千克 两公斤")
+    assert det["numunit"] == 4
+    assert recheck.score_window_text("今天天气不错")[1]["numunit"] == 0
+
+
 def _cfg():
     return {"recheck": {"tier_policy": "auto", "tier2_score": 0.55,
                         "tier3": {"allow": False, "max_density": 1.5, "max_gap_sec": 15},
@@ -264,6 +284,46 @@ def test_select_regions_top_n_and_invalid():
     assert len(recheck.select_regions(lines, 600, cfg)) <= 2
     cfg2 = _cfg(); cfg2["recheck"]["region_top_n"] = 0
     assert recheck.select_regions(lines, 600, cfg2) == []
+
+
+def test_select_regions_fallback_sampling_when_no_signal():
+    """档1 保底采样：无密集/空档/分歧信号 → 至少给 1 个候选（最窗）"""
+    from core import recheck
+    lines = [{"start": i * 30, "end": i * 30 + 25, "text": "嗯 然后 这个 就是"} for i in range(20)]
+    regions = recheck.select_regions(lines, 600, _cfg())
+    assert len(regions) == 1
+    assert regions[0]["reason"] == "保底采样（无显著信号）"
+    assert regions[0]["score"] == 0.1
+    assert (regions[0]["start"], regions[0]["end"]) == (0.0, 60.0)
+    # duration=0 → 无窗口，不产生保底区域
+    assert recheck.select_regions([], 0, _cfg()) == []
+
+
+def test_select_regions_no_fallback_when_candidates_exist():
+    from core import recheck
+    dense = [{"start": 0, "end": 55, "text": "定义 公式 步骤 定理 结论 定义 公式 步骤"}]
+    rest = [{"start": 60 + i * 30, "end": 85 + i * 30, "text": "嗯 然后 这个"} for i in range(10)]
+    regions = recheck.select_regions(dense + rest, 600, _cfg())
+    assert regions
+    assert all(r["reason"] != "保底采样（无显著信号）" for r in regions)
+
+
+def test_physics_lecture_density_regression_after_calibration():
+    """物理课形态文本：旧口径（无教学词/中文数字单位计权）0 块 → 新口径密度显著抬升"""
+    from core import recheck
+    text = ("我们来看这个性质，性质说的是大小，大小有方向，方向就是概念，概念里面有规律。"
+            "比如这个变化，变化要看关系，关系就是比较。比如说单位，单位等于物理量，"
+            "物理量有数值，数值要计算啊。这里还有实验，实验有现象，现象有条件，"
+            "条件的作用是说明过程。方法就是推导，推导能证明意义，意义有区别和联系，"
+            "联系就是应用。再比如说方向，方向的变化就是规律，规律要比较，比较要计算。")
+    lines = [{"start": 0, "end": 55, "text": text}]
+    density, det = recheck.kp_density(lines, 60)
+    assert len(text) >= 150
+    bd = det["windows"][0]["detail"]
+    assert bd["markers"] == 0 and bd["numunit"] == 0   # 旧口径无任何命中（仅 ttr 项 ≤0.5）
+    assert bd["latin"] == 0 and bd["formula"] == 0 and bd["enum"] == 0
+    assert bd["teach"] >= 30
+    assert det["blocks"] >= 2 and density > 0.5
 
 
 def test_estimate_budget_and_needs_gate():
