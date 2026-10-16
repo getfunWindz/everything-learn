@@ -84,6 +84,21 @@ def _media_headers(adapter):
     return None
 
 
+def _media_candidates(adapter, ref, media="audio", lowest=False) -> list:
+    """媒体候选列表（健壮性）：适配器 `fetch_media_urls` 钩子优先（多 URL 回退），
+    缺省/异常时回退到单 URL 的 `fetch_media_url`（向后兼容）。"""
+    fn = getattr(adapter, "fetch_media_urls", None)
+    if callable(fn):
+        try:
+            urls = [u for u in (fn(ref, media=media, lowest=lowest) or []) if u]
+            if urls:
+                return urls
+        except Exception:
+            pass
+    u = adapter.fetch_media_url(ref, media=media, lowest=lowest)
+    return [u] if u else []
+
+
 # ---------------- 档位复检执行（T13/T14：预算闸门 + 窗口复检） ----------------
 
 def _load_glossary_terms():
@@ -247,8 +262,8 @@ def _run_window_recheck(adapter, ref, lines, cfg, decision, opts, disputed=None)
                 seg_end = min(cursor + win, region_end)
                 planned_windows.append((cursor, seg_end))
                 cursor = seg_end
-        url = adapter.fetch_media_url(ref, media="video", lowest=True)
-        if not url:
+        media_urls = _media_candidates(adapter, ref, media="video", lowest=True)
+        if not media_urls:
             return {"skipped": "无可下载画面流"}
         print("  · 复检：下载画面流……", file=sys.stderr)
         tmpdir = tempfile.mkdtemp(prefix="el_rc_")
@@ -260,7 +275,7 @@ def _run_window_recheck(adapter, ref, lines, cfg, decision, opts, disputed=None)
         added = []
         try:
             vp = os.path.join(tmpdir, "video.m4s")
-            transcriber.download_audio(url, vp, headers=_media_headers(adapter))
+            transcriber.download_audio(media_urls, vp, headers=_media_headers(adapter))
             admitted_theoretical = 0
             # Q5：未覆盖原因文案——金额裁剪 vs 帧硬帽
             uncovered_text = ("超出复检金额预算（--budget）"
@@ -500,14 +515,14 @@ def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False)
         else:
             try:
                 import transcriber
-                media = adapter.fetch_media_url(ref, media="audio")
-                if media:
+                media_urls = _media_candidates(adapter, ref, media="audio")
+                if media_urls:
                     print(f"  P{label} 启用 Whisper 转写……", file=sys.stderr)
                     cfg = config.load_config()
                     mode = cfg.get("whisper_vad", "auto")
                     vad_mode = opts.vad if opts.vad is not None else (None if mode == "auto" else bool(mode))
                     lines = transcriber.transcribe_url(
-                        media,
+                        media_urls,
                         model_size=opts.model or cfg.get("whisper_model") or "medium",
                         progress_callback=_progress_printer(),
                         vad=vad_mode, duration_sec=ref.duration,
@@ -771,13 +786,13 @@ def _same_source_verify(adapter, ref, lines, cfg, subtitle_language=""):
     import transcriber as tr
     tmpdir = tempfile.mkdtemp(prefix="el_ss_")
     try:
-        url = adapter.fetch_media_url(ref, media="audio")
-        if not url:
+        media_urls = _media_candidates(adapter, ref, media="audio")
+        if not media_urls:
             return {"checked": False, "reason": "无可下载音频流", "reason_code": "no_audio"}
         dur = float(ref.duration or 0) or (float(lines[-1]["end"]) if lines else 0)
         spots = recheck.pick_spot_times(dur)
         media_path = os.path.join(tmpdir, "audio.m4s")
-        tr.download_audio(url, media_path, headers=_media_headers(adapter))
+        tr.download_audio(media_urls, media_path, headers=_media_headers(adapter))
         clips = []
         for s, e in spots:
             samples, sr = tr.extract_audio_clip(media_path, s, e)
@@ -812,12 +827,12 @@ def _attribution_fallback(adapter, ref, lines, cfg):
     tmpdir = tempfile.mkdtemp(prefix="el_attr_")
     try:
         import vision
-        url = adapter.fetch_media_url(ref, media="video", lowest=True)
-        if not url:
+        media_urls = _media_candidates(adapter, ref, media="video", lowest=True)
+        if not media_urls:
             return {"passed": False, "reason": "无画面流", "reason_code": "no_video"}
         vp = os.path.join(tmpdir, "video.m4s")
         import transcriber as tr
-        tr.download_audio(url, vp, headers=_media_headers(adapter))
+        tr.download_audio(media_urls, vp, headers=_media_headers(adapter))
         from core import recheck as _rc
         dur = _rc._effective_duration(lines, ref.duration)
         return vision.check_attribution_aligned(conf, vp, lines, dur)

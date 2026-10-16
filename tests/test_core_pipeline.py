@@ -69,6 +69,36 @@ def _ref():
                    sub_id="1", title="part1", duration=100)
 
 
+def test_media_candidates_uses_adapter_hook():
+    class A:
+        def fetch_media_url(self, ref, media="audio", lowest=False):
+            return "single"
+
+        def fetch_media_urls(self, ref, media="audio", lowest=False):
+            return ["one", "", None, "two"]
+
+    assert pipeline_mod._media_candidates(A(), _ref(), "audio") == ["one", "two"]
+
+
+def test_media_candidates_falls_back_to_single():
+    class A:
+        def fetch_media_url(self, ref, media="audio", lowest=False):
+            return "single"
+
+    assert pipeline_mod._media_candidates(A(), _ref(), "audio") == ["single"]
+
+
+def test_media_candidates_hook_error_falls_back():
+    class A:
+        def fetch_media_url(self, ref, media="audio", lowest=False):
+            return "single"
+
+        def fetch_media_urls(self, ref, media="audio", lowest=False):
+            raise RuntimeError("hook boom")
+
+    assert pipeline_mod._media_candidates(A(), _ref(), "audio") == ["single"]
+
+
 def test_process_item_ok_writes_artifacts_and_cache(tmp_path):
     out = str(tmp_path / "out")
     status, src, n, out_dir, err = process_item(FakeAdapter(), _ref(), out,

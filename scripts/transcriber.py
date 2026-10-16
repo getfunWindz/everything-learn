@@ -1,8 +1,10 @@
 """Whisper 兜底：下载音频 + faster-whisper 转写（CPU/GPU 自适应，无需系统 ffmpeg）"""
 import os
 import re
+import socket
 import sys
 import tempfile
+import time
 import requests
 
 HEADERS = {"User-Agent": "Mozilla/5.0", "Referer": "https://www.bilibili.com"}
@@ -83,13 +85,109 @@ def _vad_plan(vad, duration_sec, vad_long_sec: float = VAD_LONG_SEC_DEFAULT) -> 
         return [False]
     return [True, False]
 
-def download_audio(url: str, dest: str, headers: dict = None) -> str:
-    r = requests.get(url, headers=headers or HEADERS, stream=True, timeout=60)
-    r.raise_for_status()
-    with open(dest, "wb") as f:
-        for chunk in r.iter_content(chunk_size=1 << 20):
-            f.write(chunk)
-    return dest
+_RETRY_STATUS = (408, 429, 500, 502, 503, 504)
+
+
+def _is_fatal_download_error(e) -> bool:
+    """不可重试错误：DNS 解析失败（域名不存在）——非瞬态，应快速失败/换候选。"""
+    cur, seen = e, set()
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        if isinstance(cur, socket.gaierror):
+            return True
+        msg = str(cur)
+        if ("NameResolutionError" in msg or "Failed to resolve" in msg
+                or "getaddrinfo failed" in msg):
+            return True
+        cur = getattr(cur, "__cause__", None) or getattr(cur, "__context__", None)
+    return False
+
+
+def download_audio(url, dest: str, headers: dict = None, attempts: int = 4,
+                   backoff: float = 1.5, max_seconds: float = 180.0) -> str:
+    """下载媒体到 dest：候选 URL 依次回退 + 瞬态重试 + 断点续传 + 总时长预算。
+
+    - 瞬态错误（连接/超时/SSL/读中断，如 IncompleteRead）：已写入部分自动带 `Range` 续传
+      （googlevideo 等 CDN 支持 206）；**有进展的失败不计入连续失败上限**（长文件可分多轮拿到）；
+    - attempts：连续「无进展」失败上限（超出则换下一候选）；硬保护：单候选 ≤24 轮；
+    - HTTP 4xx（除 408/429）：候选失效（签名过期/拒签）→ 立即换下一候选；
+    - 429/5xx/408：可重试；DNS 解析失败：非瞬态，快速失败；
+    - max_seconds：单次调用总时长预算（默认 180s，含全部候选/轮次）；耗尽即抛最后一次异常，
+      不阻塞流水线（调用方降级/记录）。
+    """
+    candidates = [url] if isinstance(url, str) else [u for u in (url or []) if u]
+    if not candidates:
+        raise ValueError("download_audio: 无候选媒体 URL")
+    deadline = time.monotonic() + max_seconds if max_seconds else None
+    last_exc = None
+    for ci, cand in enumerate(candidates, 1):
+        pos = 0
+        fails = 0          # 连续「无进展」失败数（有续传进展则归零；上限 attempts）
+        rounds = 0
+        while fails < attempts and rounds < 24:
+            rounds += 1
+            if deadline is not None and time.monotonic() >= deadline:
+                break
+            start_pos = pos
+            try:
+                h = headers or HEADERS
+                if pos > 0:
+                    h = dict(h)
+                    h["Range"] = f"bytes={pos}-"
+                r = requests.get(cand, headers=h, stream=True, timeout=60)
+                status = int(getattr(r, "status_code", 200) or 200)
+                if 400 <= status < 500 and status not in (408, 429):
+                    last_exc = requests.exceptions.HTTPError(f"HTTP {status}")
+                    if len(candidates) > 1:
+                        print(f"  [media] 候选 {ci}/{len(candidates)} 不可用（HTTP {status}），"
+                              "换下一候选", file=sys.stderr)
+                    break                                  # 换下一候选
+                if status >= 400:                          # 429/5xx/408 → 可重试
+                    raise requests.exceptions.HTTPError(f"HTTP {status}")
+                r.raise_for_status()
+                if pos > 0 and status != 206:              # 服务器忽略 Range → 从头下载
+                    pos = 0
+                mode = "ab" if pos > 0 else "wb"
+                with open(dest, mode) as f:
+                    for chunk in r.iter_content(chunk_size=65536):   # 64KB：中断时保留已收数据（续传有效）
+                        if chunk:
+                            f.write(chunk)
+                            pos += len(chunk)
+                            if deadline is not None and time.monotonic() >= deadline:
+                                # trickle 流（缓慢持续有数据）也必须在预算内中止
+                                raise requests.exceptions.Timeout("下载时长预算耗尽（max_seconds）")
+                return dest
+            except requests.exceptions.HTTPError as e:
+                last_exc = e
+                fails += 1
+                if fails < attempts and rounds < 24:
+                    time.sleep(backoff * (2 ** max(0, fails - 1)))
+                elif len(candidates) > 1:
+                    print(f"  [media] 候选 {ci}/{len(candidates)} 重试耗尽"
+                          f"（{str(e)[:60]}），换下一候选", file=sys.stderr)
+            except Exception as e:                         # 连接/超时/SSL/读中断等瞬态
+                last_exc = e
+                if str(e).startswith("下载时长预算耗尽"):
+                    break                                  # 预算耗尽：不再重试/换候选
+                if _is_fatal_download_error(e):            # DNS 解析失败等 → 不重试
+                    if len(candidates) > 1:
+                        print(f"  [media] 候选 {ci}/{len(candidates)} 解析失败"
+                              f"（{str(e)[:60]}），换下一候选", file=sys.stderr)
+                    break
+                progressed = pos > start_pos
+                fails = 0 if progressed else fails + 1
+                if fails < attempts and rounds < 24:
+                    tag = f"已收 {pos} 字节，续传" if progressed else "重试"
+                    print(f"  [media] 下载中断（候选 {ci}/{len(candidates)}，第 {rounds} 轮，{tag}）："
+                          f"{str(e)[:70]}", file=sys.stderr)
+                    time.sleep(backoff * (2 ** max(0, fails - 1)))
+                elif len(candidates) > 1:
+                    print(f"  [media] 候选 {ci}/{len(candidates)} 重试耗尽"
+                          f"（已收 {pos} 字节），换下一候选", file=sys.stderr)
+        if deadline is not None and time.monotonic() >= deadline:
+            print(f"  [media] 下载时长预算（{max_seconds:.0f}s）耗尽，放弃", file=sys.stderr)
+            break
+    raise last_exc if last_exc else RuntimeError("download_audio: 下载失败")
 
 def transcribe(audio_path: str, model_size: str = "medium", language: str = "zh",
                 progress_callback=None, vad=None, duration_sec: float = None,
@@ -133,12 +231,13 @@ def _transcribe_with(WhisperModel, model_size: str, device: str, audio_path: str
             return lines
     return []
 
-def transcribe_url(url: str, model_size: str = "medium", progress_callback=None,
+def transcribe_url(url, model_size: str = "medium", progress_callback=None,
                    vad=None, duration_sec: float = None,
                    vad_long_sec: float = VAD_LONG_SEC_DEFAULT, headers: dict = None,
                    language: str = "zh") -> list:
     """平台无关入口：下载媒体直链（临时目录）+ 转写；vad/duration 透传（长视频默认禁 VAD）
 
+    url：媒体直链或候选列表（core 多候选回退，见 download_audio）。
     headers：媒体 CDN 可能要求平台特定 UA/Referer（扣音等）；默认用内置 HEADERS（B 站向）。
     language：默认 zh（B 站向）；多语平台（如 X）传 None 自动检测。"""
     with tempfile.TemporaryDirectory() as td:

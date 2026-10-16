@@ -323,3 +323,46 @@ class YouTubeAdapter:
             except Exception:
                 url = ""
         return url or None
+
+    # 多候选回退上限（跨主机多样性：单节点故障可换节点）
+    _MAX_MEDIA_CANDIDATES = 4
+
+    def fetch_media_urls(self, ref, media: str = "audio", lowest: bool = False) -> list:
+        """媒体直链候选列表（可选钩子；主选与 fetch_media_url 一致 + 备用候选）。
+
+        去重后优先覆盖不同主机（googlevideo 单节点/单 URL 可能瞬时不可用），
+        供 core 下载链路逐候选回退（transcriber.download_audio 支持列表）。
+        URL 带时效：单次运行内复用 info；本方法异常由调用方回退 fetch_media_url。
+        """
+        info = self._info(ref)
+        fmts = [f for f in (info.get("formats") or []) if f.get("url")]
+        if media == "video":
+            vids = [f for f in fmts
+                    if (f.get("acodec") in (None, "none"))
+                    and f.get("vcodec") not in (None, "none")
+                    and (f.get("ext") or "") in ("mp4", "webm")
+                    and "m3u8" not in (f.get("protocol") or "")
+                    and "manifest" not in (f.get("url") or "")
+                    and "hls_playlist" not in (f.get("url") or "")]
+            vids.sort(key=lambda f: f.get("height") or 0, reverse=not lowest)
+            pool = [f.get("url") for f in vids]
+        else:
+            audios = [f for f in fmts if f.get("vcodec") == "none"]
+            m4a = [f for f in audios if (f.get("ext") or "") == "m4a"]
+            rest = [f for f in audios if f not in m4a]
+            abr = lambda f: f.get("abr") or 0                      # noqa: E731
+            pool = ([f.get("url") for f in sorted(m4a, key=abr, reverse=True)]
+                    + [f.get("url") for f in sorted(rest, key=abr, reverse=True)])
+        seen, uniq = set(), []
+        for u in pool:
+            if u and u not in seen:
+                seen.add(u)
+                uniq.append(u)
+        if not uniq:
+            single = self.fetch_media_url(ref, media=media, lowest=lowest)
+            return [single] if single else []
+        host = (lambda u: u.split("/")[2] if "//" in u else "")
+        primary = uniq[0]
+        diverse = [u for u in uniq[1:] if host(u) != host(primary)]
+        same = [u for u in uniq[1:] if u not in diverse]
+        return ([primary] + diverse + same)[:self._MAX_MEDIA_CANDIDATES]

@@ -25,6 +25,58 @@ def test_download_audio(tmp_path, monkeypatch):
     assert calls["url"] == "http://x/audio.m4s"
     assert open(dest, "rb").read() == b"1234"
 
+
+def test_download_audio_retries_transient(tmp_path, monkeypatch):
+    """瞬态网络错误（连接失败/超时）→ 同候选重试，成功即返回"""
+    calls = {"n": 0}
+    class R:
+        def raise_for_status(self): pass
+        def iter_content(self, chunk_size=1): yield b"abc"
+    def fake_get(url, headers=None, stream=False, timeout=None):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise transcriber.requests.exceptions.ConnectionError("boom")
+        return R()
+    monkeypatch.setattr(transcriber.requests, "get", fake_get)
+    monkeypatch.setattr(transcriber.time, "sleep", lambda s: None)
+    dest = str(tmp_path / "a.m4s")
+    transcriber.download_audio("http://x/a.m4s", dest, backoff=0)
+    assert calls["n"] == 2
+    assert open(dest, "rb").read() == b"abc"
+
+
+def test_download_audio_falls_back_to_next_candidate(tmp_path, monkeypatch):
+    """候选 URL：4xx（过期/拒绝）不重试，直接换下一候选"""
+    order = []
+    class R403:
+        status_code = 403
+        def raise_for_status(self):
+            raise transcriber.requests.exceptions.HTTPError("403")
+    class R:
+        status_code = 200
+        def raise_for_status(self): pass
+        def iter_content(self, chunk_size=1): yield b"ok"
+    def fake_get(url, headers=None, stream=False, timeout=None):
+        order.append(url)
+        return R403() if "dead" in url else R()
+    monkeypatch.setattr(transcriber.requests, "get", fake_get)
+    monkeypatch.setattr(transcriber.time, "sleep", lambda s: None)
+    dest = str(tmp_path / "b.m4s")
+    transcriber.download_audio(["http://x/dead.m4s", "http://x/live.m4s"], dest, backoff=0)
+    assert order == ["http://x/dead.m4s", "http://x/live.m4s"]
+    assert open(dest, "rb").read() == b"ok"
+
+
+def test_download_audio_all_candidates_fail_raises(tmp_path, monkeypatch):
+    """全部候选失败 → 抛出（调用方降级/记录）"""
+    def fake_get(url, headers=None, stream=False, timeout=None):
+        raise transcriber.requests.exceptions.ConnectionError("down")
+    monkeypatch.setattr(transcriber.requests, "get", fake_get)
+    monkeypatch.setattr(transcriber.time, "sleep", lambda s: None)
+    with pytest.raises(transcriber.requests.exceptions.ConnectionError):
+        transcriber.download_audio(["http://x/1.m4s", "http://x/2.m4s"],
+                                   str(tmp_path / "c.m4s"), attempts=2, backoff=0)
+
 def test_transcribe_gpu_failure_falls_back_cpu(monkeypatch):
     """检测到 CUDA 但库不可用（DLL 缺失）→ 自动回退 CPU 重试"""
     calls = []
@@ -298,3 +350,106 @@ def test_transcribe_samples_compat_returns_text_only(monkeypatch):
                         lambda samples, sample_rate=16000, model_size="small", language=None:
                         ("ok", "en"))
     assert transcriber.transcribe_samples(np.zeros(10, dtype=np.float32)) == "ok"
+
+
+def test_download_audio_resumes_after_incomplete_read(tmp_path, monkeypatch):
+    """连接中断（IncompleteRead/ChunkedEncodingError）→ 带 Range 续传，已收内容不丢"""
+    calls = []
+    class R1:
+        status_code = 200
+        def raise_for_status(self): pass
+        def iter_content(self, chunk_size=1):
+            yield b"AAAA"
+            raise transcriber.requests.exceptions.ChunkedEncodingError(
+                "Connection broken: IncompleteRead(4 bytes read, 4 more expected)")
+    class R2:
+        status_code = 206
+        headers = {"Content-Range": "bytes 4-7/8"}
+        def raise_for_status(self): pass
+        def iter_content(self, chunk_size=1): yield b"BBBB"
+    def fake_get(url, headers=None, stream=False, timeout=None):
+        calls.append(dict(headers or {}))
+        return R1() if len(calls) == 1 else R2()
+    monkeypatch.setattr(transcriber.requests, "get", fake_get)
+    monkeypatch.setattr(transcriber.time, "sleep", lambda s: None)
+    dest = str(tmp_path / "r.m4s")
+    transcriber.download_audio("http://x/a.m4s", dest, backoff=0)
+    assert open(dest, "rb").read() == b"AAAABBBB"
+    assert "Range" not in calls[0]
+    assert calls[1].get("Range") == "bytes=4-"
+
+
+def test_download_audio_respects_time_budget(tmp_path, monkeypatch):
+    """总时长预算耗尽 → 有界退出（不无限重试/不阻塞流水线）"""
+    clock = {"t": 100.0, "n": 0}
+    def fake_get(url, headers=None, stream=False, timeout=None):
+        clock["n"] += 1
+        raise transcriber.requests.exceptions.ConnectionError("down")
+    monkeypatch.setattr(transcriber.requests, "get", fake_get)
+    monkeypatch.setattr(transcriber.time, "sleep",
+                        lambda s: clock.__setitem__("t", clock["t"] + s))
+    monkeypatch.setattr(transcriber.time, "monotonic", lambda: clock["t"])
+    with pytest.raises(transcriber.requests.exceptions.ConnectionError):
+        transcriber.download_audio("http://x/1.m4s", str(tmp_path / "t.m4s"),
+                                   attempts=10, backoff=1.0, max_seconds=5.0)
+    assert clock["n"] <= 4   # 预算内最多几次尝试（非 attempts=10 全跑）
+
+
+def test_download_audio_dns_failure_fails_fast(tmp_path, monkeypatch):
+    """DNS 解析失败（域名不存在）→ 不重试、不退避（非瞬态），立即失败"""
+    calls = {"n": 0, "sleeps": []}
+    def fake_get(url, headers=None, stream=False, timeout=None):
+        calls["n"] += 1
+        raise transcriber.requests.exceptions.ConnectionError(
+            "HTTPConnectionPool: Max retries exceeded (Caused by "
+            "NameResolutionError('Failed to resolve host'))")
+    monkeypatch.setattr(transcriber.requests, "get", fake_get)
+    monkeypatch.setattr(transcriber.time, "sleep", lambda s: calls["sleeps"].append(s))
+    with pytest.raises(transcriber.requests.exceptions.ConnectionError):
+        transcriber.download_audio("http://nonexistent-host-xyz.invalid/a.m4s",
+                                   str(tmp_path / "d.m4s"), attempts=4)
+    assert calls["n"] == 1 and calls["sleeps"] == []
+
+
+def test_download_audio_resumes_beyond_no_progress_attempts(tmp_path, monkeypatch):
+    """有续传进展的失败不计入「连续失败上限」：每次连接只给一段也能最终完成"""
+    class Partial:
+        status_code = 206
+        def __init__(self, ch):
+            self.ch = ch
+        def raise_for_status(self): pass
+        def iter_content(self, chunk_size=1):
+            yield self.ch
+            raise transcriber.requests.exceptions.ChunkedEncodingError("broken")
+    class Final:
+        status_code = 206
+        def raise_for_status(self): pass
+        def iter_content(self, chunk_size=1):
+            yield b"Z"
+    order = [Partial(b"A"), Partial(b"B"), Final()]
+    monkeypatch.setattr(transcriber.requests, "get",
+                        lambda *a, **k: order.pop(0))
+    monkeypatch.setattr(transcriber.time, "sleep", lambda s: None)
+    dest = str(tmp_path / "p.m4s")
+    transcriber.download_audio("http://x/a.m4s", dest, attempts=1, backoff=0)
+    assert open(dest, "rb").read() == b"ABZ"
+
+
+def test_download_audio_aborts_trickle_over_budget(tmp_path, monkeypatch):
+    """trickle（缓慢但持续有数据）也不得超过时长预算（预算检查在流内逐块进行）"""
+    clock = {"t": 0.0, "chunks": 0}
+    class R:
+        status_code = 200
+        def raise_for_status(self): pass
+        def iter_content(self, chunk_size=1):
+            for _ in range(100):
+                clock["t"] += 1.0
+                clock["chunks"] += 1
+                yield b"x" * 10
+    monkeypatch.setattr(transcriber.requests, "get", lambda *a, **k: R())
+    monkeypatch.setattr(transcriber.time, "monotonic", lambda: clock["t"])
+    monkeypatch.setattr(transcriber.time, "sleep", lambda s: None)
+    with pytest.raises(Exception):
+        transcriber.download_audio("http://x/a.m4s", str(tmp_path / "tr.m4s"),
+                                   max_seconds=5.0)
+    assert clock["chunks"] <= 7          # 预算 5s 后即中止（不是完整 100 块）

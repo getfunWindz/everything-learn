@@ -430,7 +430,7 @@ def test_attribution_fallback_delegates_to_vision(monkeypatch):
 
     cfg = {"vision": {"enabled": True, "api_key": "k"}}
     r = pipeline._attribution_fallback(A(), R(), [{"start": 0, "end": 1, "text": "x"}], cfg)
-    assert r["passed"] is True and seen["url"] == "http://m/video-low"
+    assert r["passed"] is True and seen["url"] == ["http://m/video-low"]   # 候选列表契约
 
 
 def test_attribution_fallback_passes_effective_duration(monkeypatch):
@@ -1046,7 +1046,7 @@ def test_window_recheck_tier1_supplement_merged_sorted(monkeypatch):
                                        {"tier": 1, "score": 0.4, "reasons": []},
                                        pipeline.RunOptions())
     assert adapter.calls == [("video", True)]
-    assert seen["download"] == ["http://m/video-low"]
+    assert seen["download"] == [["http://m/video-low"]]   # 候选列表契约
     assert seen["sample"] == [(0.0, 30.0, 3, True)]
     assert seen["check"] == [("", [(0.0, b"jpg")])]
     assert out["coverage_pct"] == 50.0

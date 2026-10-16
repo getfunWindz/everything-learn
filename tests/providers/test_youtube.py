@@ -349,3 +349,49 @@ def test_channel_list_items(monkeypatch):
     items = a.list_items(ref)
     assert [r.item_id for r in items] == ["vid001", "vid002"]
     assert captured["url"].endswith("/videos")
+
+
+def test_fetch_media_urls_audio_diverse_hosts(monkeypatch):
+    """媒体候选列表：主选与 fetch_media_url 一致 + 去重 + 主机多样性（抗单点网络故障）"""
+    fmts = [
+        {"format_id": "140", "ext": "m4a", "vcodec": "none", "acodec": "mp4a", "abr": 128,
+         "url": "https://a.googlevideo.com/1"},
+        {"format_id": "140b", "ext": "m4a", "vcodec": "none", "acodec": "mp4a", "abr": 128,
+         "url": "https://a.googlevideo.com/1"},                       # 重复 URL → 去重
+        {"format_id": "140c", "ext": "m4a", "vcodec": "none", "acodec": "mp4a", "abr": 128,
+         "url": "https://b.googlevideo.com/2"},
+        {"format_id": "251", "ext": "webm", "vcodec": "none", "acodec": "opus", "abr": 160,
+         "url": "https://c.googlevideo.com/3"},
+    ]
+    a = YouTubeAdapter()
+    monkeypatch.setattr(YouTubeAdapter, "_info", lambda self, ref: {"formats": fmts})
+    ref = a.resolve("kCc8FmEb1nY")
+    urls = a.fetch_media_urls(ref, media="audio")
+    assert urls[0] == "https://a.googlevideo.com/1"        # 与 fetch_media_url 主选一致
+    assert urls.count("https://a.googlevideo.com/1") == 1  # 去重
+    assert len(urls) == 3
+    assert len({u.split("/")[2] for u in urls}) == 3       # a/b/c 三主机多样性
+
+
+def test_fetch_media_urls_video_lowest_filters_hls(monkeypatch):
+    """视频候选：排除 HLS/manifest/storyboard；lowest 升序且主机多样化"""
+    fmts = [
+        {"format_id": "137", "ext": "mp4", "vcodec": "avc1", "acodec": "none",
+         "height": 720, "url": "https://a.googlevideo.com/h720"},
+        {"format_id": "135", "ext": "mp4", "vcodec": "avc1", "acodec": "none",
+         "height": 480, "url": "https://a.googlevideo.com/h480"},
+        {"format_id": "160", "ext": "mp4", "vcodec": "avc1", "acodec": "none",
+         "height": 360, "url": "https://b.googlevideo.com/h360"},
+        {"format_id": "sb", "ext": "mhtml", "vcodec": "none", "acodec": "none",
+         "height": 27, "url": "https://b.googlevideo.com/sb"},
+        {"format_id": "hls", "ext": "mp4", "vcodec": "avc1", "acodec": "none",
+         "height": 240, "protocol": "m3u8_native",
+         "url": "https://manifest.googlevideo.com/api/manifest/hls_playlist/x/index.m3u8"},
+    ]
+    a = YouTubeAdapter()
+    monkeypatch.setattr(YouTubeAdapter, "_info", lambda self, ref: {"formats": fmts})
+    ref = a.resolve("kCc8FmEb1nY")
+    urls = a.fetch_media_urls(ref, media="video", lowest=True)
+    assert urls[0] == "https://b.googlevideo.com/h360"     # 与 pick_video_url(lowest) 一致
+    assert all("m3u8" not in u and "manifest" not in u for u in urls)
+    assert len(urls) == 3

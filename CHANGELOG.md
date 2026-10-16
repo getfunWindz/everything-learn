@@ -2,6 +2,23 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本。
 
+## [0.2.2] - 2026-10-17
+
+**媒体下载健壮性（YouTube 媒体链路修复）**：多候选 + 瞬态重试 + 断点续传 + 时长预算。
+
+### Fixed
+
+- **YouTube 媒体不可达恢复**：googlevideo 瞬态断连原会把「一次抖动」放大为复检跳过 → 下载链路改为多候选（跨主机）+ 断点续传（Range，64KB 分块）+ 进展感知重试 + DNS 快速失败 + 180s 时长预算（含流内检查）；流水线 4 处媒体下载点（同源校验 / Whisper / 窗口复检 / 归属兜底）统一接入。
+- 测试卫生：CLI 测试套件因 fake URL 经代理 502 触发重试退避而变慢（418s → 22s）；recheck 契约更新为候选列表。
+
+### Added
+
+- 适配器可选钩子 `fetch_media_urls`（YouTube 已实现，跨主机多样化）；`download_audio` 支持候选列表 / `attempts` / `backoff` / `max_seconds`。
+
+### 测试
+
+- **720 项离线测试**（媒体下载健壮性新增 13 项）。
+
 ## [0.2.1] - 2026-10-16
 
 **Backlog 清空（B1/B2/B3）**：抖音取数路径修复、视频帖档位复检、缓存 provenance。

@@ -13,6 +13,18 @@ def _same_source_pass(monkeypatch):
                         lambda *a, **k: {"checked": True, "passed": True, "avg": 1.0})
 
 
+@pytest.fixture(autouse=True)
+def _fast_media_download(monkeypatch):
+    """媒体下载在 CLI 测试中快速失败（fake URL 经环境代理会得到 502，重试退避拖慢套件）；
+    生产重试/续传逻辑由 tests/test_transcriber.py 覆盖，专项测试可自行覆盖此 patch。"""
+    import transcriber
+
+    def _boom(*a, **k):
+        raise transcriber.requests.exceptions.ConnectionError("下载失败（测试环境 mock）")
+
+    monkeypatch.setattr(transcriber, "download_audio", _boom)
+
+
 VIEW = {"code": 0, "data": {
     "bvid": "BV1GJ411x7h7", "aid": 170001, "title": "测试视频",
     "owner": {"name": "测试UP"}, "duration": 300, "pubdate": 1600000000,
