@@ -197,3 +197,39 @@ def test_render_timeline_template_recheck_tier_fallback():
     tpl = render_template_for("timeline", info)
     assert "档位：2（评分 -）" in tpl
     assert "理由：未记录" in tpl
+
+
+def test_build_info_quality_fields():
+    """build_info 透传 quality / quality_hint（低配质量检测产物）"""
+    ref = ItemRef(platform="bilibili", item_id="BVq", url="u")
+    meta = ItemMeta(title="视频", author="UP")
+    info = build_info(meta, ref, kind="timeline", source="whisper",
+                      quality={"avg_logprob": -1.2},
+                      quality_hint={"level": "weak", "advice": "建议升级 medium"})
+    assert info["quality"]["avg_logprob"] == -1.2
+    assert info["quality_hint"]["level"] == "weak"
+
+
+def test_render_timeline_template_quality_hint():
+    """报告「复检说明」区在 quality_hint 存在时给出升级提示"""
+    from report import render_template_for
+    ref = ItemRef(platform="bilibili", item_id="BVq", url="u")
+    meta = ItemMeta(title="视频", author="UP", duration=600)
+    info = build_info(meta, ref, kind="timeline", source="whisper",
+                      recheck={"tier": 1, "score": 0.2, "reasons": ["x"]},
+                      quality_hint={"level": "weak", "reasons": ["转写置信度偏低"],
+                                    "advice": "建议升级 medium 并补全依赖"})
+    tpl = render_template_for("timeline", info)
+    assert "medium" in tpl and "质量提示" in tpl
+
+
+def test_render_timeline_template_tier_note():
+    """report：低档 tier_note（无 quality_hint 时）渲染轻提示"""
+    from report import render_template_for
+    ref = ItemRef(platform="bilibili", item_id="BVt", url="u")
+    meta = ItemMeta(title="视频", author="UP", duration=600)
+    info = build_info(meta, ref, kind="timeline", source="whisper",
+                      recheck={"tier": 1, "score": 0.2, "reasons": ["x"]},
+                      quality={"model": "small", "tier_note": "当前转写档位低于推荐的 medium"})
+    tpl = render_template_for("timeline", info)
+    assert "转写档位提示" in tpl and "medium" in tpl

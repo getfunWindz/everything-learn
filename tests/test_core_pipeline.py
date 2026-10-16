@@ -490,3 +490,102 @@ def test_whisper_language_cli_override(monkeypatch):
     monkeypatch.setattr(pipeline.artifacts, "build_info", lambda meta, ref, **k: {"kind": "timeline", **k})
     pipeline.process_item(Adapter(), ItemRef(platform="demo", item_id="1", duration=60), ".", opts, single=True)
     assert captured["language"] == "ja"
+
+
+def test_whisper_low_tier_weak_quality_hint(tmp_path, monkeypatch, capsys):
+    """低档 whisper + 质量弱 → 强制推荐：content_info.quality_hint + stderr 提示"""
+    import transcriber
+    from core.models import ContentResult
+
+    def fake_transcribe(url, model_size="medium", **kw):
+        if kw.get("stats") is not None:
+            kw["stats"].update({"avg_logprob": -1.5, "language_probability": 0.2,
+                                "segments": 3, "no_speech_ratio": 0.1})
+        return [{"start": 0.0, "end": 1.0, "text": "你好"}]
+
+    monkeypatch.setattr(transcriber, "transcribe_url", fake_transcribe)
+    a = FakeAdapter()
+    a.content = ContentResult(kind="timeline", status="empty", provenance="none", segments=[])
+    out = str(tmp_path / "out")
+    opts = RunOptions(out_root=out, model="small")
+    status, src, n, out_dir, err = process_item(a, _ref(), out, opts, single=True)
+    assert src == "whisper"
+    info = json.load(open(os.path.join(out_dir, "content_info.json"), encoding="utf-8"))
+    assert info.get("quality_hint") and info["quality_hint"]["level"] == "weak"
+    assert info.get("quality", {}).get("avg_logprob") == -1.5
+    err_txt = capsys.readouterr().err
+    assert "medium" in err_txt
+
+
+def test_whisper_medium_weak_no_forced_hint(tmp_path, monkeypatch, capsys):
+    """已达 medium 档：即使质量弱也不产生升级推荐（无可升档）"""
+    import transcriber
+    from core.models import ContentResult
+
+    def fake_transcribe(url, model_size="medium", **kw):
+        if kw.get("stats") is not None:
+            kw["stats"].update({"avg_logprob": -1.5, "language_probability": 0.2,
+                                "segments": 3, "no_speech_ratio": 0.1})
+        return [{"start": 0.0, "end": 1.0, "text": "你好"}]
+
+    monkeypatch.setattr(transcriber, "transcribe_url", fake_transcribe)
+    a = FakeAdapter()
+    a.content = ContentResult(kind="timeline", status="empty", provenance="none", segments=[])
+    out = str(tmp_path / "out")
+    opts = RunOptions(out_root=out, model="medium")
+    status, src, n, out_dir, err = process_item(a, _ref(), out, opts, single=True)
+    assert src == "whisper"
+    info = json.load(open(os.path.join(out_dir, "content_info.json"), encoding="utf-8"))
+    assert not info.get("quality_hint")
+
+
+def test_lowdep_no_whisper_degrades_to_subtitle(tmp_path, monkeypatch, capsys):
+    """低配（无 faster-whisper）+ 字幕候选 → 降级采信 + 标注 + quality_hint（不失败）"""
+    import transcriber
+    from core.models import ContentResult
+    monkeypatch.setattr(transcriber, "whisper_available", lambda: False)
+    a = FakeAdapter()
+    a.content = ContentResult(kind="timeline", status="ok", provenance="none",
+                              segments=[{"start": 0.0, "end": 1.0, "text": "低配字幕"}])
+    out = str(tmp_path / "out")
+    status, src, n, out_dir, err = process_item(a, _ref(), out, RunOptions(out_root=out), single=True)
+    assert status == "ok"
+    assert "低配" in src and "未经同源校验" in src
+    info = json.load(open(os.path.join(out_dir, "content_info.json"), encoding="utf-8"))
+    assert info["quality_hint"]["level"] == "lowdep"
+    assert "faster-whisper" in json.dumps(info["quality_hint"], ensure_ascii=False)
+
+
+def test_lowdep_no_whisper_no_subtitle_fails_with_guidance(tmp_path, monkeypatch):
+    """低配（无 faster-whisper）+ 无字幕 → whisper_missing（CLI 层给出安装引导）"""
+    import transcriber
+    from core.models import ContentResult
+    monkeypatch.setattr(transcriber, "whisper_available", lambda: False)
+    a = FakeAdapter()
+    a.content = ContentResult(kind="timeline", status="empty", provenance="none", segments=[])
+    out = str(tmp_path / "out")
+    status, src, n, out_dir, err = process_item(a, _ref(), out, RunOptions(out_root=out), single=True)
+    assert status == "whisper_missing"
+
+
+def test_whisper_small_ok_tier_note(tmp_path, monkeypatch, capsys):
+    """低档但质量正常 → 产物带 tier_note（常驻建议），无强制 quality_hint"""
+    import transcriber
+    from core.models import ContentResult
+
+    def fake_transcribe(url, model_size="medium", **kw):
+        if kw.get("stats") is not None:
+            kw["stats"].update({"avg_logprob": -0.2, "language_probability": 1.0,
+                                "segments": 100, "no_speech_ratio": 0.01})
+        return [{"start": 0.0, "end": 60.0, "text": "字" * 600}]
+
+    monkeypatch.setattr(transcriber, "transcribe_url", fake_transcribe)
+    a = FakeAdapter()
+    a.content = ContentResult(kind="timeline", status="empty", provenance="none", segments=[])
+    out = str(tmp_path / "out")
+    opts = RunOptions(out_root=out, model="small")
+    status, src, n, out_dir, err = process_item(a, _ref(), out, opts, single=True)
+    assert src == "whisper"
+    info = json.load(open(os.path.join(out_dir, "content_info.json"), encoding="utf-8"))
+    assert info["quality"]["tier_note"] and "medium" in info["quality"]["tier_note"]
+    assert not info.get("quality_hint")

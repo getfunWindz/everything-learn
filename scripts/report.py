@@ -41,11 +41,20 @@ def _recheck_section(info: dict) -> str:
     same_source = (rc.get("same_source") or {}).get("avg")
     if same_source is None:
         same_source = "未执行"
+    qh = info.get("quality_hint") or {}
+    quality_line = ""
+    if qh:
+        reasons_txt = "；".join(qh.get("reasons") or []) or "质量信号偏弱"
+        quality_line = (f"- ⚠️ 转写质量提示（低配模式）：{reasons_txt}；"
+                        f"建议升级 medium 并补全依赖（详见 content_info.json 的 quality_hint）\n")
+    elif (info.get("quality") or {}).get("tier_note"):
+        quality_line = (f"- ℹ️ 转写档位提示：{(info.get('quality') or {}).get('tier_note')}\n")
     return ("## 复检说明\n\n"
             f"- 档位：{tier}（评分 {score}）\n"
             f"- 理由：{reasons}\n"
             f"- 覆盖：{coverage}%；未覆盖区间：{uncovered}\n"
             f"- 同源校验：{same_source}\n"
+            f"{quality_line}"
             "- 复检补充/校正：正文中带【画面补充】【画面校正】标注，"
             "撰写报告时**必须保留**并解释；不确定项见 recheck_report.json")
 

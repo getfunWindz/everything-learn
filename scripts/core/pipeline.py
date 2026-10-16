@@ -185,6 +185,8 @@ def _run_window_recheck(adapter, ref, lines, cfg, decision, opts, disputed=None)
     任何异常/画面流不可用 → {"skipped": ...}，不阻塞主流程。"""
     import transcriber
     import vision
+    if not vision.deps_available():                      # 低配环境：提前跳过（不逐窗报错）
+        return {"skipped": "缺少画面复检依赖（Pillow/PyAV）：pip install pillow av"}
     rc = cfg.get("recheck", {})
     conf = cfg.get("vision", {})
     fps = rc.get("frame_fps", 3)
@@ -386,6 +388,10 @@ def _document_lite_recheck(adapter, res, opts):
 def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False):
     """处理单个 item → (status, source, line_count, out_dir, error)"""
     label = str(ref.sub_id or "1")
+    model_used = None          # 本次实际使用的 whisper 档（质量检测用）
+    asr_stats = None           # 转写置信度（质量检测用）
+    quality_meta = None        # 产物字段：转写质量原始指标
+    quality_hint = None        # 产物字段：低配质量强制推荐（弱质量/缺依赖）
     # 1) 缓存命中直接复用
     if not opts.no_cache:
         cached = cache.get_cached(ref.platform, ref.item_id, ref.sub_id)
@@ -515,25 +521,47 @@ def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False)
         else:
             try:
                 import transcriber
+                if not transcriber.whisper_available():      # 低配前置：避免白下载媒体
+                    raise transcriber.WhisperNotInstalled("未安装 faster-whisper")
                 media_urls = _media_candidates(adapter, ref, media="audio")
                 if media_urls:
                     print(f"  P{label} 启用 Whisper 转写……", file=sys.stderr)
                     cfg = config.load_config()
                     mode = cfg.get("whisper_vad", "auto")
                     vad_mode = opts.vad if opts.vad is not None else (None if mode == "auto" else bool(mode))
+                    model_used = opts.model or cfg.get("whisper_model") or "medium"
+                    asr_stats = {}
                     lines = transcriber.transcribe_url(
                         media_urls,
-                        model_size=opts.model or cfg.get("whisper_model") or "medium",
+                        model_size=model_used,
                         progress_callback=_progress_printer(),
                         vad=vad_mode, duration_sec=ref.duration,
                         vad_long_sec=cfg.get("vad_long_sec", 1800),
                         headers=_media_headers(adapter),
-                        language=language)
+                        language=language, stats=asr_stats)
                     print("", file=sys.stderr)
                     src = "whisper"
                     language_used = language  # D3：Whisper 实际使用的语言（None=自动检测）
             except transcriber.WhisperNotInstalled:
-                return "whisper_missing", src, 0, "", "未安装 faster-whisper"
+                if subtitle_candidate:
+                    # 低配降级（2026-10-17）：无 faster-whisper → 采信字幕候选 + 标注 + 强制推荐
+                    prov_tag = {"auto": "AI 字幕", "human": "人工字幕",
+                                "official": "官方字幕"}.get(provenance, "字幕")
+                    lines = subtitle_candidate
+                    src = f"{prov_tag}（低配：缺 faster-whisper，未经同源校验）"
+                    language_used = (res.language or getattr(adapter, "language_hint", None)
+                                     or opts.lang or None)
+                    from core import quality as _quality
+                    quality_hint = {
+                        "level": "lowdep",
+                        "reasons": ["缺少 faster-whisper：同源校验与 Whisper 转写不可用，"
+                                    "已降级采信字幕（可信度低于校验通过）"],
+                        "missing_deps": _quality.missing_dependencies(),
+                        "advice": "安装 faster-whisper（并建议升级 medium）以获得同源校验与最佳转写质量。"}
+                    print(f"  P{label} 未安装 faster-whisper → 低配降级：采信字幕候选（已标注）",
+                          file=sys.stderr)
+                else:
+                    return "whisper_missing", src, 0, "", "未安装 faster-whisper"
             except Exception as e:
                 print(f"  P{label} Whisper 失败：{str(e)[:80]}", file=sys.stderr)
             if not lines and subtitle_candidate:
@@ -601,10 +629,37 @@ def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False)
     recheck_report["same_source"] = ss or {}
     recheck_report["uncertain"] = [w for w in (recheck_meta.get("windows") or [])
                                    if w.get("kind") == "uncertain"]
+    # 6.5) 低配质量检测（2026-10-17）：低档 + 质量弱 → 强制推荐（补依赖 + 升 medium）
+    if src == "whisper" and asr_stats:
+        from core import quality as _quality
+        _assessment = _quality.assess(asr_stats, model_used or "", ref.duration, lines)
+        if _assessment is not None:
+            quality_meta = {"model": model_used, **_assessment, **asr_stats}
+            if 0 <= _quality.tier_index(model_used or "") < _quality.tier_index("medium"):
+                quality_meta["tier_note"] = ("当前转写档位低于推荐的 medium（实机验证 medium 效果最佳）；"
+                                             "建议升级以获得最佳效果。")
+            if _quality.needs_upgrade(_assessment, model_used or ""):
+                _deps = _quality.missing_dependencies()
+                quality_hint = {"level": "weak", "model": model_used,
+                                "reasons": _assessment["reasons"],
+                                "missing_deps": _deps,
+                                "advice": "当前档位低于 medium（实机验证 medium 效果最佳）：建议 config.whisper_model=medium "
+                                          "或 --model medium；并补全依赖以获得完整体验。"}
+                print("", file=sys.stderr)
+                print("  ⚠️ 转写质量提示（低配模式）：" + "；".join(_assessment["reasons"]),
+                      file=sys.stderr)
+                print(f"     · 当前档位：{model_used} → 强烈建议 medium（--model medium）", file=sys.stderr)
+                if _deps:
+                    print("     · 建议补全依赖：" + "；".join(d["name"] for d in _deps),
+                          file=sys.stderr)
+            elif 0 <= _quality.tier_index(model_used or "") < _quality.tier_index("medium"):
+                print(f"  ℹ️ 转写档位 {model_used}（fast）；如需最佳效果可升级 medium（--model medium）",
+                      file=sys.stderr)
     out_dir = _item_out_dir(meta, ref, out_root, single, opts)
     info = artifacts.build_info(meta, ref, kind="timeline", source=src, page_count=opts.page_count,
                                 recheck=recheck_meta, provenance=provenance,
-                                language=language_used or None)
+                                language=language_used or None,
+                                quality=quality_meta, quality_hint=quality_hint)
     artifacts.write_item_artifacts(out_dir, info, TimelineContent(segments=lines))
     artifacts.write_recheck_report(out_dir, recheck_report)
     if not opts.no_cache:

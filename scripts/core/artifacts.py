@@ -8,10 +8,12 @@ import report
 
 def build_info(meta, ref, kind: str, source: str, page_count: int = 1,
                tool: str = "everything-learn v0.1", assets=None,
-               recheck=None, provenance=None, language=None) -> dict:
+               recheck=None, provenance=None, language=None,
+               quality=None, quality_hint=None) -> dict:
     """组装 content_info.json 的字段（meta: ItemMeta；ref: ItemRef）
 
     可选扩展（M13/T13）：recheck=复检元数据；provenance=来源分级；language=实际使用的语言。
+    （2026-10-17）quality=转写置信度；quality_hint=低配质量强制推荐（弱质量+低档）。
     为空则字段缺省，保持旧产物向后兼容。"""
     info = {
         "platform": ref.platform,
@@ -39,6 +41,10 @@ def build_info(meta, ref, kind: str, source: str, page_count: int = 1,
         info["language"] = language
     if recheck:
         info["recheck"] = recheck
+    if quality:
+        info["quality"] = quality
+    if quality_hint:
+        info["quality_hint"] = quality_hint
     return info
 
 

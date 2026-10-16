@@ -453,3 +453,42 @@ def test_download_audio_aborts_trickle_over_budget(tmp_path, monkeypatch):
         transcriber.download_audio("http://x/a.m4s", str(tmp_path / "tr.m4s"),
                                    max_seconds=5.0)
     assert clock["chunks"] <= 7          # 预算 5s 后即中止（不是完整 100 块）
+
+
+def test_transcribe_collects_stats(monkeypatch):
+    """whisper 置信度采集（质量检测用）：avg_logprob / no_speech_ratio / language(_probability)"""
+    class Seg:
+        def __init__(self, text, lp, nsp):
+            self.start, self.end, self.text = 0.0, 1.0, text
+            self.avg_logprob, self.no_speech_prob = lp, nsp
+    class Info:
+        language = "zh"
+        language_probability = 0.92
+    class FakeModel:
+        def __init__(self, *a, **k): pass
+        def transcribe(self, audio_path, language=None, vad_filter=None, **kw):
+            return [Seg("你好", -0.3, 0.1), Seg("世界", -0.9, 0.7)], Info()
+    monkeypatch.setattr(transcriber, "_load_whisper", lambda: FakeModel)
+    monkeypatch.setattr(transcriber, "detect_device", lambda: "cpu")
+    stats = {}
+    lines = transcriber.transcribe("x.m4s", model_size="small", stats=stats)
+    assert len(lines) == 2
+    assert abs(stats["avg_logprob"] - (-0.6)) < 1e-6
+    assert abs(stats["no_speech_ratio"] - 0.5) < 1e-6
+    assert stats["language"] == "zh" and stats["language_probability"] == 0.92
+    assert stats["segments"] == 2
+
+
+def test_transcribe_url_passes_stats(monkeypatch):
+    """transcribe_url 透传 stats（下载桩）"""
+    monkeypatch.setattr(transcriber, "download_audio", lambda url, dest, headers=None: dest)
+
+    def fake_transcribe(path, model_size="medium", **kw):
+        if kw.get("stats") is not None:
+            kw["stats"]["avg_logprob"] = -0.2
+        return [{"start": 0.0, "end": 1.0, "text": "x"}]
+
+    monkeypatch.setattr(transcriber, "transcribe", fake_transcribe)
+    stats = {}
+    transcriber.transcribe_url("http://x/a.m4s", stats=stats)
+    assert stats["avg_logprob"] == -0.2

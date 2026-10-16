@@ -371,17 +371,17 @@ def test_whisper_failure_without_candidate_fails(monkeypatch, tmp_path):
     assert status == "failed" and n == 0
 
 
-def test_whisper_missing_with_candidate_still_fails(monkeypatch, tmp_path):
-    """T12 裁决：未安装 faster-whisper 是环境问题 → 保留 whisper_missing，
-    即使有字幕候选也不回退（与“转写失败/为空 → 回退字幕”区分开）"""
+def test_whisper_missing_with_candidate_degrades_lowdep(monkeypatch, tmp_path):
+    """低配策略（2026-10-17 取代 T12 裁决）：未安装 faster-whisper + 有字幕候选
+    → 降级采信字幕（标注「低配」）而非失败（quality_hint 落盘由 test_core_pipeline 覆盖）"""
     import transcriber
 
     res = ContentResult(kind="timeline", status="ok", provenance="auto",
                         segments=[{"start": 0, "end": 5, "text": "ai 字幕"}])
     status, src, n, _, err = _run(monkeypatch, DemoAdapter(res), tmp_path,
                                   whisper_exc=transcriber.WhisperNotInstalled("未安装"))
-    assert status == "whisper_missing"
-    assert n == 0 and err == "未安装 faster-whisper"
+    assert status == "ok" and n == 1
+    assert "低配" in src and "未经同源校验" in src
 
 
 def test_attribution_fallback_requires_vision_config():
@@ -1970,3 +1970,23 @@ def test_process_item_document_writes_no_recheck_report(monkeypatch, tmp_path):
     assert os.path.exists(os.path.join(out[3], "content.txt"))
     assert not os.path.exists(os.path.join(out[3], "recheck_report.json"))
 
+
+
+def test_window_recheck_skips_when_vision_deps_missing(monkeypatch):
+    """低配：Pillow/PyAV 缺失 → 提前跳过复检（不逐窗报错、不下载）"""
+    import vision
+
+    monkeypatch.setattr(vision, "deps_available", lambda: False)
+
+    class A:
+        def fetch_media_url(self, ref, media="audio", lowest=False):
+            raise AssertionError("依赖缺失时不应尝试下载")
+
+    class R:
+        duration = 60
+
+    cfg = {"vision": {"enabled": True, "api_key": "k"}, "recheck": {}}
+    out = pipeline._run_window_recheck(A(), R(), [{"start": 0, "end": 10, "text": "x"}],
+                                       cfg, {"tier": 1, "score": 0.4, "reasons": []},
+                                       pipeline.RunOptions())
+    assert "缺少画面复检依赖" in out.get("skipped", "")

@@ -34,6 +34,15 @@ def _load_whisper():
             "未安装 faster-whisper，请执行: pip install faster-whisper"
         ) from e
 
+
+def whisper_available() -> bool:
+    """faster-whisper 可用性探测（低配降级前置判断；不触发下载/加载）"""
+    try:
+        _load_whisper()
+        return True
+    except WhisperNotInstalled:
+        return False
+
 def _ensure_nvidia_paths() -> None:
     """C2: 自动探测 site-packages 下 nvidia 运行库（cuBLAS/cuDNN/nvrtc）并注入 PATH。
     pip 安装的 nvidia-cublas-cu12 / nvidia-cudnn-cu12 将 DLL 放在 site-packages/nvidia/*/bin，
@@ -191,60 +200,80 @@ def download_audio(url, dest: str, headers: dict = None, attempts: int = 4,
 
 def transcribe(audio_path: str, model_size: str = "medium", language: str = "zh",
                 progress_callback=None, vad=None, duration_sec: float = None,
-                vad_long_sec: float = VAD_LONG_SEC_DEFAULT) -> list:
+                vad_long_sec: float = VAD_LONG_SEC_DEFAULT, stats: dict = None) -> list:
     """转写音频 → [{start,end,text}]；faster-whisper 用 PyAV 解码，无需系统 ffmpeg。
     - GPU 检测误报/库缺失（cublas DLL 等）→ 自动回退 CPU int8
     - VAD：显式 vad=True/False 强制；默认（auto）长视频禁用、短视频先开滤空则关
-    - progress_callback(done_seconds, total_seconds) 可选进度回调"""
+    - progress_callback(done_seconds, total_seconds) 可选进度回调
+    - stats（可选 dict 出参）：回填置信度（avg_logprob/no_speech_ratio/language(_probability)）"""
     WhisperModel = _load_whisper()
     device = detect_device()
     duration = duration_sec if duration_sec else _probe_duration(audio_path)
     plan = _vad_plan(vad, duration, vad_long_sec)
     try:
         return _transcribe_with(WhisperModel, model_size, device, audio_path, language,
-                                progress_callback, plan)
+                                progress_callback, plan, stats=stats)
     except RuntimeError as e:
         if device == "cpu":
             raise
         print(f"GPU 转写失败（{str(e)[:60]}），回退 CPU…", file=sys.stderr)
         return _transcribe_with(WhisperModel, model_size, "cpu", audio_path, language,
-                                progress_callback, plan)
+                                progress_callback, plan, stats=stats)
+
+
+def _collect_stats(stats: dict, seg_list: list, info) -> None:
+    """whisper 置信度采集（低配质量检测用）"""
+    lps = [x for x in (getattr(s, "avg_logprob", None) for s in seg_list)
+           if isinstance(x, (int, float))]
+    nsp = [bool((getattr(s, "no_speech_prob", 0) or 0) > 0.5) for s in seg_list]
+    stats.update({
+        "avg_logprob": (sum(lps) / len(lps)) if lps else None,
+        "no_speech_ratio": (sum(nsp) / len(nsp)) if nsp else 0.0,
+        "language": getattr(info, "language", None) if info is not None else None,
+        "language_probability": (getattr(info, "language_probability", None)
+                                 if info is not None else None),
+        "segments": len(seg_list),
+    })
 
 
 def _transcribe_with(WhisperModel, model_size: str, device: str, audio_path: str,
                      language: str, progress_callback=None,
-                     vad_plan: tuple = (True, False)) -> list:
+                     vad_plan: tuple = (True, False), stats: dict = None) -> list:
     compute = "int8" if device == "cpu" else "float16"
     model = WhisperModel(model_size, device=device, compute_type=compute)
     for vad in vad_plan:
         # faster-whisper >=1.2 移除 progress_callback；旧版/测试的 FakeModel 仍用它
         try:
-            segments, _ = model.transcribe(audio_path, language=language, vad_filter=vad,
-                                           progress_callback=progress_callback)
+            segments, info = model.transcribe(audio_path, language=language, vad_filter=vad,
+                                              progress_callback=progress_callback)
         except TypeError:
-            segments, _ = model.transcribe(audio_path, language=language, vad_filter=vad,
-                                           log_progress=progress_callback is not None)
+            segments, info = model.transcribe(audio_path, language=language, vad_filter=vad,
+                                              log_progress=progress_callback is not None)
+        seg_list = list(segments)
         lines = [{"start": round(s.start, 2), "end": round(s.end, 2),
                   "text": clean_text(s.text)}  # A3：清洗语气词/重复
-                 for s in segments]
+                 for s in seg_list]
         if lines:
+            if stats is not None:
+                _collect_stats(stats, seg_list, info)
             return lines
     return []
 
 def transcribe_url(url, model_size: str = "medium", progress_callback=None,
                    vad=None, duration_sec: float = None,
                    vad_long_sec: float = VAD_LONG_SEC_DEFAULT, headers: dict = None,
-                   language: str = "zh") -> list:
+                   language: str = "zh", stats: dict = None) -> list:
     """平台无关入口：下载媒体直链（临时目录）+ 转写；vad/duration 透传（长视频默认禁 VAD）
 
     url：媒体直链或候选列表（core 多候选回退，见 download_audio）。
     headers：媒体 CDN 可能要求平台特定 UA/Referer（扣音等）；默认用内置 HEADERS（B 站向）。
-    language：默认 zh（B 站向）；多语平台（如 X）传 None 自动检测。"""
+    language：默认 zh（B 站向）；多语平台（如 X）传 None 自动检测。
+    stats：可选 dict 出参，回填置信度（质量检测用）。"""
     with tempfile.TemporaryDirectory() as td:
         audio_path = download_audio(url, os.path.join(td, "audio.m4s"), headers=headers)
         return transcribe(audio_path, model_size=model_size, progress_callback=progress_callback,
                           vad=vad, duration_sec=duration_sec, vad_long_sec=vad_long_sec,
-                          language=language)
+                          language=language, stats=stats)
 
 
 def transcribe_video(client, bvid: str, cid: int, **kwargs) -> list:

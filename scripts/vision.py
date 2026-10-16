@@ -211,6 +211,16 @@ def _thumb_diff(a: bytes, b: bytes) -> float:
     return float(np.abs(ta - tb).mean() / 255.0)
 
 
+def deps_available() -> bool:
+    """画面复检依赖（Pillow/PyAV）是否就绪（低配环境预检，避免逐窗报错）"""
+    try:
+        import PIL  # noqa: F401
+        import av  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 def sample_window_frames(video_path, start, end, fps=3, max_side=640,
                          dedup=True, dedup_threshold=0.02, max_frames=100000):
     """窗口抽帧：fps 帧/秒（默认 3=头中尾），缩放到 max_side，静帧去重。
