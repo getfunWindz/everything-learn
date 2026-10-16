@@ -2,6 +2,25 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本。
 
+## [0.3.0] - 2026-10-17
+
+**调用逻辑链重构 + 低配可用性**：SKILL.md 双标签位引导门；默认档 fast(small)；低配降级与强制推荐。
+
+### Breaking（默认行为变化）
+
+- **Whisper 出厂默认 `medium → small`（fast 档）**：首次引导强烈建议升级 medium（实机验证最佳）；已有用户 config 不受影响。
+
+### Added
+
+- **SKILL.md 调用逻辑链重构**：介绍 → 标签位①（引导状态）→ 正常调用工作流（八步 + 报告规则 R1-R13）→ 标签位②（阅读门）→ 初次调用逻辑（环境自检 + 四项确认 + 置位）。
+- **首次引导门**：`el.py onboard [--complete|--reset|--json]`；`config.onboarded` + SKILL.md 双标签位同步；`run`/`scan` 软提示（不硬卡）；引导完成后不再触发。
+- **低配质量检测**：whisper 置信度采集（avg_logprob / language_probability / 转写密度）→ 弱质量 + 低档 → 强制推荐（stderr + `content_info.quality_hint` + 报告「复检说明」）；低档常驻 `quality.tier_note`。
+- **低配降级**：无 faster-whisper 时字幕平台降级采信 + 标注 + 强制推荐（不再整体失败）；画面复检依赖（Pillow/PyAV）缺失时提前跳过。
+
+### 测试
+
+- **754 项离线测试**（引导/低配/质量检测新增 34 项）；低配 venv（仅 requests）真实实测通过。
+
 ## [0.2.2] - 2026-10-17
 
 **媒体下载健壮性（YouTube 媒体链路修复）**：多候选 + 瞬态重试 + 断点续传 + 时长预算。

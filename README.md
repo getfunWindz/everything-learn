@@ -63,7 +63,13 @@ pip install -r requirements.txt
 pip install yt-dlp        # 可选：YouTube / 抖音
 pip install playwright    # 可选：cookie 导出 / browserfetch（无需 playwright install）
 
-# 首次运行：用一个根目录存放报告（未配置时 run 会主动询问，不设默认路径）
+# Whisper：出厂默认 fast=small；实机验证 medium 效果最佳（首次引导会建议升级）
+
+# 首次使用：完成引导（环境自检 + 四项确认：产出目录 / Whisper 档位 / 依赖清单 / 使用说明）
+python scripts/el.py onboard             # 查看清单与环境摘要
+python scripts/el.py onboard --complete  # 四项确认完成后置位（标签位 1→0，此后不再触发）
+
+# 用一个根目录存放报告（未配置 out_dir 时 run 会拒绝运行，不设默认路径）
 python scripts/el.py run "<视频链接/BV号>" --out "D:/学习笔记"
 
 # 批量与断点续跑

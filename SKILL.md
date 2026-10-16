@@ -5,12 +5,13 @@ description: 将多平台学习内容（视频/音频/图文/帖子）总结为�
 
 # everything-learn：多平台学习内容总结
 
-## 职责
+## 介绍
+
 定位用户指定的内容（链接 / 名称）→ 路由到平台适配器 → 提取内容（字幕来源分级 + 同源校验；AI 字幕以 Whisper 主选；档位窗口复检）→ 撰写**中文详解学习报告** → 保存到用户自选的学习笔记根目录。
 
 > 定位说明：`bilibili-learn` 是只做 B 站的轻量版；本技能是全量版（B 站是其参考适配器），配置与仓库独立。
 
-## 支持的平台与形态
+### 支持的平台与形态
 
 | 平台 | 形态 | 状态 |
 |---|---|---|
@@ -25,32 +26,43 @@ description: 将多平台学习内容（视频/音频/图文/帖子）总结为�
 | X（Twitter） | `document`（推文） | ✅ 可用（单推文：正文/图片/口播转写；主页时间线 scan（需登录 + 浏览器代理）；搜索不做） |
 | 小红书 | `document`（笔记） | ✅ 可用（单笔记：正文/图片；视频笔记附口播转写；链接需含短时效 token；主页/收藏枚举：`scan`，需登录） |
 | 抖音 | `timeline`（视频） | ✅ 可用（单视频：**浏览器上下文取 detail（B1）** + Whisper；主页作品/收藏/喜欢列表：浏览器辅助 scan（收藏/喜欢需登录），不逆向签名） |
-| 名单外平台 | — | 走「自进化」流程（见 §3） |
+| 名单外平台 | — | 走「自进化」流程（见「正常调用工作流 · 自进化」） |
 
-## 0. 首次配置（硬性规则）
+### 核心命令
 
-1. **必须询问用户选择报告根路径**（建议新建一个总文件夹，如「学习笔记」）：
-   - **未配置 `out_dir` 时 `el.py run` 会拒绝运行**——不要替用户决定路径，也不要有默认路径；
-   - 用户选定后写入 `scripts/config.json` 的 `out_dir`（可在运行时用 `--out` 临时覆盖）。
-2. **Whisper 模型**：默认 `medium`；用户可 `--model tiny/small/large-v3` 降级或升级。
-3. **字幕保真与多模态复检（建议配置）**：在 `scripts/config.json` 配置 `vision`（OpenAI 兼容端点）后启用；
-   - **来源策略（默认行为，不可绕过）**：AI/自动字幕不再直接入库 → Whisper 主选（AI 字幕留作双 ASR 交叉比对第二意见）；人工/官方/转录稿 → 先过同源校验（音频抽查），通过才采信、失败转 Whisper；`none` → 直接 Whisper；
-   - **复检档位**由 `recheck.tier_policy` 控制（`auto` 评分 / `off`=档3 不检 / `tier1` 定向 / `tier2` 全量），**以用户选择为准**；
-   - **预算闸门**：预估金额超过免打扰阈值（`recheck.auto_approve_amount`，默认 0.3）或超长视频（`confirm_over_sec`）时展示预算卡（完整档2 / 帽内尽力 / 降档1）；可用 `--budget <金额>` 设本次运行复检总上限、`--yes-recheck` 预授权；
-   - 未配置 vision 或调用失败时：档位复检自动跳过/降级（异常窗口记录后继续；同源校验不受影响），不阻塞原流程。
-4. **VAD 策略**：长视频（≥ `vad_long_sec`，默认 1800 秒）默认禁用 VAD；`--vad` 手动开启、`--no-vad` 强制关闭。
-5. **需要 cookie 的平台（知乎 / B 站 / 微博 / 抖音）**：优先用内置导出器
-   `python scripts/el.py cookie zhihu|bilibili`（等价入口 `scripts/cookie_export.py`；Playwright + 系统 Edge/Chrome，首次在窗口内登录一次；需 `pip install playwright`）；
-   也可手动把浏览器的 cookie 整行写入 `scripts/.zhihu_cookie` / `scripts/.bili_cookie`。cookie 失效时适配器会给出明确提示。
-   - **新平台接入（标配）**：在 `providers/<name>.py` 声明 `COOKIE_EXPORT`（字段表见 `docs/ADAPTER_SPEC.md` §4），导出器自动发现（`python scripts/el.py cookie --list` 可查），无需改工具。
+```bash
+python scripts/el.py onboard                  # 首次引导门（状态/四项确认点；--complete/--reset/--json）
+python scripts/el.py doctor                   # 环境自检（依赖/GPU/模型/vision/cookie/out_dir）
+python scripts/el.py run <链接/名称> [--page N | --pages "1-10" | --all] [--model tiny|small|medium|large-v3] [--budget 1.5]
+python scripts/el.py scan <列表链接> [--filter "关键,词"] [--priority] [--limit N] [--snapshot]
+python scripts/el.py report <目录> && python scripts/el.py export <目录> --format html
+```
 
-## 1. 定位
+<!-- ⛳ ONBOARDING: 1 -->
+
+> **标签位①（引导状态）**：`1` = 首次引导**未完成** → 必须先执行文末「初次调用逻辑」（四项确认 + `el.py onboard --complete` 置位）；
+> `0` = 已完成 → 跳过文末章节，直接按下方工作流正常使用（省 token）。由 `el.py onboard --complete` 自动 1→0。
+
+## 正常调用工作流（每次使用）
+
+### 八步链路
+
+1. **读标签位**：=1 → 先走文末「初次调用逻辑」；=0 → 继续。
+2. **识别平台**：链接/名称 → `el.py resolve` 确认平台与标识（未识别 URL → 自进化流程询问）。
+3. **切换适配器与参数**：按平台特性（cookie/代理/缓速）与需求（run/scan/`--all`/页码范围）选定。
+4. **引导用户**：内容与范围（多 P/合集/问题回答/页面范围）+ 复检档位与预算（超阈值必现预算卡）+ 凭据需求（cookie）。
+5. **获得授权**：用户确认后开工（首次/大额/高风控必须确认；小额自动档按 config）。
+6. **执行**：`run`/`scan` → 产物三件套 + `assets/` + `recheck_report.json`。
+7. **复检核查**：核对 `recheck_report.json`（档位/覆盖/同源/不确定项）与 `source`/`provenance`/`quality_hint`；必要时抽帧补漏。
+8. **撰写报告 + 收工总结与输出核验**：按「报告规则 R1-R13」成稿；交付前核对产物（文件齐全/字段/命名/glossary 校验），向用户汇报摘要。
+
+### 平台定位与内容获取
+
 - 链接 / 平台标识：`python scripts/el.py resolve <输入>` 确认平台与标识；
 - 名称类输入：走平台搜索（B 站 `el.py search <关键词>`），**列出候选让用户确认**后再继续；
 - **公众号搜索（实验性）**：`el.py search --platform wechat "<关键词>"` 列出候选；直接抓取用 `el.py run --platform wechat "<关键词>" --pick N`（搜狗结果链接**会话绑定**，必须同进程立即抓取，不能跨进程复用）。
 - **账号级扫描（M11/M12）**：用户主页/收藏夹/频道/我的收藏等列表链接 → `el.py scan <链接> [--filter] [--priority] [--limit] [--snapshot]` 先枚举与筛选（命中项可 `--snapshot` 存档）；批量抓取用 `el.py run <链接> --all`（或 `--pages "1-10"`）；微博收藏入口 `https://weibo.com/u/favorites`（需 cookie）；微博关注 `https://weibo.com/u/page/follow/<uid>`；公众号合集（album 链接）；B站 UP主 `https://space.bilibili.com/<mid>`；Medium 列表/书签：`scan "https://medium.com/@<handle>/list/<slug>"`（需登录）；B站账号数据另有 `el.py toview|history|following`（需 cookie）。
 
-## 2. 获取内容
 ```bash
 python scripts/el.py run <链接/名称> [--page N | --pages "1-10" | --all] --out <根目录>
 
@@ -59,6 +71,7 @@ python scripts/el.py run <链接> --recheck auto|1|2|3   # auto 评分 / 1 定�
 python scripts/el.py run <链接> --no-recheck           # = --recheck 3（显式豁免，产物标注）
 python scripts/el.py run <链接> --budget 1.5           # 本次运行复检金额总上限（超出自动转「帽内尽力」）
 ```
+
 - **timeline 源**（B站/YouTube/播客）：取字幕并声明来源分级（`human/official/auto/unknown/none`）→ AI/自动字幕转 Whisper 主选（保留作双 ASR 交叉比对）→ 人工/官方/转录稿先过同源校验（失败转 Whisper）→ 评分引擎定档（档1 定向 / 档2 全量 / 档3 白名单默认关闭）→ 预算闸门 → 窗口复检（3 帧/秒，标注【画面补充】【画面校正】）→ 音轨 Whisper 兜底（GPU 自适应，语言自动/提示透传，长视频默认禁 VAD）；
   - **YouTube 细节**：人工字幕优先（含中文翻译轨）；自动字幕为滚动式，已做重复清洗并标注「字幕(自动)」；自动翻译轨 429 时自动回退其它语言轨；媒体直链带时效（调用时即取）
   - **播客细节**：RSS/Apple Podcasts 链接（Apple 经 iTunes 查找换成 feed）；有 `podcast:transcript` 先过同源校验（通过采信，失败转 Whisper）；纯音频无画面层，档位复检记 `n/a`
@@ -66,11 +79,12 @@ python scripts/el.py run <链接> --budget 1.5           # 本次运行复检金
   - **公众号细节**：单篇链接直连（无需 cookie；正文服务端渲染、图片 `data-src` 自动入 `assets/`）；搜狗搜索为实验性路径（验证码/限流风险 + 签名链接会话绑定）；
   - **X（Twitter）细节**：单推文直连（无需 cookie，syndication 公开接口）；图片入 `assets/`；视频推文自动取 mp4 并 Whisper 转写为「视频口播内容」小节（多语自动检测）；缓速 10s（限流会升级，遇 429/连接异常时给可读提示，不要高频重试）；
   - **小红书细节**：单笔记直连（`xhslink` 短链自动展开）；正文/标签/图片入 `assets/`；视频笔记自动取 mp4 并 Whisper 转写「视频口播内容」；**依赖 `xsec_token`（短时效）**——分享链自带优先，缺失/失效时 explore 兜底现取（实验性，命中率低）；都没有则提示重新分享；缓速 12s；
-- 产物：三件套（`content_info.json`（元信息+来源标记+`recheck` 摘要）/ `content.txt`（timeline 带时间戳，含【画面补充】【画面校正】标注）/ `report_template.md`（按形态的报告骨架））+ timeline 的 `recheck_report.json`（档位/评分/预算/同源校验/交叉比对/不确定项全量留痕）；
+- 产物：三件套（`content_info.json`（元信息+来源标记+`recheck`/`quality` 摘要）/ `content.txt`（timeline 带时间戳，含【画面补充】【画面校正】标注）/ `report_template.md`（按形态的报告骨架））+ timeline 的 `recheck_report.json`（档位/评分/预算/同源校验/交叉比对/不确定项全量留痕）；
 - 批量：失败不中断，汇总增量写入，`--resume` 断点续跑；
 - 抽帧供读图复检（agent 执行时）：`python scripts/el.py frames <视频> --range "起-止" --fps 1 --out <目录>`。
 
-## 3. 自进化：无适配器平台
+### 自进化：无适配器平台
+
 当输入的 URL **没有被任何适配器匹配**时（路线表内的平台由项目按里程碑接入；名单外平台走本流程）：
 
 1. **不要直接拒绝**，先询问用户：「这个平台还没有适配器，是否按规范现场搭建一个？」
@@ -80,11 +94,11 @@ python scripts/el.py run <链接> --budget 1.5           # 本次运行复检金
 
 > CLI 行为：`run`/`scan` 遇到**未识别 URL** 会直接给出本流程提示（不再兜底成 B 站名称搜索）；`python scripts/el.py platforms` 可查当前已注册名单。
 
-## 4. 撰写报告（agent 核心工作）
+### 报告规则（R1-R13）
 
 读取产物目录中的三件套，补全 `report_template.md` → 另存为 `<标题>_学习报告.md`。**以下为硬性规则**：
 
-### 共用规则（所有形态）
+#### 共用规则（所有形态）
 - **R1 知识点完整性（最高优先级，不可协商）**：覆盖内容中**每一个知识点**。
   撰写前通读全部内容（长内容分段读完，**不得跳读**），边读边提取知识点清单；撰写后对照 `content.txt` 逐段核对；
   **不设篇幅上限**，禁止以「控制上下文/成本」为由省略、概括或跳过；长内容宁可分多轮、多会话完成。
@@ -105,24 +119,26 @@ python scripts/el.py run <链接> --budget 1.5           # 本次运行复检金
   - 档位/覆盖/同源校验结论写入报告「复检说明」小节。
 - 各形态均保留：关键概念/术语表、金句与重要观点。
 
-### timeline 专属（B站/YouTube/播客）
+#### timeline 专属（B站/YouTube/播客）
 - **R2 时间戳分点**：按时间轴切段（每段 3~10 分钟），`### 段N｜[起-止] 主题`；
 - **R3 知识点分点**：段内每个知识点独立分点（`#### 知识点N：名称（[时间]）`），含要点 → 细节（2~4 条）→ 例子（如有）；
 - **原话摘录**：挑 5~10 条有教学价值的原话，逐条附时间点；
 - **多模态复检（配置 vision 后固定路径）**：按档位窗口抽帧（3 帧/秒、静帧去重）核对画面遗漏（白板公式/PPT/代码/图表）与口误/同音字，补充/校正以【画面补充】【画面校正】写入转写；
   经验证据：Whisper 转写 + 未复检 = 报告可能缺失关键公式与结论（M13 冒烟：美食视频 5 处画面校正、教育类视频复检覆盖不足已记录）；复检执行者选择见 R12。
 
-### document / collection（规划中）
+#### document / collection（规划中）
 - `document`：按原文章节切段（`### 段N｜章节名`），引用用「小节标题」定位；报告骨架已实现（一句话总结 → 知识地图 → 知识详解 → 概念表 → 金句 → 原文摘录 → 自测 → 延伸阅读）；正文图片在 `assets/`，agent 按需多模态读图并入知识点；
 - `collection`（社媒聚合）：跨条目主题聚类 + 观点对比 + 来源标注——M6 起实现。
 
-## 5. 交付
+### 交付
+
 - 单条：`<out_dir>/<作者>/<YYYY-MM-DD>_<标题>[_P##]/<标题>_学习报告.md`；
 - 合集：`<out_dir>/<作者>/<YYYY-MM-DD>_<标题>_合集/`（`P01…` 子目录 + 汇总 `content_info.json` + 总报告骨架）；
 - 交付前完成 R11 的 glossary 校验；向用户汇报报告摘要（覆盖知识点数/来源/路径），有【画面补充】【画面校正】或未复检区间时一并说明（R13）；
 - timeline 产物含 `recheck_report.json`（档位/评分理由/预算/同源校验/交叉比对/复检明细与不确定项），交付前核对。
 
-## 注意事项
+### 注意事项
+
 - 本文件不写死任何本机路径；一切以用户配置的 `out_dir` 为准。
 - 平台接口偶发错乱（实测 B 站 AI 字幕串台：美食视频拿到「可控核聚变」字幕）：来源分级丢弃 AI 字幕转 Whisper 主选、双 ASR 交叉比对量化分歧、人工/官方字幕过同源校验会自动处理，不要绕过。
 - **YouTube 提取失败**（反爬更新/限流）先升级依赖：`pip install -U yt-dlp`（`el.py doctor` 会显示当前版本）；字幕接口 429 已内置退避重试；媒体下载已内置多候选 + 断点续传 + 时长预算（弱网/代理抖动下自动降级，不阻塞主流程）。
@@ -132,3 +148,56 @@ python scripts/el.py run <链接> --budget 1.5           # 本次运行复检金
 - **X（Twitter）**：单推文无需 cookie；限流会跨宿主升级（429 → SSL EOF，含图片/视频 CDN）；缓速默认 10s，被拒时退避一次即给可读提示，不要循环重试；时间线与搜索不做（实测不可靠）。
 - **小红书**：依赖短时效 `xsec_token`（旧 token 失效 → sec-404）；连发 note 请求会 sec-404，缓速 12s；无 token 时 explore 兜底命中率低（如实提示重新分享）；账号级能力（主页/收藏）列为后续方向（M11）。
 - **公众号**：单篇链接无需 cookie；搜狗搜索为实验性（验证码/antispider 风险，结果链接会话绑定、不可跨进程复用）；页面「参数错误/系统出错」等异常会给可读提示。
+- **低配模式（2026-10-17）**：仅必要依赖（无 faster-whisper / yt-dlp / playwright 等）时——字幕平台自动降级采信并标注「低配：未经同源校验」+ `quality_hint` 强制推荐；whisper 平台给出安装引导；画面复检依赖（Pillow/PyAV）缺失时自动提前跳过。转写档位低于 medium 时产物带 `quality.tier_note` 常驻建议（实机验证 medium 效果最佳）。
+
+<!-- ⛔ READ-GATE: ONBOARDING: 1 -->
+
+> **标签位②（阅读门）**：上方 ONBOARDING = `0` → **到此为止，不要阅读下方章节**（已引导完成，直接正常使用）；
+> = `1` → **必须读完下方并执行**「初次调用逻辑」。
+
+## 初次调用逻辑（首次部署 / 引导未完成时）
+
+### A. 自动环境检查
+
+先运行 `python scripts/el.py doctor`（或 `el.py onboard`），向用户汇总：依赖（faster-whisper / yt-dlp / playwright）、GPU、whisper 模型缓存、vision、cookie、out_dir。
+
+### B. 四项确认点（必须逐项向用户输出并确认）
+
+1. **产出目录（硬性，必须由用户自选）**
+   - 建议新建一个总文件夹（如「学习笔记」）；**未配置 `out_dir` 时 `el.py run` 会拒绝运行**——不要替用户决定路径，也不要有默认路径；
+   - 用户选定后写入 `scripts/config.json` 的 `out_dir`（运行时可用 `--out` 临时覆盖）。
+2. **Whisper 档位（质量/速度取舍；须解释并给出建议）**
+   - `fast = small`（**出厂默认**，速度快、资源小）｜ `medium`（**强烈推荐：实机验证效果最佳**）｜ `large-v3`（最高，资源要求高）；
+   - 根据用户硬件给出选择；**强烈建议 medium**；用户可 `--model tiny/small/medium/large-v3` 随时调整。
+3. **依赖清单（推荐全部安装以获得完整体验）**
+   - `el.py onboard` 会列出缺失项与安装命令；逐项解释用途：
+     `faster-whisper`（Whisper 转写；时间线平台需要）｜ `yt-dlp`（YouTube/抖音）｜ `playwright`（cookie 一键导出 / browserfetch 平台）｜ `vision`（多模态画面复检，配置后启用）；
+   - 推荐全部安装；装不了的按低配模式使用（见「注意事项 · 低配模式」）。
+4. **使用说明总结（用途 + 典型用法 + 产物）**
+   - 用途：多平台学习内容 → 中文详解学习报告（11 平台，见「介绍」表）；
+   - 典型用法：`el.py run <链接> [--all/--pages/--model/--budget]`、`el.py scan <列表链接>`、`el.py report/export`；
+   - 产物：三件套 + `assets/` + `recheck_report.json`；报告规则见「正常调用工作流 · 报告规则」。
+
+### C. 配置要点（引导时解释；按用户选择写入 config）
+
+- **字幕保真与多模态复检（建议配置）**：配置 `vision`（OpenAI 兼容端点）后启用；
+  - **来源策略（默认行为，不可绕过）**：AI/自动字幕不再直接入库 → Whisper 主选（AI 字幕留作双 ASR 交叉比对第二意见）；人工/官方/转录稿 → 先过同源校验（音频抽查），通过才采信、失败转 Whisper；`none` → 直接 Whisper；
+  - **复检档位**由 `recheck.tier_policy` 控制（`auto` 评分 / `off`=档3 不检 / `tier1` 定向 / `tier2` 全量），**以用户选择为准**；
+  - **预算闸门**：预估金额超过免打扰阈值（`recheck.auto_approve_amount`，默认 0.3）或超长视频（`confirm_over_sec`）时展示预算卡（完整档2 / 帽内尽力 / 降档1）；可用 `--budget <金额>` 设本次运行复检总上限、`--yes-recheck` 预授权；
+  - 未配置 vision 或调用失败时：档位复检自动跳过/降级（异常窗口记录后继续；同源校验不受影响），不阻塞原流程。
+- **VAD 策略**：长视频（≥ `vad_long_sec`，默认 1800 秒）默认禁用 VAD；`--vad` 手动开启、`--no-vad` 强制关闭。
+- **需要 cookie 的平台（知乎 / B 站 / 微博 / 抖音）**：优先用内置导出器
+  `python scripts/el.py cookie zhihu|bilibili`（等价入口 `scripts/cookie_export.py`；Playwright + 系统 Edge/Chrome，首次在窗口内登录一次；需 `pip install playwright`）；
+  也可手动把浏览器的 cookie 整行写入 `scripts/.zhihu_cookie` / `scripts/.bili_cookie`。cookie 失效时适配器会给出明确提示。
+  - **新平台接入（标配）**：在 `providers/<name>.py` 声明 `COOKIE_EXPORT`（字段表见 `docs/ADAPTER_SPEC.md` §4），导出器自动发现（`python scripts/el.py cookie --list` 可查），无需改工具。
+
+### D. 置位（引导完成）
+
+四项确认全部完成后，运行：
+
+```bash
+python scripts/el.py onboard --complete
+```
+
+→ 标签位① 与标签位② 同步 `1 → 0`（SKILL.md）+ `config.onboarded = true`；此后不再触发引导，直接进入「正常调用工作流」。
+（需要重新引导：`python scripts/el.py onboard --reset`。）
