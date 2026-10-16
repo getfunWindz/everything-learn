@@ -880,3 +880,15 @@ def test_run_no_notice_when_onboarded(tmp_path, monkeypatch, capsys):
     el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
                                   no_whisper=False, pick=1), client=FakeClient())
     assert "引导未完成" not in capsys.readouterr().err
+
+
+def test_update_command_delegates(monkeypatch):
+    """el.py update → 委托 update.main（--dry-run 透传）"""
+    import update as upd_mod
+    seen = {}
+    monkeypatch.setattr(upd_mod, "main", lambda argv=None: seen.setdefault("argv", argv) or 0)
+    el.cmd_update(argparse.Namespace(dry_run=True))
+    assert seen["argv"] == ["--dry-run"]
+    monkeypatch.setattr(upd_mod, "main", lambda argv=None: seen.setdefault("argv2", argv) or 0)
+    el.cmd_update(argparse.Namespace(dry_run=False))
+    assert seen["argv2"] == []

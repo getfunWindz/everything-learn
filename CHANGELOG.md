@@ -2,6 +2,16 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本。
 
+## [0.3.1] - 2026-10-17
+
+### Added
+
+- **`scripts/update.py` 更新助手**（等价入口 `el.py update [--dry-run]`）：一键 `git pull --ff-only`，自动处理引导标签位（丢弃本地改动 → pull → 按原状态恢复），其他本地改动 stash/pop；pull 失败自动恢复暂存，不丢失用户改动。
+
+### Fixed
+
+- `update._git` 的全局 strip 破坏 porcelain 首行前导空格（首个文件解析少一字符）→ 改 rstrip + 回归测试。
+
 ## [0.3.0] - 2026-10-17
 
 **调用逻辑链重构 + 低配可用性**：SKILL.md 双标签位引导门；默认档 fast(small)；低配降级与强制推荐。

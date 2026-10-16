@@ -204,6 +204,12 @@ def cmd_onboard(args, client: ApiClient = None):
     print("完成后执行：python scripts/el.py onboard --complete")
 
 
+def cmd_update(args, client: ApiClient = None):
+    """更新技能仓库（git pull + 自动恢复引导标签位，2026-10-17）"""
+    import update as upd_mod
+    return upd_mod.main(["--dry-run"] if getattr(args, "dry_run", False) else [])
+
+
 def cmd_scan(args, client: ApiClient = None):
     """账号级扫描：枚举列表 → 过滤/优先级/快照（不抓内容）"""
     if not config.load_config().get("onboarded"):
@@ -558,6 +564,9 @@ def main(argv=None):
     obp.add_argument("--reset", action="store_true", help="重开引导（标签位置 1）")
     obp.add_argument("--json", action="store_true", help="输出 JSON 状态")
     obp.set_defaults(func=cmd_onboard)
+    upd = sub.add_parser("update", help="更新技能仓库（git pull + 自动恢复引导标签位）")
+    upd.add_argument("--dry-run", action="store_true", help="只显示计划，不做修改")
+    upd.set_defaults(func=cmd_update)
     run = sub.add_parser("run", help="获取内容（字幕/转写）并落盘")
     run.add_argument("input", nargs="?", default=None, help="内容链接/名称（--fav 模式可省略）")
     g = run.add_mutually_exclusive_group()

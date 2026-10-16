@@ -133,8 +133,9 @@ python scripts/el.py export "<报告目录>" --format html    # 或 docx
 
 ## 更新
 
-- 本仓库**不会自动推送到已部署副本**：`git clone` 部署需手动 `git pull`；直接复制文件部署需重新复制（无自动更新机制）。
-- `git pull` 若因 SKILL.md 引导标签位的本地修改被阻断：`git stash` → `git pull` → `python scripts/el.py onboard --complete`（恢复本地已引导状态；配置与产物不受影响）。
+- 本仓库**不会自动推送到已部署副本**：`git clone` 部署需手动更新；直接复制文件部署需重新复制（无自动更新机制）。
+- **一键更新（推荐）**：`python scripts/update.py`（或 `python scripts/el.py update`）——自动处理引导标签位：丢弃本地标签位改动 → `git pull --ff-only` → 按原状态恢复（已引导则自动 `--complete`）；其他本地改动自动 stash/pop；`--dry-run` 可先看计划。
+- 手动等价：`git stash` → `git pull` → `python scripts/el.py onboard --complete`。
 - 重新引导：`python scripts/el.py onboard --reset`（标签位回 1，下次使用重新展示四项确认）。
 
 ## 测试与工程
