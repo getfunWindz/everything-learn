@@ -6,6 +6,7 @@
 import os
 import re
 import tempfile
+import time
 from urllib.parse import parse_qs, urlparse
 
 from core import browserfetch
@@ -23,6 +24,8 @@ _USER_POST_API = re.compile(r"/aweme/v1/web/aweme/post/")   # 取证确认（见
 _SELF_RE = re.compile(r"douyin\.com/user/self")
 _COLLECT_API = re.compile(r"/aweme/v1/web/aweme/listcollection/")   # 取证确认（见 m12-ladder2-dd）
 _FAVORITE_API = re.compile(r"/aweme/v1/web/aweme/favorite/")   # 喜欢列表（取证确认）
+_DETAIL_API = re.compile(r"/aweme/v1/web/aweme/detail/")   # 视频 detail（B1：2026-10-16 浏览器路径实地验证）
+_TAB_SETTLE_MS = 4000   # B1（Round4 实测）：user/self 页 SPA 水合前点击 tab 会静默丢失
 _COOKIE_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".douyin_cookie")
 
 # cookie 一键导出规格（el.py cookie douyin；见 ADAPTER_SPEC §4）——访客 cookie 即可，无需登录
@@ -95,6 +98,46 @@ def to_netscape(cookie_str: str, domain: str = ".douyin.com") -> str:
             continue
         lines.append("\t".join([domain, "TRUE", "/", "FALSE", expiry, k, v]))
     return "\n".join(lines) + "\n"
+
+
+def detail_api_url(ref) -> str:
+    """视频 ref → aweme detail API URL（浏览器页内 fetch 兜底用）"""
+    return ("https://www.douyin.com/aweme/v1/web/aweme/detail/"
+            f"?aweme_id={ref.item_id}")
+
+
+def detail_to_info(detail: dict) -> dict:
+    """aweme_detail（浏览器路径）→ yt-dlp 同形 info dict（fetch_meta/fetch_media_url 复用）
+
+    注意：payload 的 duration 为毫秒；create_time 为 epoch（upload_date 取 UTC）。
+    formats：play_addr.url_list（含 api-play.amemv.com 官方 play 接口）+ bit_rate 各档（CDN）。
+    """
+    detail = detail or {}
+    v = detail.get("video") or {}
+    desc = (detail.get("desc") or "").strip()
+    first = (desc.splitlines() or [""])[0].strip()
+    dur_ms = detail.get("duration") or v.get("duration") or 0
+    ct = int(detail.get("create_time") or 0)
+    formats = []
+    pa = v.get("play_addr") or {}
+    for u in (pa.get("url_list") or []):
+        formats.append({"url": u, "height": v.get("height") or 0, "tbr": None})
+    for b in (v.get("bit_rate") or []):
+        bp = b.get("play_addr") or {}
+        for u in (bp.get("url_list") or []):
+            formats.append({"url": u, "height": 0, "tbr": (b.get("bit_rate") or 0) / 1000.0})
+    st = detail.get("statistics") or {}
+    return {
+        "id": str(detail.get("aweme_id") or ""),
+        "title": first or f"抖音视频 {detail.get('aweme_id')}",
+        "uploader": (detail.get("author") or {}).get("nickname") or "",
+        "duration": int(dur_ms / 1000) if dur_ms else 0,
+        "upload_date": time.strftime("%Y%m%d", time.gmtime(ct)) if ct else "",
+        "description": desc,
+        "view_count": st.get("play_count"), "like_count": st.get("digg_count"),
+        "comment_count": st.get("comment_count"), "repost_count": st.get("share_count"),
+        "formats": formats,
+    }
 
 
 def parse_user_post_payload(payloads: list) -> list:
@@ -215,6 +258,7 @@ class DouyinAdapter:
                 raise DouyinError("抖音未登录：请先在本机自动化浏览器中登录抖音"
                                   "（el.py cookie douyin 打开窗口后扫码）")
             s.goto(ref.url)
+            s.pause(_TAB_SETTLE_MS)   # 等 SPA 水合（否则点击 tab 不生效，实测复现）
 
             def act():
                 s.click("text=收藏", timeout=8000)
@@ -233,6 +277,7 @@ class DouyinAdapter:
                 raise DouyinError("抖音未登录：请先在本机自动化浏览器中登录抖音"
                                   "（el.py cookie douyin 打开窗口后扫码）")
             s.goto(ref.url)
+            s.pause(_TAB_SETTLE_MS)   # 等 SPA 水合（否则点击 tab 不生效，实测复现）
 
             def act():
                 s.click("text=喜欢", timeout=8000)
@@ -273,9 +318,40 @@ class DouyinAdapter:
                 raise DouyinError(f"抖音需要新鲜 cookie（请重新导出：el.py cookie douyin）：{msg}")
             raise DouyinError(f"抖音提取失败：{msg}")
 
+    def _extract_browser(self, ref) -> dict:
+        """browserfetch 取 aweme_detail：tap_json 拦截页面自身请求优先 → fetch_json 兜底（B1）
+
+        direct API（requests/yt-dlp）已被 Argus 硬拦（403 Uifid Not Found，2026-10-16 取证）；
+        真实浏览器上下文（带风控指纹/登录态）请求同一接口 200。
+        """
+        with browserfetch.BrowserSession("douyin") as s:
+            try:
+                payloads = s.tap_json(_DETAIL_API.pattern, action=lambda: s.goto(ref.url))
+            except browserfetch.BrowserFetchError:
+                payloads = []
+            detail = next(((p or {}).get("aweme_detail") for p in payloads
+                           if (p or {}).get("aweme_detail")), None)
+            if not detail:
+                data = s.fetch_json(detail_api_url(ref), warm_url=ref.url)
+                detail = (data or {}).get("aweme_detail")
+        if not detail:
+            raise DouyinError("浏览器未取得 aweme_detail（可能未登录/页面结构变化）")
+        return detail_to_info(detail)
+
     def _info(self, ref):
+        """detail 信息：浏览器路径主选（B1）→ yt-dlp 兜底（旧路径保留，平台若恢复可用）"""
         if ref.item_id not in self._meta_cache:
-            self._meta_cache[ref.item_id] = self._extract(ref.url)
+            errs = []
+            try:
+                self._meta_cache[ref.item_id] = self._extract_browser(ref)
+                return self._meta_cache[ref.item_id]
+            except Exception as e:
+                errs.append(f"浏览器: {str(e)[:100]}")
+            try:
+                self._meta_cache[ref.item_id] = self._extract(ref.url)
+            except Exception as e:
+                errs.append(f"yt-dlp: {str(e)[:100]}")
+                raise DouyinError("抖音取数失败（" + "；".join(errs) + "）")
         return self._meta_cache[ref.item_id]
 
     # ---------------- 元信息 / 内容 / 媒体 ----------------
@@ -315,9 +391,13 @@ class DouyinAdapter:
             return None
         fmts = [f for f in (info.get("formats") or []) if f.get("url")]
         if fmts:
-            # 优先 api-play*.amemv.com（官方 play 接口，裸下载可用）；CDN 直链（douyinvod/365yg）常 403
-            api = [f for f in fmts if "amemv.com/aweme/v1/play" in (f.get("url") or "")]
-            pool = api or fmts
+            # 优先 api-play*.amemv.com（官方 play 接口）；CDN 直链（douyinvod/365yg）在
+            # lowest（抽帧省带宽）时放行——B1 已实地验证 206 可下（2026-10-16）
+            if media == "video" and lowest:
+                pool = fmts
+            else:
+                api = [f for f in fmts if "amemv.com/aweme/v1/play" in (f.get("url") or "")]
+                pool = api or fmts
             pool.sort(key=lambda f: ((f.get("height") or 0), (f.get("tbr") or 0)))
             if media == "audio":
                 return pool[0]["url"]          # 转写只需音频：最小文件省带宽
