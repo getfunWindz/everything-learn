@@ -175,7 +175,7 @@ def _run_window_recheck(adapter, ref, lines, cfg, decision, opts, disputed=None)
     fps = rc.get("frame_fps", 3)
     win = max(float(rc.get("window_sec", 30) or 30), 1.0)
     max_frames = rc.get("max_check_frames", 20000)
-    dur = float(ref.duration or 0)
+    dur = recheck._effective_duration(lines, ref.duration)  # duration=0 适配器 → 回退末条字幕 end
 
     def _window_count(regions):
         return sum(math.ceil((float(r["end"]) - float(r["start"])) / win) for r in regions)
@@ -186,7 +186,7 @@ def _run_window_recheck(adapter, ref, lines, cfg, decision, opts, disputed=None)
                                           conf.get("pricing", {}) or {})
 
     original_lines = [dict(l) for l in lines]  # Q3：执行前快照（外层异常时回滚）
-    eff_dur = recheck._effective_duration(original_lines, ref.duration)  # Q2：统一分母
+    eff_dur = dur  # Q2：统一分母（regions/plan/coverage 同源，含 duration=0 回退值）
     try:
         tier = decision.get("tier")
         regions = ([{"start": 0.0, "end": dur, "reason": "全量档2", "score": 1.0}]
@@ -774,7 +774,9 @@ def _attribution_fallback(adapter, ref, lines, cfg):
         vp = os.path.join(tmpdir, "video.m4s")
         import transcriber as tr
         tr.download_audio(url, vp, headers=_media_headers(adapter))
-        return vision.check_attribution_aligned(conf, vp, lines, ref.duration)
+        from core import recheck as _rc
+        dur = _rc._effective_duration(lines, ref.duration)
+        return vision.check_attribution_aligned(conf, vp, lines, dur)
     except Exception as e:
         return {"passed": False, "reason": str(e)[:100], "reason_code": "error"}
     finally:

@@ -433,6 +433,31 @@ def test_attribution_fallback_delegates_to_vision(monkeypatch):
     assert r["passed"] is True and seen["url"] == "http://m/video-low"
 
 
+def test_attribution_fallback_passes_effective_duration(monkeypatch):
+    """duration=0（YouTube/TED 适配器未回填）→ 兜底把有效时长（末条字幕 end=19s）
+    传给 vision 裁决，而不是 0（旧实现 invalid_input，视觉兜底实际未执行）"""
+    import transcriber
+    import vision
+    seen = {}
+    monkeypatch.setattr(transcriber, "download_audio",
+                        lambda url, dest, headers=None: dest)
+    monkeypatch.setattr(vision, "check_attribution_aligned",
+                        lambda conf, vp, lines, dur:
+                        seen.update(dur=dur) or {"passed": True, "checked": True})
+
+    class A:
+        def fetch_media_url(self, ref, media="audio", lowest=False):
+            return "http://m/video-low"
+
+    class R:
+        duration = 0
+
+    cfg = {"vision": {"enabled": True, "api_key": "k"}}
+    r = pipeline._attribution_fallback(A(), R(), [{"start": 0, "end": 19, "text": "x"}], cfg)
+    assert r["passed"] is True
+    assert seen["dur"] == 19.0
+
+
 # ---------------- T12 评审修复：--no-whisper / --no-vision-check / 兜底契约 ----------------
 
 def test_no_whisper_keeps_unverified_candidate(monkeypatch, tmp_path):
@@ -1347,6 +1372,23 @@ def test_window_recheck_tier2_full_region_coverage(monkeypatch):
     assert seen["sample"] == [(0.0, 30.0, 3, True), (30.0, 60.0, 3, True)]
     assert out["coverage_pct"] == 100.0
     assert out["budget"]["estimate"]["windows"] == 2
+
+
+def test_window_recheck_tier2_duration_zero_uses_lines_fallback(monkeypatch):
+    """duration=0（YouTube/TED 适配器未回填）→ 档2 区域回退末条字幕 end=19s，
+    实抽 [0,19) 一窗、coverage>0（旧实现区域 [0,0] → 0 窗、coverage 0.0）"""
+    cfg = _rc_cfg()
+    ref = ItemRef(platform="demo", item_id="1", duration=0)
+    lines = [{"start": 0, "end": 19, "text": "内容"}]
+    monkeypatch.setattr(pipeline.recheck, "select_regions",
+                        lambda *a, **k: (_ for _ in ()).throw(
+                            AssertionError("档2 不应调用 select_regions")))
+    seen = _patch_window_io(monkeypatch, frames=[(0.0, b"jpg")])
+    out = pipeline._run_window_recheck(_VideoAdapter(), ref, lines, cfg,
+                                       {"tier": 2}, pipeline.RunOptions())
+    assert seen["sample"] == [(0.0, 19.0, 3, True)]
+    assert out["coverage_pct"] == 100.0
+    assert out["budget"]["estimate"]["windows"] == 1
 
 
 def test_window_recheck_without_video_stream_skipped(monkeypatch):
