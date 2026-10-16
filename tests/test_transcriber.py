@@ -245,3 +245,56 @@ def test_transcribe_samples_uses_model(monkeypatch):
     out = transcriber.transcribe_samples(np.zeros(16000, dtype=np.float32),
                                          model_size="small", language="zh")
     assert "你好" in out
+
+
+def test_transcribe_samples_info_returns_language(monkeypatch):
+    """同源校验需要 ASR 检测语言 → transcribe_samples_info 返回 (text, language)"""
+    import numpy as np
+    import transcriber
+
+    class Seg:
+        start, end, text = 0.0, 1.0, "  hello world "
+
+    class Info:
+        language = "en"
+
+    class FakeModel:
+        def __init__(self, *a, **k):
+            pass
+
+        def transcribe(self, samples, language=None, vad_filter=False):
+            return [Seg()], Info()
+
+    monkeypatch.setattr(transcriber, "_load_whisper", lambda: FakeModel)
+    monkeypatch.setattr(transcriber, "detect_device", lambda: "cpu")
+    text, lang = transcriber.transcribe_samples_info(np.zeros(16000, dtype=np.float32),
+                                                     model_size="small", language="zh")
+    assert text == "hello world" and lang == "en"
+
+
+def test_transcribe_samples_info_missing_language_degrades_to_empty(monkeypatch):
+    """info 缺失/无 language 属性 → 语言退化为空串（不抛异常）"""
+    import numpy as np
+    import transcriber
+
+    class FakeModel:
+        def __init__(self, *a, **k):
+            pass
+
+        def transcribe(self, samples, language=None, vad_filter=False):
+            return [], None
+
+    monkeypatch.setattr(transcriber, "_load_whisper", lambda: FakeModel)
+    monkeypatch.setattr(transcriber, "detect_device", lambda: "cpu")
+    assert transcriber.transcribe_samples_info(np.zeros(10, dtype=np.float32)) == ("", "")
+
+
+def test_transcribe_samples_compat_returns_text_only(monkeypatch):
+    """旧接口 transcribe_samples 签名与返回值保持不变（只返回 text）"""
+    import numpy as np
+    import transcriber
+
+    monkeypatch.setattr(transcriber, "transcribe_samples_info",
+                        lambda samples, sample_rate=16000, model_size="small", language=None:
+                        ("ok", "en"))
+    assert transcriber.transcribe_samples(np.zeros(10, dtype=np.float32)) == "ok"

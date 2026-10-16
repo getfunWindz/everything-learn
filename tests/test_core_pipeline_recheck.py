@@ -29,15 +29,15 @@ def test_same_source_verify_orchestration(monkeypatch):
     monkeypatch.setattr(transcriber, "download_audio",
                         lambda url, dest, headers=None: dest)
     monkeypatch.setattr(transcriber, "extract_audio_clip", fake_extract)
-    monkeypatch.setattr(transcriber, "transcribe_samples",
+    monkeypatch.setattr(transcriber, "transcribe_samples_info",
                         lambda samples, sr, model_size="small", language=None:
-                        spot_texts.get(int(last["start"]), ""))
+                        (spot_texts.get(int(last["start"]), ""), "zh"))
     cfg = {"recheck": {"same_source_threshold": 0.45, "same_source_model": "small"}}
     ref = ItemRef(platform="demo", item_id="1", duration=120)
     lines = [{"start": 0, "end": 10, "text": "今天讲注意力机制"},
              {"start": 54, "end": 66, "text": "然后我们看扩散模型"},
              {"start": 102, "end": 114, "text": "最后总结一下"}]
-    r = pipeline._same_source_verify(Adapter(), ref, lines, cfg)
+    r = pipeline._same_source_verify(Adapter(), ref, lines, cfg, subtitle_language="zh")
     assert r["checked"] is True and r["passed"] is True
     assert r["compared"] == 3 and r["empty"] == 0
 
@@ -56,8 +56,9 @@ def test_same_source_verify_insufficient_comparable_points(monkeypatch):
                         lambda url, dest, headers=None: dest)
     monkeypatch.setattr(transcriber, "extract_audio_clip",
                         lambda path, s, e: (np.zeros(10, dtype="float32"), 16000))
-    monkeypatch.setattr(transcriber, "transcribe_samples",
-                        lambda samples, sr, model_size="small", language=None: "今天讲注意力机制")
+    monkeypatch.setattr(transcriber, "transcribe_samples_info",
+                        lambda samples, sr, model_size="small", language=None:
+                        ("今天讲注意力机制", "zh"))
     cfg = {"recheck": {"same_source_threshold": 0.45}}
     ref = ItemRef(platform="demo", item_id="1", duration=120)
     lines = [{"start": 0, "end": 10, "text": "今天讲注意力机制"}]  # 仅覆盖第 1 个抽查点
@@ -109,6 +110,78 @@ def test_same_source_verify_fetch_media_url_exception_degrades(monkeypatch):
     assert "无音频流" in r["reason"]
 
 
+def _patch_same_source_io(monkeypatch, asr_text="今天讲注意力机制", subtitle_text=None,
+                          asr_lang="zh"):
+    """mock 同源校验 IO（下载/切段/转写）；返回 (Adapter 实例, duration=0 的 ref, 字幕 lines)。
+    lines 末条 end=170 → 时长回退后抽查点 (11,23)/(79,91)/(147,159)，三行字幕均可覆盖。"""
+    import numpy as np
+    import transcriber
+
+    class Adapter:
+        name = "demo"
+        def fetch_media_url(self, ref, media="audio", lowest=False):
+            return "http://m/audio"
+
+    sub_text = asr_text if subtitle_text is None else subtitle_text
+    monkeypatch.setattr(transcriber, "download_audio",
+                        lambda url, dest, headers=None: dest)
+    monkeypatch.setattr(transcriber, "extract_audio_clip",
+                        lambda path, s, e: (np.zeros(10, dtype="float32"), 16000))
+    monkeypatch.setattr(transcriber, "transcribe_samples_info",
+                        lambda samples, sr, model_size="small", language=None:
+                        (asr_text, asr_lang))
+    ref = ItemRef(platform="demo", item_id="1", duration=0)
+    lines = [{"start": 12, "end": 24, "text": sub_text},
+             {"start": 80, "end": 92, "text": sub_text},
+             {"start": 148, "end": 170, "text": sub_text}]
+    return Adapter(), ref, lines
+
+
+def test_same_source_verify_duration_falls_back_to_last_subtitle_end(monkeypatch):
+    """时长缺失（TED/YouTube ref.duration=0）→ 用字幕末条 end=170 近似，抽查点恢复 3 个"""
+    seen = []
+    real_pick = pipeline.recheck.pick_spot_times
+    monkeypatch.setattr(pipeline.recheck, "pick_spot_times",
+                        lambda d, n=3: seen.append(float(d)) or real_pick(d, n))
+    adapter, ref, lines = _patch_same_source_io(monkeypatch)
+    cfg = {"recheck": {"same_source_threshold": 0.45}}
+    r = pipeline._same_source_verify(adapter, ref, lines, cfg, subtitle_language="zh")
+    assert seen == [170.0]                # 不再传 0（单点 → insufficient）
+    assert r["compared"] == 3 and r["checked"] is True and r["passed"] is True
+
+
+def test_same_source_verify_language_gate_mismatch(monkeypatch):
+    """翻译轨：字幕 zh-Hans、音轨 ASR en → lang_mismatch（不判同源，交视觉归属兜底）"""
+    adapter, ref, lines = _patch_same_source_io(
+        monkeypatch, asr_text="attention mechanisms and diffusion models",
+        subtitle_text="今天讲注意力和扩散模型", asr_lang="en")
+    cfg = {"recheck": {"same_source_threshold": 0.45}}
+    r = pipeline._same_source_verify(adapter, ref, lines, cfg, subtitle_language="zh-Hans")
+    assert r["checked"] is False and r["passed"] is False
+    assert r["reason_code"] == "lang_mismatch"
+    assert r["subtitle_language"] == "zh-Hans" and r["asr_languages"] == ["en"]
+    assert "疑似翻译轨" in r["reason"]
+
+
+def test_same_source_verify_same_language_passes_with_duration_fallback(monkeypatch):
+    """YouTube 形态回归：时长缺失回退后，同语言（en-US vs en）→ 语言门不误杀，compared=3"""
+    adapter, ref, lines = _patch_same_source_io(
+        monkeypatch, asr_text="keep your goals to yourself", asr_lang="en")
+    cfg = {"recheck": {"same_source_threshold": 0.45}}
+    r = pipeline._same_source_verify(adapter, ref, lines, cfg, subtitle_language="en-US")
+    assert r["checked"] is True and r["passed"] is True
+    assert r["compared"] == 3
+
+
+def test_lang_base_takes_primary_subtag():
+    """语言主代码归一：zh-Hans/zh-cn/zh_CN → zh；en-US → en；空 → ''"""
+    assert pipeline._lang_base("zh-Hans") == "zh"
+    assert pipeline._lang_base("zh-cn") == "zh"
+    assert pipeline._lang_base("zh_CN") == "zh"
+    assert pipeline._lang_base("en-US") == "en"
+    assert pipeline._lang_base("") == "" and pipeline._lang_base(None) == ""
+
+
 # ---------------- T12：来源策略接线（process_item） ----------------
 
 class DemoAdapter:
@@ -139,7 +212,13 @@ def _run(monkeypatch, adapter, tmp_path, same_source_passed=True, whisper_lines=
     monkeypatch.setattr(pipeline.config, "load_config", lambda: cfg)
     ss = ss_override or {"checked": True, "passed": same_source_passed,
                          "avg": 0.9 if same_source_passed else 0.1}
-    monkeypatch.setattr(pipeline, "_same_source_verify", lambda a, r, lines, c: dict(ss))
+
+    def _ss_spy(a, r, lines, c, subtitle_language=""):
+        if calls is not None:
+            calls.setdefault("subtitle_language", []).append(subtitle_language)
+        return dict(ss)
+
+    monkeypatch.setattr(pipeline, "_same_source_verify", _ss_spy)
 
     def _attr_spy(a, r, lines, c):
         if calls is not None:
@@ -200,6 +279,71 @@ def test_no_audio_triggers_attribution_fallback(monkeypatch, tmp_path):
                      "reason_code": "no_audio", "reason": "无可下载音频流"},
         attr_override={"passed": True, "checked": True})
     assert (status, src, n) == ("ok", "字幕", 1)
+
+
+# ---------------- M13 修复：翻译轨语言门 + 视觉归属降级 ----------------
+
+_LANG_MISMATCH_SS = {"checked": False, "passed": False, "reason_code": "lang_mismatch",
+                     "subtitle_language": "zh-Hans", "asr_languages": ["en"],
+                     "reason": "字幕语言与音轨语言不同（疑似翻译轨），改走视觉归属复检"}
+
+
+def _lang_mismatch_res():
+    return ContentResult(kind="timeline", status="ok", provenance="official",
+                         label="字幕(官方 zh-Hans)", language="zh-Hans",
+                         segments=[{"start": 0, "end": 5, "text": "官方中文字幕"}])
+
+
+def test_lang_mismatch_passes_subtitle_language_and_attribution_pass_keeps(monkeypatch, tmp_path):
+    """翻译轨 + vision 开：字幕语言透传；视觉归属通过 → 采信字幕（不标注）"""
+    res = _lang_mismatch_res()
+    calls = {}
+    status, src, n, _, err = _run(
+        monkeypatch, DemoAdapter(res), tmp_path, calls=calls,
+        ss_override=dict(_LANG_MISMATCH_SS),
+        attr_override={"passed": True, "checked": True})
+    assert (status, src, n) == ("ok", "字幕(官方 zh-Hans)", 1)
+    assert calls.get("subtitle_language") == ["zh-Hans"]   # 语言门输入接线
+    assert calls.get("attribution")                          # 语言门触发 → 视觉归属兜底
+    assert calls.get("transcribe") in (None, [])            # 未走 Whisper
+
+
+def test_lang_mismatch_attribution_verdict_fail_goes_whisper(monkeypatch, tmp_path):
+    """翻译轨 + vision 开：视觉归属明确否决（checked=True/passed=False）→ 丢弃转 Whisper"""
+    res = _lang_mismatch_res()
+    calls = {}
+    status, src, n, _, err = _run(
+        monkeypatch, DemoAdapter(res), tmp_path, calls=calls,
+        ss_override=dict(_LANG_MISMATCH_SS),
+        attr_override={"passed": False, "checked": True,
+                       "verdicts": [{"ts": 1, "match": False}]})
+    assert (status, src, n) == ("ok", "whisper", 1)
+    assert calls.get("attribution")
+    assert calls.get("transcribe")
+
+
+def test_lang_mismatch_without_vision_keeps_subtitle_annotated(monkeypatch, tmp_path):
+    """翻译轨 + --no-vision-check：不强制丢弃 → 采信字幕并标注（人工翻译是合法内容）"""
+    res = _lang_mismatch_res()
+    calls = {}
+    status, src, n, _, err = _run(
+        monkeypatch, DemoAdapter(res), tmp_path, calls=calls, no_vision_check=True,
+        ss_override=dict(_LANG_MISMATCH_SS))
+    assert (status, src, n) == ("ok", "字幕(官方 zh-Hans)（语言不匹配，未同源校验）", 1)
+    assert calls.get("attribution") in (None, [])           # 不触碰付费视觉兜底
+    assert calls.get("transcribe") in (None, [])            # 不丢翻译轨走 Whisper
+
+
+def test_lang_mismatch_attribution_unavailable_keeps_subtitle_annotated(monkeypatch, tmp_path):
+    """翻译轨 + vision 已开但兜底无明确裁决（no_vision/invalid_input）→ 仍采信并标注"""
+    res = _lang_mismatch_res()
+    calls = {}
+    status, src, n, _, err = _run(
+        monkeypatch, DemoAdapter(res), tmp_path, calls=calls,
+        ss_override=dict(_LANG_MISMATCH_SS),
+        attr_override={"passed": False, "checked": False, "reason": "invalid_input"})
+    assert (status, src, n) == ("ok", "字幕(官方 zh-Hans)（语言不匹配，未同源校验）", 1)
+    assert calls.get("attribution") and calls.get("transcribe") in (None, [])
 
 
 def test_whisper_failure_falls_back_to_subtitle(monkeypatch, tmp_path):
@@ -555,7 +699,8 @@ def _run_wiring(monkeypatch, tmp_path, *, tier=1, vision_enabled=True,
     cfg["out_dir"] = str(tmp_path)
     monkeypatch.setattr(pipeline.config, "load_config", lambda: cfg)
     monkeypatch.setattr(pipeline, "_same_source_verify",
-                        lambda a, r, lines, c: dict(ss_override or {"checked": True, "passed": True, "avg": 0.9}))
+                        lambda a, r, lines, c, subtitle_language="":
+                        dict(ss_override or {"checked": True, "passed": True, "avg": 0.9}))
     monkeypatch.setattr(pipeline.recheck, "gather_signals", lambda *a, **k: dict(_WIRING_SIGNALS))
     captured = {}
     decide_calls = []
@@ -1540,7 +1685,8 @@ _WM_T15 = {"coverage_pct": 50.0,
 def _run_full_artifacts(monkeypatch, tmp_path, *, window_meta=None, tier=1,
                         vision_enabled=True, mutate_lines=None,
                         provenance="human", segment_text="他说到了注意利机制",
-                        whisper_lines=None):
+                        whisper_lines=None, ss_override=None, label="字幕(人工)",
+                        res_language=""):
     """T15：真实落盘路径（build_info/write_item_artifacts 均不 mock），
     仅 mock 网络/模型；mutate_lines 用于模拟窗口复检对 lines 的补充/校正。"""
     from core import config as core_config
@@ -1551,8 +1697,9 @@ def _run_full_artifacts(monkeypatch, tmp_path, *, window_meta=None, tier=1,
     cfg["out_dir"] = str(tmp_path)
     monkeypatch.setattr(pipeline.config, "load_config", lambda: cfg)
     monkeypatch.setattr(pipeline, "_same_source_verify",
-                        lambda a, r, lines, c: {"checked": True, "passed": True,
-                                                "avg": 0.9, "compared": 3})
+                        lambda a, r, lines, c, subtitle_language="":
+                        dict(ss_override or {"checked": True, "passed": True,
+                                             "avg": 0.9, "compared": 3}))
     monkeypatch.setattr(pipeline.recheck, "gather_signals",
                         lambda *a, **k: dict(_WIRING_SIGNALS))
     monkeypatch.setattr(pipeline.recheck, "decide_tier",
@@ -1578,7 +1725,7 @@ def _run_full_artifacts(monkeypatch, tmp_path, *, window_meta=None, tier=1,
     A.language_hint = "zh"
     A.has_video = True
     res = ContentResult(kind="timeline", status="ok", provenance=provenance,
-                        label="字幕(人工)",
+                        label=label, language=res_language,
                         segments=[{"start": 0, "end": 5, "text": segment_text}])
     opts = pipeline.RunOptions(out_root=str(tmp_path), no_cache=True)
     out = pipeline.process_item(A(res), ItemRef(platform="demo", item_id="1", duration=120),
@@ -1612,7 +1759,8 @@ def test_process_item_content_info_carries_uncovered_from_window_clip(monkeypatc
     cfg["out_dir"] = str(tmp_path)
     monkeypatch.setattr(pipeline.config, "load_config", lambda: cfg)
     monkeypatch.setattr(pipeline, "_same_source_verify",
-                        lambda a, r, lines, c: {"checked": True, "passed": True, "avg": 0.9})
+                        lambda a, r, lines, c, subtitle_language="":
+                        {"checked": True, "passed": True, "avg": 0.9})
     monkeypatch.setattr(pipeline.recheck, "gather_signals",
                         lambda *a, **k: dict(_WIRING_SIGNALS))
     monkeypatch.setattr(pipeline.recheck, "decide_tier",
@@ -1682,6 +1830,20 @@ def test_process_item_recheck_report_skipped_branch(monkeypatch, tmp_path):
     assert data["tier"] == 1 and "未配置" in data["skipped"]
     assert "budget" not in data and data["uncertain"] == []
     assert data["same_source"]["compared"] == 3
+
+
+def test_process_item_lang_mismatch_no_vision_keeps_subtitle_and_same_source(monkeypatch, tmp_path):
+    """翻译轨（vision 不可用）采信 → src 带标注；recheck_report 仍写 same_source（含兜底证据）"""
+    out, _ = _run_full_artifacts(
+        monkeypatch, tmp_path, vision_enabled=False, provenance="official",
+        label="字幕(官方 zh-Hans)", res_language="zh-Hans",
+        ss_override=dict(_LANG_MISMATCH_SS))
+    assert out[0] == "ok"
+    assert out[1] == "字幕(官方 zh-Hans)（语言不匹配，未同源校验）"
+    report = json.load(open(os.path.join(out[3], "recheck_report.json"), encoding="utf-8"))
+    assert report["same_source"]["reason_code"] == "lang_mismatch"
+    assert report["same_source"]["asr_languages"] == ["en"]
+    assert report["same_source"]["attribution_fallback"]["reason_code"] == "no_vision"
 
 
 def test_process_item_document_writes_no_recheck_report(monkeypatch, tmp_path):

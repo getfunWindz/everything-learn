@@ -409,19 +409,29 @@ def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False)
     ss = {}
     if subtitle_candidate and provenance in ("human", "official", "unknown"):
         print(f"  P{label} 字幕来源={provenance} → 同源校验……", file=sys.stderr)
-        ss = _same_source_verify(adapter, ref, subtitle_candidate, config.load_config())
+        ss = _same_source_verify(adapter, ref, subtitle_candidate, config.load_config(),
+                                 subtitle_language=res.language or "")
         accepted = bool(ss.get("passed"))
-        if not accepted and ss.get("reason_code") == "no_audio" and not opts.no_vision_check:
+        lang_mismatch = ss.get("reason_code") == "lang_mismatch"
+        if (not accepted and ss.get("reason_code") in ("no_audio", "lang_mismatch")
+                and not opts.no_vision_check):
             fb = _attribution_fallback(adapter, ref, subtitle_candidate, config.load_config())
             ss = dict(ss, attribution_fallback=fb)
             accepted = bool(fb.get("passed"))
-        if accepted:
+        # 翻译轨保护（M13 修复）：lang_mismatch 且视觉归属未给出明确否决（未执行/不可用/
+        # 无裁决）→ 采信人工翻译，不因语言不同而丢弃（翻译轨是合法内容，丢弃损失翻译质量）
+        fb_meta = ss.get("attribution_fallback") or {}
+        translation_kept = lang_mismatch and not accepted and not fb_meta.get("checked")
+        if accepted or translation_kept:
             lines = subtitle_candidate
             src = res.label or "字幕"
+            if translation_kept:
+                src = f"{src}（语言不匹配，未同源校验）"
             # D3：字幕采信 → 产物语言取字幕声明 > 适配器主语言 > --lang
             language_used = (res.language or getattr(adapter, "language_hint", None)
                              or opts.lang or None)
-            print(f"  P{label} 字幕采信（同源校验通过）", file=sys.stderr)
+            why_ok = "同源校验通过" if accepted else "语言不匹配，视觉归属未否决"
+            print(f"  P{label} 字幕采信（{why_ok}）", file=sys.stderr)
         else:
             why = ss.get("reason") or ss.get("reason_code")
             fb = ss.get("attribution_fallback") or {}
@@ -700,17 +710,28 @@ def run_input(input_str: str, opts: RunOptions, adapter=None, client=None):
 
 # ---------------- 同源校验（音频抽查 + difflib 判定） ----------------
 
-def _same_source_verify(adapter, ref, lines, cfg):
+def _lang_base(code) -> str:
+    """语言主代码归一：zh-Hans/zh-cn/zh_CN → zh；en-US → en；空/None → ''"""
+    return re.split(r"[-_]", (code or "").strip().lower(), 1)[0]
+
+
+def _same_source_verify(adapter, ref, lines, cfg, subtitle_language=""):
     """同源校验：音频抽查 → Whisper small → 相似度判定；
-    任何异常/不可用 → checked=False（reason_code: no_audio|insufficient|error），
-    降级不阻塞主流程"""
+    任何异常/不可用 → checked=False（reason_code: no_audio|lang_mismatch|insufficient|error），
+    降级不阻塞主流程。
+
+    时长回退：ref.duration 缺失/为 0（适配器未回填）→ 用字幕末条 end 近似，
+    避免 pick_spot_times(0) 只剩单点导致 insufficient 系统性误杀。
+    语言门：字幕语言与音轨 ASR 语言不同（疑似翻译轨）→ lang_mismatch，
+    不判同源，交视觉归属复检/翻译轨保护处理。"""
     import transcriber as tr
     tmpdir = tempfile.mkdtemp(prefix="el_ss_")
     try:
         url = adapter.fetch_media_url(ref, media="audio")
         if not url:
             return {"checked": False, "reason": "无可下载音频流", "reason_code": "no_audio"}
-        spots = recheck.pick_spot_times(ref.duration)
+        dur = float(ref.duration or 0) or (float(lines[-1]["end"]) if lines else 0)
+        spots = recheck.pick_spot_times(dur)
         media_path = os.path.join(tmpdir, "audio.m4s")
         tr.download_audio(url, media_path, headers=_media_headers(adapter))
         clips = []
@@ -718,10 +739,18 @@ def _same_source_verify(adapter, ref, lines, cfg):
             samples, sr = tr.extract_audio_clip(media_path, s, e)
             if len(samples) == 0:
                 continue
-            text = tr.transcribe_samples(
+            text, asr_lang = tr.transcribe_samples_info(
                 samples, sr, model_size=cfg.get("recheck", {}).get("same_source_model", "small"))
-            clips.append((s, e, text))
-        result = recheck.same_source_check(clips, lines, cfg)
+            clips.append((s, e, text, asr_lang))
+        asr_langs = {lang for (_s, _e, text, lang) in clips if text}
+        if (subtitle_language and asr_langs
+                and all(_lang_base(l) != _lang_base(subtitle_language) for l in asr_langs)):
+            return {"checked": False, "passed": False, "reason_code": "lang_mismatch",
+                    "subtitle_language": subtitle_language,
+                    "asr_languages": sorted(asr_langs),
+                    "reason": "字幕语言与音轨语言不同（疑似翻译轨），改走视觉归属复检"}
+        result = recheck.same_source_check(
+            [(s, e, text) for (s, e, text, _lang) in clips], lines, cfg)
         if not result["checked"] and not result.get("reason_code"):
             result["reason_code"] = "insufficient"
         return result

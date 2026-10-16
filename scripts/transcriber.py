@@ -197,12 +197,20 @@ def extract_audio_clip(path: str, start_sec: float, end_sec: float, sample_rate:
         container.close()
 
 
-def transcribe_samples(samples, sample_rate: int = 16000, model_size: str = "small",
-                       language: str = None) -> str:
-    """短片段转写（同源校验用）→ 纯文本"""
+def transcribe_samples_info(samples, sample_rate: int = 16000, model_size: str = "small",
+                            language: str = None):
+    """短片段转写（同源校验用）→ (text, asr_language)；语言用于翻译轨识别"""
     WhisperModel = _load_whisper()
     device = detect_device()
     model = WhisperModel(model_size, device=device,
                          compute_type="int8" if device == "cpu" else "float16")
-    segments, _ = model.transcribe(samples, language=language, vad_filter=False)
-    return clean_text(" ".join(s.text for s in segments))
+    segments, info = model.transcribe(samples, language=language, vad_filter=False)
+    lang = getattr(info, "language", "") or ""
+    return clean_text(" ".join(s.text for s in segments)), lang
+
+
+def transcribe_samples(samples, sample_rate: int = 16000, model_size: str = "small",
+                       language: str = None) -> str:
+    """短片段转写（同源校验用）→ 纯文本（兼容旧接口）"""
+    return transcribe_samples_info(samples, sample_rate=sample_rate,
+                                   model_size=model_size, language=language)[0]
