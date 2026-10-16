@@ -17,6 +17,10 @@
 
 - `_run_window_recheck` 校正行补记 `corrected_to`（供术语库自动反哺）。
 
+### Changed
+
+- **README 中英双语** + 产品级标语「一切知识皆力量 / Knowledge is Power」。
+
 ### 测试
 
 - **769 项离线测试**（新增 5 项）。
