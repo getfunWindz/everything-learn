@@ -344,6 +344,30 @@ def _run_window_recheck(adapter, ref, lines, cfg, decision, opts, disputed=None)
 
 # ---------------- 单 item 处理 ----------------
 
+
+def _document_lite_recheck(adapter, res, opts):
+    """B2：视频帖（document）口播转写 → lite 版档位评估（不执行窗口复检）
+
+    与 timeline 的 T13/T14 使用同一套确定性评分（gather_signals/decide_tier）；
+    产物落 recheck_report.json 并在 content_info.recheck 留痕。窗口级抽帧复检
+    暂不在文档形态实现（无时间轴合并语义），skipped 字段如实标注（R13）。
+    """
+    video_lines = list(getattr(res, "video_lines", None) or [])
+    video_dur = float(getattr(res, "video_duration", 0) or 0)
+    if not video_lines or video_dur <= 0 or not getattr(adapter, "has_video", True):
+        return None
+    cfg_full = config.load_config()
+    signals = recheck.gather_signals(video_lines, video_dur, "whisper", _load_glossary_terms())
+    decision = recheck.decide_tier(signals, cfg_full, "whisper", has_video=True,
+                                   policy=getattr(opts, "recheck", None))
+    return {"tier": decision["tier"], "score": decision["score"],
+            "reasons": decision["reasons"],
+            "signals": {k: signals[k] for k in ("dur_min", "kp_density", "kp_spread",
+                                                "src_risk", "vis_ref", "gap_ratio", "max_gap")},
+            "lite": True, "skipped": "文档形态：仅档位评估（未执行窗口复检）",
+            "same_source": {}, "uncertain": []}
+
+
 def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False):
     """处理单个 item → (status, source, line_count, out_dir, error)"""
     label = str(ref.sub_id or "1")
@@ -395,12 +419,21 @@ def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False)
                 assets = images.download_images(res.images, out_dir, platform=ref.platform)
             except Exception as e:
                 print(f"  P{label} 图片下载失败（不影响正文）：{str(e)[:80]}", file=sys.stderr)
+        recheck_meta = _document_lite_recheck(adapter, res, opts)
         info = artifacts.build_info(meta, ref, kind="document", source=src,
-                                    page_count=opts.page_count, assets=assets)
+                                    page_count=opts.page_count, assets=assets,
+                                    recheck=recheck_meta,
+                                    provenance=("whisper" if recheck_meta else None),
+                                    language=(res.language or None))
         artifacts.write_item_artifacts(out_dir, info, DocumentContent(blocks=res.blocks, images=res.images))
+        if recheck_meta:
+            artifacts.write_recheck_report(out_dir, recheck_meta)
         if not opts.no_cache:
             cache.set_cached(ref.platform, ref.item_id, ref.sub_id,
-                             {"kind": "document", "items": res.blocks, "images": res.images})
+                             {"kind": "document", "items": res.blocks, "images": res.images,
+                              "provenance": ("whisper" if recheck_meta else None),
+                              "language": res.language or None,
+                              "recheck": recheck_meta, "recheck_report": recheck_meta})
         return "ok", src, len(res.blocks), out_dir, ""
     # 3) timeline：来源策略（spec §5.2：auto→Whisper；human/official/unknown→同源门槛）
     provenance = getattr(res, "provenance", "unknown") or "unknown"

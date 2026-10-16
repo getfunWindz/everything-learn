@@ -127,6 +127,8 @@ def test_video_transcribed_block(monkeypatch):
     res = a.fetch_content(ref)
     assert any(b["heading"] == "视频口播内容" and "Falcon has landed" in b["text"]
                for b in res.blocks)
+    assert res.video_lines and res.video_lines[0]["text"] == "Falcon has landed"   # B2：片段传递
+    assert res.video_duration > 0                                                  # B2：视频时长
 
 
 def test_video_transcribe_failure_note(monkeypatch):

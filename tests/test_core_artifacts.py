@@ -113,6 +113,28 @@ def test_render_document_template_sections():
         assert kw in tpl
 
 
+def test_render_document_template_recheck_section_when_present():
+    """B2：document 带复检 meta 时渲染「复检说明」小节"""
+    from report import render_template_for
+    ref = ItemRef(platform="x_twitter", item_id="t1", url="u")
+    meta = ItemMeta(title="推文", author="NASA")
+    info = build_info(meta, ref, kind="document", source="正文",
+                      recheck={"tier": 1, "score": 0.2, "reasons": ["density=1.0/min"],
+                               "lite": True, "skipped": "文档形态：仅档位评估（未执行窗口复检）"})
+    tpl = render_template_for("document", info)
+    assert "## 复检说明" in tpl
+    assert "档位：1" in tpl
+
+
+def test_render_document_template_no_recheck_no_section():
+    """B2：无复检 meta 的 document 不渲染「复检说明」"""
+    from report import render_template_for
+    ref = ItemRef(platform="zhihu", item_id="a1", url="u")
+    meta = ItemMeta(title="文章", author="答主")
+    info = build_info(meta, ref, kind="document", source="正文")
+    assert "## 复检说明" not in render_template_for("document", info)
+
+
 def test_render_timeline_template_recheck_section():
     """T16：timeline 骨架在正文前渲染「复检说明」（档位/评分/理由/覆盖/同源校验）"""
     from report import render_template_for

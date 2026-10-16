@@ -193,6 +193,31 @@ def test_process_item_document_downloads_images(tmp_path, monkeypatch):
     assert status == "ok" and info["assets"] == ["assets/img_01.jpg"]
 
 
+def test_process_item_document_video_lite_recheck(tmp_path):
+    """B2：视频帖（document）产 lite 版档位复检 meta + recheck_report.json"""
+    a = FakeAdapter(kind="document")
+    a.content.video_lines = [{"start": 0.0, "end": 10.0,
+                              "text": "这段讲了性质变化和方向比较，单位是米"}]
+    a.content.video_duration = 10.0
+    out = str(tmp_path / "out")
+    status, src, n, out_dir, err = process_item(a, _ref(), out, RunOptions(out_root=out), single=True)
+    assert (status, src, n, err) == ("ok", "document", 1, "")
+    info = json.load(open(os.path.join(out_dir, "content_info.json"), encoding="utf-8"))
+    assert info["provenance"] == "whisper"
+    assert info["recheck"]["lite"] is True
+    assert info["recheck"]["tier"] in (1, 2)
+    assert os.path.exists(os.path.join(out_dir, "recheck_report.json"))
+
+
+def test_process_item_document_without_video_no_recheck(tmp_path):
+    """B2：纯图文 document（无视频转写）不产复检记录"""
+    out = str(tmp_path / "out")
+    status, src, n, out_dir, err = process_item(FakeAdapter(kind="document"), _ref(), out,
+                                                RunOptions(out_root=out), single=True)
+    info = json.load(open(os.path.join(out_dir, "content_info.json"), encoding="utf-8"))
+    assert status == "ok" and not info.get("recheck")
+
+
 def test_run_input_meta_failure_becomes_pipeline_error(tmp_path):
     """适配器 fetch_meta 失败（如 cookie 失效）→ PipelineError（可读，非裸 ValueError）"""
     class BadMeta(FakeAdapter):

@@ -38,3 +38,13 @@ def test_content_result_provenance_language_defaults():
     r = ContentResult(kind="timeline", status="ok")
     assert r.provenance == "unknown"
     assert r.language == ""
+
+
+def test_content_result_video_lines_defaults():
+    """B2：document 视频帖的口播片段与时长字段"""
+    r = ContentResult(kind="document", status="ok")
+    assert r.video_lines == [] and r.video_duration == 0.0
+    r2 = ContentResult(kind="document", status="ok",
+                       video_lines=[{"start": 0, "end": 1, "text": "口播"}],
+                       video_duration=1.0)
+    assert r2.video_lines[0]["text"] == "口播" and r2.video_duration == 1.0

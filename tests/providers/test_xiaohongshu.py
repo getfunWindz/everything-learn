@@ -136,6 +136,7 @@ def test_video_note_transcribed(monkeypatch):
                         lambda url, **kw: [{"start": 0.0, "end": 1.0, "text": "测试口播"}])
     res = a.fetch_content(ref)
     assert any(b["heading"] == "视频口播内容" and "测试口播" in b["text"] for b in res.blocks)
+    assert res.video_lines and res.video_lines[0]["text"] == "测试口播"   # B2：片段传递
     assert res.images == []          # 视频笔记不把封面当正文图
     assert a.fetch_media_url(ref).startswith("https://sns-video")
 

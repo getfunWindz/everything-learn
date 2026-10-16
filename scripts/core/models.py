@@ -66,3 +66,5 @@ class ContentResult:
     label: str = ""                 # 内容来源标注（如 “字幕(自动)”），透传到 content_info.source
     provenance: str = "unknown"     # human | official | auto | unknown | none（M13 来源分级）
     language: str = ""              # 字幕/转写语言（如 zh / en；空=未知）
+    video_lines: list = field(default_factory=list)   # document（视频帖）：口播转写片段 {start,end,text}（B2）
+    video_duration: float = 0.0                       # 视频帖时长（秒；B2 档位评估）

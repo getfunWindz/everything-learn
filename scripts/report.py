@@ -156,6 +156,7 @@ def render_document_template(info: dict) -> str:
 
 > 简介：{info['desc'] or '（无）'}
 
+{_recheck_section(info) if info.get('recheck') else ''}
 ## 一句话总结
 
 <!-- 用 1-3 句话概括文章核心内容 -->

@@ -259,15 +259,20 @@ class XTwitterAdapter:
         except XError as e:
             return ContentResult(kind="document", status="empty", reason=str(e)[:120], label="正文")
         blocks = [{"heading": "", "text": d["text"]}]
+        video_lines = []
         if d.get("video_url") and d.get("video_ms"):
-            blocks.append(self._transcribe_block(d))
+            block, video_lines = self._transcribe_block(d)
+            blocks.append(block)
         text_len = sum(len(b["text"] or "") for b in blocks)
         status = "ok" if (text_len >= 20 or d["images"]) else "suspect"
         reason = "" if status == "ok" else f"正文过短（{text_len} 字）"
         return ContentResult(kind="document", status=status, blocks=blocks,
-                             images=d["images"], reason=reason, label="正文")
+                             images=d["images"], reason=reason, label="正文",
+                             video_lines=video_lines,
+                             video_duration=(d["video_ms"] / 1000 if video_lines else 0.0))
 
-    def _transcribe_block(self, d: dict) -> dict:
+    def _transcribe_block(self, d: dict):
+        """视频口播转写 → (block, lines)；B2：lines 供流水线做档位评估"""
         try:
             import transcriber
             cfg = config.load_config()
@@ -280,9 +285,9 @@ class XTwitterAdapter:
                 headers={"User-Agent": _UA, "Referer": "https://x.com/"},
                 language=None)          # 多语言内容：自动检测（默认 zh 是 B 站向）
             text = " ".join((l.get("text") or "").strip() for l in lines if (l.get("text") or "").strip())
-            return {"heading": "视频口播内容", "text": text or "（视频无口播内容）"}
+            return {"heading": "视频口播内容", "text": text or "（视频无口播内容）"}, lines
         except Exception as e:
-            return {"heading": "视频口播内容", "text": f"（视频转写失败：{str(e)[:80]}）"}
+            return {"heading": "视频口播内容", "text": f"（视频转写失败：{str(e)[:80]}）"}, []
 
     def fetch_media_url(self, ref, media="audio", lowest=False):
         try:
