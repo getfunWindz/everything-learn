@@ -8,7 +8,7 @@
 <p align="center">
   <a href="https://github.com/getfunWindz/everything-learn/actions/workflows/tests.yml"><img src="https://github.com/getfunWindz/everything-learn/actions/workflows/tests.yml/badge.svg" alt="tests"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="license: MIT"></a>
-  <img src="https://img.shields.io/badge/tests-664%20offline-brightgreen.svg" alt="664 offline tests">
+  <img src="https://img.shields.io/badge/tests-755%20offline-brightgreen.svg" alt="755 offline tests">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python 3.10+">
 </p>
 
@@ -123,17 +123,24 @@ python scripts/el.py export "<报告目录>" --format html    # 或 docx
 ## 平台细节
 
 - **复检与成本**：AI 字幕不再直接入库（转 Whisper，字幕留作交叉比对）；人工/官方字幕先过同源校验；复检档位 1/2/3（档3 需白名单、默认关闭），档1 定向、档2 全量（3 帧/秒 + 静帧去重）；金额超阈值先出预算卡。
-- **B 站**：AI 字幕（`lan=ai-*`）→ Whisper 主选（AI 字幕留作双 ASR 交叉比对）；人工字幕先过同源校验；评分定档后执行窗口复检（默认 `medium`，长视频默认禁 VAD）。
+- **B 站**：AI 字幕（`lan=ai-*`）→ Whisper 主选（AI 字幕留作双 ASR 交叉比对）；人工字幕先过同源校验；评分定档后执行窗口复检（默认 fast=small，建议升 medium——实机最佳；长视频默认禁 VAD）。
 - **YouTube**：自动字幕为滚动式，已做重复清洗并标注「字幕(自动)」；自动翻译轨被限流时自动回退其它语言轨。
 - **播客 / TED**：播客纯音频——档位复检记 n/a，仅同理源校验；TED 官方字幕优先（同源校验 + 档位复检照常）。
 - **知乎 / 公众号 / Medium**：SSR 正文 → 章节式报告；公众号图片走 `data-src` 懒加载链，Medium 走 SSR 块抽取。
 - **微博 / X / 小红书 / 抖音**：社交内容映射为 document；X / 小红书视频帖附「视频口播内容」+ lite 档位复检（`recheck_report.json`，窗口级复检为后续项）；均按平台缓速（6–12s）并给出可读的风控提示。
 - **反爬纪律**：平台级缓速 + 退避重试 + 持久化浏览器 profile（Cloudflare / 签名平台统一走 `browserfetch`，不逆向签名）。
+- **低配可用（0.3.0）**：仅 `requests` 环境——图文平台可用；字幕平台自动降级（标注「低配：未经同源校验」+ `quality_hint` 推荐补依赖/升 medium）；whisper 平台给安装引导；画面复检依赖缺失时自动跳过。转写档位低于 medium 时产物带 `quality.tier_note` 常驻建议。
+
+## 更新
+
+- 本仓库**不会自动推送到已部署副本**：`git clone` 部署需手动 `git pull`；直接复制文件部署需重新复制（无自动更新机制）。
+- `git pull` 若因 SKILL.md 引导标签位的本地修改被阻断：`git stash` → `git pull` → `python scripts/el.py onboard --complete`（恢复本地已引导状态；配置与产物不受影响）。
+- 重新引导：`python scripts/el.py onboard --reset`（标签位回 1，下次使用重新展示四项确认）。
 
 ## 测试与工程
 
 ```bash
-python -m pytest tests/ -q     # 664 passed（全部 mock 网络，离线可跑，约 2 分钟）
+python -m pytest tests/ -q     # 755 passed（全部 mock 网络，离线可跑，约 2 分钟）
 ```
 
 - **CI**：GitHub Actions（Windows × Python 3.10 / 3.11）。
