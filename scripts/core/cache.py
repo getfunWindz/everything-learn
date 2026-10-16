@@ -4,7 +4,7 @@ import os
 
 CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "cache")
 
-CACHE_VERSION = 2  # M13：复检机制变更 → 旧缓存不携带复检信息，必须失效
+CACHE_VERSION = 3  # B3：payload 持久化 provenance/language/recheck（v2 旧缓存不携带 → 失效）
 
 
 def _cache_path(platform: str, item_id: str, sub_id: str = "") -> str:

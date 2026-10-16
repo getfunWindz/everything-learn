@@ -37,6 +37,28 @@ def test_cache_clear():
     assert cache.get_cached("bilibili", "A") is None
 
 
+def test_cache_v2_file_invalidated():
+    """B3：v2 旧缓存（无 provenance/language）不再命中（schema v3）"""
+    assert cache.CACHE_VERSION == 3
+    p = os.path.join(cache.CACHE_DIR, "bilibili_BVv2.json")
+    with open(p, "w", encoding="utf-8") as f:
+        json.dump({"kind": "timeline", "items": [], "_cache_v": 2}, f)
+    assert cache.get_cached("bilibili", "BVv2") is None
+
+
+def test_cache_payload_keeps_provenance_language_recheck():
+    """B3：payload 原样保存 provenance/language/recheck（写入端透明）"""
+    cache.set_cached("youtube", "abc", "1", {
+        "kind": "timeline", "items": [{"start": 0, "end": 1, "text": "hi"}],
+        "provenance": "whisper", "language": "en",
+        "recheck": {"tier": 1}, "recheck_report": {"tier": 1},
+    })
+    got = cache.get_cached("youtube", "abc", "1")
+    assert got["provenance"] == "whisper" and got["language"] == "en"
+    assert got["recheck"] == {"tier": 1} and got["recheck_report"] == {"tier": 1}
+    assert got["_cache_v"] == cache.CACHE_VERSION
+
+
 # ---------- retry ----------
 
 def test_retry_succeeds_on_retry():

@@ -93,6 +93,42 @@ def test_process_item_cache_hit(tmp_path):
     assert "缓存" in open(os.path.join(out_dir, "content.txt"), encoding="utf-8").read()
 
 
+def test_cache_hit_restores_provenance_language_and_report(tmp_path):
+    """B3：命中缓存时 content_info 仍含 provenance/language/recheck，并补写 recheck_report.json"""
+    out = str(tmp_path / "out")
+    cache_mod.set_cached("fake", "X1", "1", {
+        "kind": "timeline", "items": [{"start": 0.0, "end": 1.0, "text": "你好"}],
+        "provenance": "whisper", "language": "zh",
+        "recheck": {"tier": 1, "score": 0.1, "reasons": ["x"], "uncovered": []},
+        "recheck_report": {"tier": 1, "score": 0.1, "reasons": ["x"],
+                            "same_source": {}, "uncertain": []},
+    })
+    status, src, n, out_dir, err = process_item(FakeAdapter(), _ref(), out,
+                                                RunOptions(out_root=out), single=True)
+    assert (status, src) == ("ok", "cache")
+    info = json.load(open(os.path.join(out_dir, "content_info.json"), encoding="utf-8"))
+    assert info["provenance"] == "whisper" and info["language"] == "zh"
+    assert info["recheck"]["tier"] == 1
+    assert os.path.exists(os.path.join(out_dir, "recheck_report.json"))
+
+
+def test_cache_hit_document_keeps_recheck(tmp_path):
+    """B3：document 命中缓存时同样恢复 provenance/recheck"""
+    out = str(tmp_path / "out")
+    cache_mod.set_cached("fake", "X1", "1", {
+        "kind": "document", "items": [{"heading": "", "text": "正文"}], "images": [],
+        "provenance": "whisper", "language": None,
+        "recheck": {"tier": 1, "score": 0.2, "reasons": ["y"], "lite": True},
+        "recheck_report": {"tier": 1, "score": 0.2, "reasons": ["y"], "lite": True},
+    })
+    status, src, n, out_dir, err = process_item(FakeAdapter(kind="document"), _ref(), out,
+                                                RunOptions(out_root=out), single=True)
+    assert (status, src) == ("ok", "cache")
+    info = json.load(open(os.path.join(out_dir, "content_info.json"), encoding="utf-8"))
+    assert info["provenance"] == "whisper" and info["recheck"]["tier"] == 1
+    assert os.path.exists(os.path.join(out_dir, "recheck_report.json"))
+
+
 def test_process_item_uses_adapter_label(tmp_path):
     """适配器 label 透传到 source（如 字幕(自动)）"""
     out = str(tmp_path / "out")

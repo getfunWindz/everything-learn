@@ -394,8 +394,13 @@ def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False)
                 except Exception as e:
                     print(f"  P{label} 图片下载失败（不影响正文）：{str(e)[:80]}", file=sys.stderr)
             info = artifacts.build_info(meta, ref, kind=payload.get("kind", "timeline"),
-                                        source="cache", page_count=opts.page_count, assets=assets)
+                                        source="cache", page_count=opts.page_count, assets=assets,
+                                        recheck=payload.get("recheck"),
+                                        provenance=payload.get("provenance"),
+                                        language=payload.get("language"))
             artifacts.write_item_artifacts(out_dir, info, content)
+            if payload.get("recheck_report"):
+                artifacts.write_recheck_report(out_dir, payload["recheck_report"])
             return "ok", "cache", len(payload.get("items") or []), out_dir, ""
     # 2) 取内容（字幕/正文）
     try:
@@ -589,7 +594,9 @@ def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False)
     artifacts.write_recheck_report(out_dir, recheck_report)
     if not opts.no_cache:
         cache.set_cached(ref.platform, ref.item_id, ref.sub_id,
-                         {"kind": "timeline", "items": lines})
+                         {"kind": "timeline", "items": lines, "provenance": provenance,
+                          "language": language_used, "recheck": recheck_meta,
+                          "recheck_report": recheck_report})
     return "ok", src, len(lines), out_dir, ""
 
 
