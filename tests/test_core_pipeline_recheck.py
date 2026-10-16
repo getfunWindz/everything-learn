@@ -1199,6 +1199,45 @@ def test_budget_cap_respects_smaller_frame_hard_cap(monkeypatch):
          "text": "超出复检金额预算（--budget）"}]
 
 
+def test_budget_cap_below_single_window_uncovered(monkeypatch):
+    """M13 金额预算边界：cap=56 帧恰好小于单窗理论需求 57（18.88s）→
+    该窗 uncovered，文案按金额预算；cap 作运行帽参与准入。"""
+    cfg = _rc_cfg()
+    ref = ItemRef(platform="demo", item_id="1", duration=18.88)
+    monkeypatch.setattr(pipeline.recheck, "select_regions",
+                        lambda *a, **k: [{"start": 0.0, "end": 18.88,
+                                          "reason": "r", "score": 3.0}])
+    seen = _patch_window_io(monkeypatch, frames=[(0.0, b"jpg")])
+    opts = pipeline.RunOptions(budget=0.01008)  # allowed=56 帧 < 57
+    out = pipeline._run_window_recheck(_VideoAdapter(), ref, [], cfg,
+                                       {"tier": 1}, opts)
+    assert out["budget"]["reason"] == "budget_cap"
+    assert out["budget"]["estimate"]["frames"] == 56  # cap 裁剪后口径
+    assert seen["sample"] == []
+    assert out["capped"] is True
+    assert out["uncovered"] == [[0.0, 18.88]]
+    assert out["windows"] == [{"range": [0.0, 18.88], "kind": "uncovered",
+                               "text": "超出复检金额预算（--budget）"}]
+
+
+def test_budget_cap_between_truncated_plan_and_window_need(monkeypatch):
+    """M13 预算路径运行帽=cap（非 plan["frames"]）：cap=58 允许 57 帧单窗，
+    旧实现用 plan["frames"]=56 会误判 uncovered；新实现正常处理。"""
+    cfg = _rc_cfg()
+    ref = ItemRef(platform="demo", item_id="1", duration=18.88)
+    monkeypatch.setattr(pipeline.recheck, "select_regions",
+                        lambda *a, **k: [{"start": 0.0, "end": 18.88,
+                                          "reason": "r", "score": 3.0}])
+    seen = _patch_window_io(monkeypatch, frames=[(0.0, b"jpg")])
+    opts = pipeline.RunOptions(budget=0.0105)  # est 0.01122 > 剩余；allowed=58
+    out = pipeline._run_window_recheck(_VideoAdapter(), ref, [], cfg,
+                                       {"tier": 1}, opts)
+    assert out["budget"]["reason"] == "budget_cap"
+    assert seen["sample"] == [(0.0, 18.88, 3, True)]  # cap 58 ≥ 57 → 正常抽帧
+    assert out["uncovered"] == [] and out["capped"] is False
+    assert out["coverage_pct"] == 100.0
+
+
 def test_budget_cap_zero_unit_price_forces_zero_frames(monkeypatch):
     """Q1：单价边界（per_frame_price==0）→ 超限时帧预算置 0，全部窗口 uncovered。"""
     cfg = _rc_cfg()
@@ -1389,6 +1428,25 @@ def test_window_recheck_tier2_duration_zero_uses_lines_fallback(monkeypatch):
     assert seen["sample"] == [(0.0, 19.0, 3, True)]
     assert out["coverage_pct"] == 100.0
     assert out["budget"]["estimate"]["windows"] == 1
+
+
+def test_window_recheck_tier2_non_integer_duration_full_coverage(monkeypatch):
+    """M13 回归：非整数时长 18.88s → 窗口理论帧数 ceil(56.64)=57 > plan["frames"]=56
+    （int 截断）。运行准入必须按运行帽（max_check_frames）而非 plan["frames"]，
+    否则首窗即误判「超出复检帧预算」→ uncovered、coverage 0。"""
+    cfg = _rc_cfg()
+    ref = ItemRef(platform="demo", item_id="1", duration=18.88)
+    monkeypatch.setattr(pipeline.recheck, "select_regions",
+                        lambda *a, **k: (_ for _ in ()).throw(
+                            AssertionError("档2 不应调用 select_regions")))
+    seen = _patch_window_io(monkeypatch, frames=[(0.0, b"jpg")])
+    out = pipeline._run_window_recheck(_VideoAdapter(), ref, [], cfg,
+                                       {"tier": 2}, pipeline.RunOptions())
+    assert out["budget"]["estimate"]["frames"] == 56  # 估算口径不变（int 截断）
+    assert seen["sample"] == [(0.0, 18.88, 3, True)]  # 57 帧首窗未被误判超帽
+    assert out["uncovered"] == [] and out["capped"] is False
+    assert out["coverage_pct"] == 100.0
+    assert out["frames_used"] == 1
 
 
 def test_window_recheck_without_video_stream_skipped(monkeypatch):

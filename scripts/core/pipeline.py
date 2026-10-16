@@ -197,6 +197,7 @@ def _run_window_recheck(adapter, ref, lines, cfg, decision, opts, disputed=None)
         effective_tier = tier
         est_used = est             # Q3：执行实际估算（cap 裁剪后回写 budget.estimate）
         est_pre_cap = None         # Q3：金额裁剪前原估算（裁剪时留痕）
+        runtime_cap = max_frames   # M13：运行准入帽——非预算路径 = 帧硬帽
         budget_cap = getattr(opts, "budget", None)
         budget_remaining = None
         if budget_cap is not None:  # spec §11.2：运行级上限 = 上限 - 已累计消费
@@ -219,6 +220,7 @@ def _run_window_recheck(adapter, ref, lines, cfg, decision, opts, disputed=None)
                 cap = min(rc.get("max_check_frames", 20000), max(0, allowed))
             else:  # Q1：单价 <=0 无法换算帧数 → 帧预算置 0（全部窗口 uncovered）
                 cap = 0
+            runtime_cap = cap      # M13：预算路径运行帽 = 金额裁剪后的 cap
             plan = recheck.plan_frames(regions, fps=fps, max_frames=cap)
             est_used = recheck.estimate_budget(plan["frames"], _window_count(regions),
                                                pricing)  # Q3：按裁剪后 plan 回算
@@ -236,6 +238,8 @@ def _run_window_recheck(adapter, ref, lines, cfg, decision, opts, disputed=None)
                 effective_tier = 1
         # Q8：预先展平 planned windows；准入按理论帧数（去重前 ceil(时长×fps)）裁剪，
         # 统计另记实际去重后帧数（used_frames / frames_used）。
+        # M13：准入上限用 runtime_cap（预算路径=金额 cap，否则=帧硬帽）；
+        # plan["frames"] 含 int 截断，仅作估算/展示，不作准入上限。
         planned_windows = []
         for region in regions:
             cursor, region_end = float(region["start"]), float(region["end"])
@@ -264,8 +268,8 @@ def _run_window_recheck(adapter, ref, lines, cfg, decision, opts, disputed=None)
                               else "超出复检帧预算（max_check_frames）")
             for cursor, seg_end in planned_windows:
                 window_frames = max(1, int(math.ceil((seg_end - cursor) * fps)))
-                if admitted_theoretical + window_frames > plan["frames"]:
-                    # 硬帽保护（spec §8.1）：A/B 均不得超 max_check_frames，超出部分标未复检
+                if admitted_theoretical + window_frames > runtime_cap:
+                    # 运行帽保护（spec §8.1）：A/B 均不得超 runtime_cap，超出部分标未复检
                     uncovered.append((cursor, seg_end))
                     reports.append({"range": [cursor, seg_end], "kind": "uncovered",
                                     "text": uncovered_text})
