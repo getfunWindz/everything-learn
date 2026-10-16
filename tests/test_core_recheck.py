@@ -89,6 +89,17 @@ def test_teaching_markers_boost_score_and_breakdown_count():
     assert recheck.score_window_text("性质性质性质")[1]["teach"] == 3
 
 
+def test_teaching_marker_weight_is_1_5():
+    """教学词权重精确钉死 1.5：同为教学词文本，权重 1.0 时 score≈3.0417，粗断言会险过"""
+    from core import recheck
+    score, detail = recheck.score_window_text("性质 性质 性质")   # 3 次命中
+    assert detail["teach"] == 3
+    assert detail["markers"] == 0        # 防教学口径混入 discourse markers
+    assert score >= 4.5                  # 3 × 1.5（另有 ttr 小量加成）
+    # 精确口径：仅教学词计入，score = 3×1.5 + 0.5×ttr_n(ttr=1/3) = 4.541666…
+    assert abs(score - (4.5 + 0.5 * ((1 / 3 - 0.3) / 0.4))) < 1e-9
+
+
 def test_cn_numunit_counted_in_numunit_bucket():
     from core import recheck
     _, det = recheck.score_window_text("一百米 三秒 五千克 两公斤")
@@ -217,6 +228,18 @@ def test_decide_tier_score_threshold_boundary():
     assert d["tier"] == 2
     cfg2 = _cfg(); cfg2["recheck"]["tier2_score"] = 0.7
     assert recheck.decide_tier(sig, cfg2, provenance="unknown", has_video=True)["tier"] == 1
+
+
+def test_decide_tier_default_threshold_is_045_when_missing_in_cfg():
+    """缺省 tier2_score=0.45：score 落在 0.45~0.55 之间必须判档2（缺省误为 0.55 则档1）"""
+    from core import recheck
+    # score = 0.6/6 + 0.6*0.2 + 0.5*0.8 − 0.5*(30/120) = 0.495 ∈ (0.45, 0.55)
+    sig = {"dur_min": 30, "kp_density": 0.6, "kp_spread": 0.2, "src_risk": 0.8,
+           "vis_ref": 0.0, "gap_ratio": 0.02, "max_gap": 5.0}
+    d = recheck.decide_tier(sig, {"recheck": {}}, provenance="unknown", has_video=True)
+    assert abs(d["score"] - 0.495) < 0.001
+    assert 0.45 < d["score"] < 0.55     # 真正夹在两阈值之间，才可区分缺省 0.45 / 0.55
+    assert d["tier"] == 2                # 缺省 0.45 → 档2；若缺省误为 0.55 → 档1
 
 
 def test_decide_tier_score_includes_vis_ref_term():
