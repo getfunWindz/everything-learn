@@ -2,6 +2,25 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本。
 
+## [0.4.0] - 2026-10-17
+
+**术语库反哺进化**：每次转写筛验 + 自动沉淀 + 初启填塞 + bili-wiki 适配。
+
+### Added
+
+- **每次转写术语筛验**：timeline 定稿后按 `_aliases` 勘误替换（`content_info.glossary.corrected` 留痕）+ 存疑清单（`uncertain` 不替换）；缓存 payload 同步（命中恢复）。
+- **自动反哺**：画面校正对（`corrected_from`/`corrected_to`）命中术语库 → 自动登记别名；保留 R11 报告沉淀与 `glossary.py absorb` 知识库吸收。
+- **初启第⑤点**：引导询问是否填塞自有术语 + 告知自动反哺机制 + 推荐配套 `bilibili-to-wiki`（已适配本技能：任意支持平台内容入库）。
+- **glossary.py**：新增 `clean_lines` / `absorb_corrections`。
+
+### Changed
+
+- `_run_window_recheck` 校正行补记 `corrected_to`（供术语库自动反哺）。
+
+### 测试
+
+- **769 项离线测试**（新增 5 项）。
+
 ## [0.3.1] - 2026-10-17
 
 ### Added

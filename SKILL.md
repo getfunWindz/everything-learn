@@ -35,6 +35,7 @@ python scripts/el.py onboard                  # 首次引导门（状态/四项�
 python scripts/el.py doctor                   # 环境自检（依赖/GPU/模型/vision/cookie/out_dir）
 python scripts/el.py run <链接/名称> [--page N | --pages "1-10" | --all] [--model tiny|small|medium|large-v3] [--budget 1.5]
 python scripts/el.py scan <列表链接> [--filter "关键,词"] [--priority] [--limit N] [--snapshot]
+python scripts/glossary.py add "<术语>" "<解释>"   # 术语库填塞/沉淀（可重复；支持 add/alias/clean/absorb）
 python scripts/el.py report <目录> && python scripts/el.py export <目录> --format html
 ```
 
@@ -79,7 +80,7 @@ python scripts/el.py run <链接> --budget 1.5           # 本次运行复检金
   - **公众号细节**：单篇链接直连（无需 cookie；正文服务端渲染、图片 `data-src` 自动入 `assets/`）；搜狗搜索为实验性路径（验证码/限流风险 + 签名链接会话绑定）；
   - **X（Twitter）细节**：单推文直连（无需 cookie，syndication 公开接口）；图片入 `assets/`；视频推文自动取 mp4 并 Whisper 转写为「视频口播内容」小节（多语自动检测）；缓速 10s（限流会升级，遇 429/连接异常时给可读提示，不要高频重试）；
   - **小红书细节**：单笔记直连（`xhslink` 短链自动展开）；正文/标签/图片入 `assets/`；视频笔记自动取 mp4 并 Whisper 转写「视频口播内容」；**依赖 `xsec_token`（短时效）**——分享链自带优先，缺失/失效时 explore 兜底现取（实验性，命中率低）；都没有则提示重新分享；缓速 12s；
-- 产物：三件套（`content_info.json`（元信息+来源标记+`recheck`/`quality` 摘要）/ `content.txt`（timeline 带时间戳，含【画面补充】【画面校正】标注）/ `report_template.md`（按形态的报告骨架））+ timeline 的 `recheck_report.json`（档位/评分/预算/同源校验/交叉比对/不确定项全量留痕）；
+- 产物：三件套（`content_info.json`（元信息+来源标记+`recheck`/`quality`/`glossary` 摘要）/ `content.txt`（timeline 带时间戳，含【画面补充】【画面校正】标注）/ `report_template.md`（按形态的报告骨架））+ timeline 的 `recheck_report.json`（档位/评分/预算/同源校验/交叉比对/不确定项全量留痕）；
 - 批量：失败不中断，汇总增量写入，`--resume` 断点续跑；
 - 抽帧供读图复检（agent 执行时）：`python scripts/el.py frames <视频> --range "起-止" --fps 1 --out <目录>`。
 
@@ -149,6 +150,7 @@ python scripts/el.py run <链接> --budget 1.5           # 本次运行复检金
 - **小红书**：依赖短时效 `xsec_token`（旧 token 失效 → sec-404）；连发 note 请求会 sec-404，缓速 12s；无 token 时 explore 兜底命中率低（如实提示重新分享）；账号级能力（主页/收藏）列为后续方向（M11）。
 - **公众号**：单篇链接无需 cookie；搜狗搜索为实验性（验证码/antispider 风险，结果链接会话绑定、不可跨进程复用）；页面「参数错误/系统出错」等异常会给可读提示。
 - **低配模式（2026-10-17）**：仅必要依赖（无 faster-whisper / yt-dlp / playwright 等）时——字幕平台自动降级采信并标注「低配：未经同源校验」+ `quality_hint` 强制推荐；whisper 平台给出安装引导；画面复检依赖（Pillow/PyAV）缺失时自动提前跳过。转写档位低于 medium 时产物带 `quality.tier_note` 常驻建议（实机验证 medium 效果最佳）。
+- **术语库反哺链（2026-10-17）**：每次转写按 `references/glossary.json` 的勘误别名自动筛验术语名（`content_info.glossary` 留痕；存疑项不替换、如实标注）；画面校正对命中术语库 → 自动沉淀别名；报告写作 R11 沉淀新术语；`glossary.py absorb <wiki>` 吸收知识库。初启可手动填塞术语；推荐配套 `bilibili-to-wiki`。
 
 <!-- ⛔ READ-GATE: ONBOARDING: 1 -->
 
@@ -177,6 +179,10 @@ python scripts/el.py run <链接> --budget 1.5           # 本次运行复检金
    - 用途：多平台学习内容 → 中文详解学习报告（11 平台，见「介绍」表）；
    - 典型用法：`el.py run <链接> [--all/--pages/--model/--budget]`、`el.py scan <列表链接>`、`el.py report/export`；
    - 产物：三件套 + `assets/` + `recheck_report.json`；报告规则见「正常调用工作流 · 报告规则」。
+5. **术语库（可选填塞 + 自动反哺告知 + 配套推荐）**
+   - 询问用户是否愿意填入自己的常用术语（领域/项目名词）→ 逐条 `python scripts/glossary.py add "<术语>" "<解释>"`（可选）；
+   - **告知自动反哺机制**：每次转写按勘误库筛验术语名（画面校正自动沉淀别名）；报告写作沉淀新术语；知识库 `absorb` 吸收——术语库随使用逐渐丰富；
+   - 推荐配套 skill `bilibili-to-wiki`（个人知识库填充接口，已适配本技能产物：任意支持平台链接 → 知识库）。
 
 ### C. 配置要点（引导时解释；按用户选择写入 config）
 

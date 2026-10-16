@@ -115,6 +115,7 @@ python scripts/el.py run "<上面的链接>" --all --out "D:/学习笔记"      
 
 ```bash
 python scripts/el.py search --platform wechat "关键词"     # 公众号搜索（实验性，结果会话绑定）
+python scripts/glossary.py add "<术语>" "<解释>"         # 术语库填塞/沉淀（add/alias/clean/absorb）
 python scripts/el.py platforms                            # 已注册平台名单 + 自进化入口
 python scripts/el.py doctor                               # 环境自检（cookie / GPU / whisper / vision）
 python scripts/el.py export "<报告目录>" --format html    # 或 docx
@@ -129,6 +130,7 @@ python scripts/el.py export "<报告目录>" --format html    # 或 docx
 - **知乎 / 公众号 / Medium**：SSR 正文 → 章节式报告；公众号图片走 `data-src` 懒加载链，Medium 走 SSR 块抽取。
 - **微博 / X / 小红书 / 抖音**：社交内容映射为 document；X / 小红书视频帖附「视频口播内容」+ lite 档位复检（`recheck_report.json`，窗口级复检为后续项）；均按平台缓速（6–12s）并给出可读的风控提示。
 - **反爬纪律**：平台级缓速 + 退避重试 + 持久化浏览器 profile（Cloudflare / 签名平台统一走 `browserfetch`，不逆向签名）。
+- **术语库反哺链（0.4.0）**：每次转写按勘误别名自动筛验术语名（`content_info.glossary` 留痕）；画面校正自动沉淀别名；报告写作沉淀新术语；`glossary.py absorb <wiki目录>` 从知识库吸收。初启可填塞自有术语；配套 `bilibili-to-wiki` 可将任意支持平台的内容入库到 llm-wiki 知识库。
 - **低配可用（0.3.0）**：仅 `requests` 环境——图文平台可用；字幕平台自动降级（标注「低配：未经同源校验」+ `quality_hint` 推荐补依赖/升 medium）；whisper 平台给安装引导；画面复检依赖缺失时自动跳过。转写档位低于 medium 时产物带 `quality.tier_note` 常驻建议。
 
 ## 更新
