@@ -327,6 +327,7 @@ def _run_window_recheck(adapter, ref, lines, cfg, decision, opts, disputed=None)
                             target["text"] = target["text"].replace(orig, it.get("text", ""), 1)
                             target["source"] = "vision校正"
                             target["corrected_from"] = orig
+                            target["corrected_to"] = it.get("text", "")   # 供术语库自动反哺
                         else:  # 找不到原句：转待人工关注，不误改
                             reports.append({"range": [cursor, seg_end],
                                             "kind": "correction_unmatched",
@@ -418,7 +419,8 @@ def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False)
                                         source="cache", page_count=opts.page_count, assets=assets,
                                         recheck=payload.get("recheck"),
                                         provenance=payload.get("provenance"),
-                                        language=payload.get("language"))
+                                        language=payload.get("language"),
+                                        glossary=payload.get("glossary"))
             artifacts.write_item_artifacts(out_dir, info, content)
             if payload.get("recheck_report"):
                 artifacts.write_recheck_report(out_dir, payload["recheck_report"])
@@ -655,18 +657,43 @@ def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False)
             elif 0 <= _quality.tier_index(model_used or "") < _quality.tier_index("medium"):
                 print(f"  ℹ️ 转写档位 {model_used}（fast）；如需最佳效果可升级 medium（--model medium）",
                       file=sys.stderr)
+    # 6.6) 术语库筛验 + 自动反哺（2026-10-17；每次转写必经）
+    glossary_meta = None
+    if lines:
+        try:
+            import glossary as _glossary
+            _pairs = [(l.get("corrected_from"), l.get("corrected_to"))
+                      for l in lines
+                      if getattr(l, "get", None) and l.get("corrected_from")]
+            _absorbed = _glossary.absorb_corrections(_pairs) if _pairs else {}
+            lines, _counts, _uncertain = _glossary.clean_lines(lines)
+            if _counts or _uncertain or _absorbed:
+                _aliases = _glossary.get_aliases()
+                glossary_meta = {
+                    "corrected": {raw: {"correct": (_aliases.get(raw) or {}).get("correct"),
+                                        "count": n} for raw, n in _counts.items()},
+                    "uncertain": _uncertain, "absorbed": _absorbed}
+                _msg = f"  P{label} 术语筛验：校正 {sum(_counts.values())} 处（{len(_counts)} 类）"
+                if _absorbed:
+                    _msg += f"；反哺别名 {len(_absorbed)} 条"
+                if _uncertain:
+                    _msg += f"；存疑 {len(_uncertain)} 个"
+                print(_msg, file=sys.stderr)
+        except Exception as e:
+            print(f"  P{label} 术语筛验跳过：{str(e)[:60]}", file=sys.stderr)
     out_dir = _item_out_dir(meta, ref, out_root, single, opts)
     info = artifacts.build_info(meta, ref, kind="timeline", source=src, page_count=opts.page_count,
                                 recheck=recheck_meta, provenance=provenance,
                                 language=language_used or None,
-                                quality=quality_meta, quality_hint=quality_hint)
+                                quality=quality_meta, quality_hint=quality_hint,
+                                glossary=glossary_meta)
     artifacts.write_item_artifacts(out_dir, info, TimelineContent(segments=lines))
     artifacts.write_recheck_report(out_dir, recheck_report)
     if not opts.no_cache:
         cache.set_cached(ref.platform, ref.item_id, ref.sub_id,
                          {"kind": "timeline", "items": lines, "provenance": provenance,
                           "language": language_used, "recheck": recheck_meta,
-                          "recheck_report": recheck_report})
+                          "recheck_report": recheck_report, "glossary": glossary_meta})
     return "ok", src, len(lines), out_dir, ""
 
 

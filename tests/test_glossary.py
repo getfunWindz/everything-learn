@@ -60,3 +60,44 @@ def test_check_annotation_clean_report():
     report = "KV Cache 是核心。\n\n**名词注释**：\n- KV Cache：键值缓存"
     subtitle = "KV Cache 是核心。"
     assert check_annotation(report, subtitle, SEED) == []
+
+
+def test_clean_lines_replaces_and_merges_counts():
+    """批量筛验：逐条别名替换 + counts 汇总 + uncertain 合并（不改原对象）"""
+    import glossary
+    g = dict(SEED)
+    g["_aliases"] = {"KV Catch": {"correct": "KV Cache", "type": "stt_error", "note": ""},
+                     "MHA": {"correct": "多头注意力", "type": "naming", "note": ""},
+                     "存疑词": {"correct": None, "type": "uncertain", "note": "待确认"}}
+    lines = [{"start": 0.0, "end": 1.0, "text": "KV Catch 很快"},
+             {"start": 1.0, "end": 2.0, "text": "KV Catch 与 MHA"},
+             {"start": 2.0, "end": 3.0, "text": "存疑词与存疑词"}]
+    new_lines, counts, uncertain = glossary.clean_lines(lines, g)
+    assert new_lines[0]["text"] == "KV Cache 很快"
+    assert new_lines[1]["text"] == "KV Cache 与 多头注意力"
+    assert counts == {"KV Catch": 2, "MHA": 1}
+    assert uncertain == [{"raw": "存疑词", "count": 2, "note": "待确认"}]
+    assert new_lines[0]["start"] == 0.0 and lines[0]["text"] == "KV Catch 很快"
+
+
+def test_absorb_corrections_only_when_term_matched(monkeypatch):
+    """自动反哺：仅当 原词/新词 命中术语库（术语名或别名目标）时登记"""
+    import glossary
+    saved = {}
+    monkeypatch.setattr(glossary, "save_glossary", lambda g, path=None: saved.update(g))
+    pairs = [("KV Catch", "KV Cache"), ("随便", "随便二"), ("MHA", "多头注意力"),
+             ("", "空"), ("same", "Same")]
+    added = glossary.absorb_corrections(pairs, dict(SEED))
+    assert added == {"KV Catch": "KV Cache", "MHA": "多头注意力"}
+    aliases = saved.get("_aliases") or {}
+    assert aliases["KV Catch"]["correct"] == "KV Cache"
+    assert "随便" not in aliases
+
+
+def test_absorb_corrections_keeps_existing_alias(monkeypatch):
+    """已有别名不覆盖（重复反哺幂等）"""
+    import glossary
+    monkeypatch.setattr(glossary, "save_glossary", lambda g, path=None: None)
+    g = dict(SEED)
+    g["_aliases"] = {"KV Catch": {"correct": "KV Cache", "type": "stt_error"}}
+    assert glossary.absorb_corrections([("KV Catch", "KV Cache")], g) == {}

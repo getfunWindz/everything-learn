@@ -1071,6 +1071,7 @@ def test_window_recheck_correction_replaces_line(monkeypatch):
     assert lines[0]["text"] == "他说到了注意力机制"
     assert lines[0]["source"] == "vision校正"
     assert lines[0]["corrected_from"] == "注意利机制"
+    assert lines[0]["corrected_to"] == "注意力机制"   # 2026-10-17：供术语库自动反哺
     assert out["windows"] == []
 
 

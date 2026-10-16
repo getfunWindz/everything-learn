@@ -74,6 +74,66 @@ def clean_text(text: str, glossary: dict = None) -> tuple:
     return fixed, counts, uncertain
 
 
+def absorb_corrections(pairs, glossary: dict = None) -> dict:
+    """自动反哺（2026-10-17）：画面校正对 (原词, 新词) → 自动登记别名。
+
+    仅当 任一侧归一化后命中术语库（术语名 / 别名目标）时登记（保守，防空沉淀）；
+    已有别名不覆盖；返回新增 {原词: 新词}（并保存）。
+    """
+    g = glossary if glossary is not None else load_glossary()
+    known = {_norm_term(k) for k in g if not k.startswith("_")}
+    aliases = get_aliases(g)
+    known |= {_norm_term(v.get("correct")) for v in aliases.values()
+              if isinstance(v, dict) and v.get("correct")}
+    known_aliases = {_norm_term(k) for k in aliases}
+    added = {}
+    for pair in pairs or []:
+        try:
+            orig, correct = pair[0], pair[1]
+        except (TypeError, IndexError):
+            continue
+        o, c = _norm_term(orig), _norm_term(correct)
+        if not o or not c or o == c or o in known_aliases:
+            continue
+        if o in known or c in known:
+            g = add_alias(orig, correct, g)
+            added[orig] = correct
+            known_aliases.add(o)
+    if added:
+        save_glossary(g)
+    return added
+
+
+def _norm_term(s) -> str:
+    """术语归一化（比较用）：strip + lower"""
+    return (str(s) if s is not None else "").strip().lower()
+
+
+def clean_lines(lines: list, glossary: dict = None) -> tuple:
+    """批量术语筛验（2026-10-17）：逐条别名替换 → (new_lines, counts, uncertain)。
+
+    - counts：{错误写法: 累计替换次数}
+    - uncertain：correct=None 的存疑项（按 raw 合并 count），不替换
+    - 返回新列表（不修改原对象），其他字段（时间戳/corrected_from 等）保留
+    """
+    g = glossary if glossary is not None else load_glossary()
+    out, counts, uncertain = [], {}, {}
+    for l in lines or []:
+        nl = dict(l or {})
+        fixed, c, u = clean_text(nl.get("text") or "", g)
+        nl["text"] = fixed
+        out.append(nl)
+        for k, n in c.items():
+            counts[k] = counts.get(k, 0) + n
+        for x in u:
+            raw = x["raw"]
+            if raw in uncertain:
+                uncertain[raw]["count"] += x["count"]
+            else:
+                uncertain[raw] = dict(x)
+    return out, counts, [uncertain[k] for k in uncertain]
+
+
 def absorb_terms_from_wiki(wiki_root: str, glossary: dict = None) -> dict:
     """反哺：扫描知识库 entities/topics 目录，把新术语（front matter 或标题）沉淀进 glossary
     只 add 不覆盖；返回新增的 {术语: 解释}

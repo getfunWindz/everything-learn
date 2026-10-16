@@ -201,6 +201,20 @@ def cmd_onboard(args, client: ApiClient = None):
     print("   产物：content_info.json / content.txt / report_template.md / recheck_report.json（+assets/）")
     print("   报告规则见 SKILL.md「正常调用工作流」。")
     print()
+    print("⑤ 术语库（可选：填塞初始术语；使用中自动反哺）")
+    try:
+        import glossary as _gl
+        _g = _gl.load_glossary()
+        _n_terms = len([k for k in _g if not k.startswith("_")])
+        _n_alias = len(_gl.get_aliases(_g))
+        print(f"   当前：{_n_terms} 条术语 / {_n_alias} 条勘误别名")
+    except Exception:
+        print("   当前：术语库不可读（可稍后用 scripts/glossary.py 检查）")
+    print("   填塞（可选）：python scripts/glossary.py add \"<术语>\" \"<解释>\"（用户提供领域名词即可）")
+    print("   自动反哺：每次转写按勘误库筛验术语名；画面校正自动沉淀别名；报告写作沉淀新术语；")
+    print("             知识库吸收：python scripts/glossary.py absorb <wiki目录>")
+    print("   推荐：配套 skill bilibili-to-wiki（个人知识库填充接口，已适配本技能）")
+    print()
     print("完成后执行：python scripts/el.py onboard --complete")
 
 

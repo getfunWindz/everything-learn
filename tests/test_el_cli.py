@@ -837,6 +837,7 @@ def test_onboard_command_shows_checklist(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "引导" in out
     assert "产出目录" in out and "Whisper" in out and "依赖" in out and "使用" in out
+    assert "术语" in out and "bilibili-to-wiki" in out          # 2026-10-17 第⑤点
     assert "onboard --complete" in out
 
 

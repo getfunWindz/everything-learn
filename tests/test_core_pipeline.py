@@ -589,3 +589,52 @@ def test_whisper_small_ok_tier_note(tmp_path, monkeypatch, capsys):
     info = json.load(open(os.path.join(out_dir, "content_info.json"), encoding="utf-8"))
     assert info["quality"]["tier_note"] and "medium" in info["quality"]["tier_note"]
     assert not info.get("quality_hint")
+
+
+def test_process_item_glossary_verify_and_cache(tmp_path, monkeypatch):
+    """术语筛验（2026-10-17）：别名替换进 content.txt + 产物留痕 + 缓存命中恢复"""
+    import glossary as gl
+    g = {"KV Cache": "键值缓存",
+         "_aliases": {"KV Catch": {"correct": "KV Cache", "type": "stt_error"},
+                      "存疑词": {"correct": None, "type": "uncertain", "note": "待确认"}}}
+    monkeypatch.setattr(gl, "load_glossary", lambda path=None: dict(g))
+    monkeypatch.setattr(gl, "save_glossary", lambda gg, path=None: None)
+    a = FakeAdapter(label="字幕")
+    a.content = ContentResult(kind="timeline", status="ok", provenance="human",
+                              segments=[{"start": 0.0, "end": 1.0, "text": "KV Catch 与 存疑词"}])
+    out = str(tmp_path / "out")
+    status, src, n, out_dir, err = process_item(a, _ref(), out, RunOptions(out_root=out), single=True)
+    assert status == "ok"
+    info = json.load(open(os.path.join(out_dir, "content_info.json"), encoding="utf-8"))
+    gm = info.get("glossary") or {}
+    assert gm["corrected"]["KV Catch"]["correct"] == "KV Cache"
+    assert gm["uncertain"] and gm["uncertain"][0]["raw"] == "存疑词"
+    txt = open(os.path.join(out_dir, "content.txt"), encoding="utf-8").read()
+    assert "KV Cache" in txt and "KV Catch" not in txt
+    cached = cache_mod.get_cached("fake", "X1", "1")
+    assert cached and (cached.get("glossary") or {}).get("corrected")
+    # 二次运行命中缓存 → glossary 字段恢复
+    status2, src2, n2, out_dir2, err2 = process_item(a, _ref(), out, RunOptions(out_root=out), single=True)
+    assert (status2, src2) == ("ok", "cache")
+    info2 = json.load(open(os.path.join(out_dir2, "content_info.json"), encoding="utf-8"))
+    assert (info2.get("glossary") or {}).get("corrected")
+
+
+def test_process_item_glossary_absorb_from_vision_correction(tmp_path, monkeypatch):
+    """自动反哺：画面校正对（corrected_from/corrected_to）命中术语库 → 自动登记别名"""
+    import glossary as gl
+    g = {"熊鹰": "一种鸟名", "_aliases": {}}
+    monkeypatch.setattr(gl, "load_glossary", lambda path=None: dict(g))
+    saved = {}
+    monkeypatch.setattr(gl, "save_glossary", lambda gg, path=None: saved.update(gg))
+    a = FakeAdapter(label="字幕")
+    a.content = ContentResult(kind="timeline", status="ok", provenance="human",
+                              segments=[{"start": 0.0, "end": 1.0, "text": "熊鹰飞过",
+                                         "source": "vision校正", "corrected_from": "雄鹰",
+                                         "corrected_to": "熊鹰"}])
+    out = str(tmp_path / "out")
+    status, src, n, out_dir, err = process_item(a, _ref(), out, RunOptions(out_root=out), single=True)
+    assert status == "ok"
+    assert (saved.get("_aliases") or {}).get("雄鹰", {}).get("correct") == "熊鹰"
+    info = json.load(open(os.path.join(out_dir, "content_info.json"), encoding="utf-8"))
+    assert (info.get("glossary") or {}).get("absorbed", {}).get("雄鹰") == "熊鹰"
