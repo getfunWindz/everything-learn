@@ -95,10 +95,13 @@ def pick_audio_url(formats) -> str:
 
 
 def pick_video_url(formats, lowest: bool = True) -> str:
-    """视频直链：仅取视频流（排除 storyboard mhtml 与含音轨的格式）"""
+    """视频直链：仅取视频流（排除 storyboard mhtml、含音轨格式与 HLS 清单）"""
     vids = [f for f in formats or []
             if (f.get("acodec") in (None, "none")) and f.get("vcodec") not in (None, "none")
-            and (f.get("ext") or "") in ("mp4", "webm") and f.get("url")]
+            and (f.get("ext") or "") in ("mp4", "webm") and f.get("url")
+            and "m3u8" not in (f.get("protocol") or "")
+            and "manifest" not in (f.get("url") or "")
+            and "hls_playlist" not in (f.get("url") or "")]
     vids = sorted(vids, key=lambda f: f.get("height") or 0, reverse=not lowest)
     return vids[0]["url"] if vids else ""
 
@@ -303,10 +306,11 @@ class YouTubeAdapter:
         fmts = info.get("formats") or []
         if media == "video":
             url = pick_video_url(fmts, lowest=lowest)
-            if not url:  # 兜底：让 yt-dlp 直接选
+            if not url:  # 兜底：让 yt-dlp 直接选（排除 HLS 清单，保证可下载、可抽帧）
                 sel = "worst" if lowest else "best"
                 try:
-                    info2 = self._extract(ref.url, format=f"{sel}[ext=mp4]/{sel}")
+                    info2 = self._extract(
+                        ref.url, format=f"{sel}[ext=mp4][protocol!*=m3u8]/{sel}[protocol!*=m3u8]")
                     url = info2.get("url") or ""
                 except Exception:
                     url = ""

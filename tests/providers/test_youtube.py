@@ -219,6 +219,32 @@ def test_pick_video_lowest_excludes_storyboard():
     assert youtube.pick_video_url(fmts, lowest=False) == "v1080"
 
 
+def test_pick_video_url_lowest_skips_hls_manifest():
+    """HLS 清单条目（protocol=m3u8）不得作为视频直链：低档位必须落到直接 MP4"""
+    fmts = [
+        {"format_id": "hls-144", "ext": "mp4", "vcodec": "avc1", "acodec": "none",
+         "height": 144, "protocol": "m3u8_native",
+         "url": "https://manifest.googlevideo.com/api/manifest/hls_playlist/expire/x/index.m3u8"},
+        {"format_id": "160", "ext": "mp4", "vcodec": "avc1", "acodec": "none",
+         "height": 360, "url": "http://direct/v360"},
+        {"format_id": "137", "ext": "mp4", "vcodec": "avc1", "acodec": "none",
+         "height": 720, "url": "http://direct/v720"}]
+    assert youtube.pick_video_url(fmts, lowest=True) == "http://direct/v360"
+
+
+def test_pick_video_url_best_skips_hls_manifest():
+    """HLS 清单条目（URL 含 hls_playlist/manifest，无 protocol 字段）同样不得入选"""
+    fmts = [
+        {"format_id": "hls-2160", "ext": "mp4", "vcodec": "avc1", "acodec": "none",
+         "height": 2160,
+         "url": "https://manifest.googlevideo.com/api/manifest/hls_playlist/expire/x/index.m3u8"},
+        {"format_id": "160", "ext": "mp4", "vcodec": "avc1", "acodec": "none",
+         "height": 360, "url": "http://direct/v360"},
+        {"format_id": "137", "ext": "mp4", "vcodec": "avc1", "acodec": "none",
+         "height": 720, "url": "http://direct/v720"}]
+    assert youtube.pick_video_url(fmts, lowest=False) == "http://direct/v720"
+
+
 def test_fetch_media_url_returns_selected(monkeypatch):
     info = {"formats": [
         {"format_id": "140", "ext": "m4a", "vcodec": "none", "abr": 129, "url": "http://a/1"},
@@ -234,6 +260,25 @@ def test_fetch_media_url_returns_selected(monkeypatch):
     assert a.fetch_media_url(ref, media="audio") == "http://a/1"
     assert a.fetch_media_url(ref, media="video", lowest=True) == "http://v/1"
     assert calls["n"] == 1   # 单次运行内复用同一份 info（避免重复提取）
+
+
+def test_fetch_media_url_video_fallback_excludes_hls(monkeypatch):
+    """formats 仅有 HLS 清单 → 兜底选择器必须带 protocol!*=m3u8，且返回直接 MP4"""
+    only_hls = {"formats": [
+        {"format_id": "hls-144", "ext": "mp4", "vcodec": "avc1", "acodec": "none",
+         "height": 144, "protocol": "m3u8_native",
+         "url": "https://manifest.googlevideo.com/api/manifest/hls_playlist/expire/x/index.m3u8"}]}
+    a = YouTubeAdapter()
+    opts = []
+
+    def fake_extract(url, **kw):
+        opts.append(kw)
+        return {"url": "http://direct/v.mp4"} if "format" in kw else only_hls
+
+    monkeypatch.setattr(a, "_extract", fake_extract)
+    ref = a.resolve("kCc8FmEb1nY")
+    assert a.fetch_media_url(ref, media="video", lowest=True) == "http://direct/v.mp4"
+    assert opts[-1]["format"] == "worst[ext=mp4][protocol!*=m3u8]/worst[protocol!*=m3u8]"
 
 
 def test_download_retries_on_429(monkeypatch):
