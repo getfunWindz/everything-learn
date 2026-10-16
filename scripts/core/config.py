@@ -110,10 +110,8 @@ def write_user_config(updates: dict) -> str:
     if not isinstance(raw, dict):
         raw = {}
     raw.update(updates or {})
-    tmp = CONFIG_PATH + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(raw, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, CONFIG_PATH)
+    from core import fsutil
+    fsutil.atomic_write_text(CONFIG_PATH, json.dumps(raw, ensure_ascii=False, indent=2))
     return CONFIG_PATH
 
 

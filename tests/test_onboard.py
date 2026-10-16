@@ -77,3 +77,20 @@ def test_complete_without_skill_marks_config(tmp_path, monkeypatch):
     cfg.write_user_config({"out_dir": "D:/x"})
     r = ob.complete()
     assert r["onboarded"] is True and r["flag_written"] is False
+
+
+def test_set_flags_retries_transient_permission_error(env, monkeypatch):
+    """Windows 偶发：os.replace PermissionError（文件瞬时锁定）→ 自动重试成功"""
+    import os as _os
+    calls = {"n": 0}
+    real_replace = _os.replace
+
+    def flaky(src, dst):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise PermissionError("locked")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(ob.os, "replace", flaky)
+    assert ob.set_flags(0) is True
+    assert calls["n"] == 2

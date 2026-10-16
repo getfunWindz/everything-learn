@@ -35,11 +35,14 @@ def set_flags(value: int) -> bool:
     new2 = _FLAG2.sub(f"<!-- ⛔ READ-GATE: ONBOARDING: {value} -->", new1)
     if new1 == text and new2 == new1:
         return False                     # 无标记 / 已是目标值
-    tmp = SKILL_PATH + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        f.write(new2)
-    os.replace(tmp, SKILL_PATH)
+    _atomic_write(SKILL_PATH, new2)
     return True
+
+
+def _atomic_write(path: str, text: str) -> None:
+    """原子写（Windows 兼容：PermissionError 短暂重试，见 core.fsutil）"""
+    from core import fsutil
+    fsutil.atomic_write_text(path, text)
 
 
 def _flag_from_skill():
