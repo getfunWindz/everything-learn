@@ -174,3 +174,27 @@ def test_check_ytdlp_missing(monkeypatch):
     monkeypatch.setitem(sys.modules, "yt_dlp", None)
     r = doctor.check_ytdlp()
     assert r["installed"] is False and "pip install" in r["hint"]
+
+
+def test_missing_optional_lists_missing(monkeypatch, tmp_path):
+    import json as _json
+    import doctor
+    from core import config as cfg
+    monkeypatch.setattr(cfg, "CONFIG_PATH", str(tmp_path / "none.json"))
+    monkeypatch.setattr(doctor, "_has_module", lambda name: False)
+    names = [d["name"] for d in doctor.missing_optional()]
+    assert any("faster-whisper" in n for n in names)
+    assert any("yt-dlp" in n for n in names)
+    assert any("playwright" in n for n in names)
+    assert any("vision" in n for n in names)
+
+
+def test_missing_optional_empty_when_ready(monkeypatch, tmp_path):
+    import json as _json
+    import doctor
+    from core import config as cfg
+    p = tmp_path / "config.json"
+    p.write_text(_json.dumps({"vision": {"enabled": True}}), encoding="utf-8")
+    monkeypatch.setattr(cfg, "CONFIG_PATH", str(p))
+    monkeypatch.setattr(doctor, "_has_module", lambda name: True)
+    assert doctor.missing_optional() == []

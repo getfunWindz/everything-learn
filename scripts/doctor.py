@@ -112,6 +112,35 @@ def check_ytdlp() -> dict:
                 "hint": "未安装：pip install yt-dlp（YouTube 适配器需要）"}
 
 
+def _has_module(name: str) -> bool:
+    """模块可导入性检查（纯本地，不联网）"""
+    import importlib.util
+    try:
+        return importlib.util.find_spec(name) is not None
+    except Exception:
+        return False
+
+
+def missing_optional() -> list:
+    """缺失的可选依赖（纯本地检查）：[{name, hint}]；供引导/质量强制推荐使用"""
+    from core import config as core_config
+    cfg = core_config.load_config()
+    out = []
+    if not _has_module("faster_whisper"):
+        out.append({"name": "faster-whisper",
+                    "hint": "pip install faster-whisper（Whisper 转写；时间线平台需要）"})
+    if not _has_module("yt_dlp"):
+        out.append({"name": "yt-dlp",
+                    "hint": "pip install yt-dlp（YouTube / 抖音 适配器）"})
+    if not _has_module("playwright"):
+        out.append({"name": "playwright",
+                    "hint": "pip install playwright（cookie 一键导出 / browserfetch 平台）"})
+    if not (cfg.get("vision") or {}).get("enabled"):
+        out.append({"name": "vision（可选）",
+                    "hint": "配置 config.vision（多模态画面复检；不装仍可用，复检将跳过）"})
+    return out
+
+
 def _ensure_utf8_stdout() -> None:
     """Windows GBK 控制台无法编码 emoji（✅/❌/👁️）→ stdout 重配置为 utf-8（失败则忽略）"""
     try:

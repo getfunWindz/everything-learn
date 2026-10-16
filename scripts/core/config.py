@@ -6,7 +6,8 @@ CONFIG_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 
 DEFAULT_CONFIG = {
     "out_dir": "",              # 报告输出根目录（硬性：首次使用必须由用户自选；不作默认值）
-    "whisper_model": "medium",  # 默认 medium；可降级 tiny/small 或升级 large-v3
+    "onboarded": False,        # 首次引导门：True 后不再触发引导流程（el.py onboard --complete 置位）
+    "whisper_model": "small",  # 出厂默认 fast 档（small）；引导建议升 medium（实机最佳）；可升级 large-v3
     "whisper_vad": "auto",      # auto=长视频默认关、短视频开；true/false 强制
     "vad_long_sec": 1800,       # “长视频”阈值（秒）：≥ 该值时默认禁用 VAD
     "api_retries": 4,           # 接口限流/风控重试次数（指数退避）
@@ -94,6 +95,25 @@ def ensure_config() -> str:
     if not os.path.exists(CONFIG_PATH):
         with open(CONFIG_PATH, "w", encoding="utf-8") as f:
             json.dump(DEFAULT_CONFIG, f, ensure_ascii=False, indent=2)
+    return CONFIG_PATH
+
+
+def write_user_config(updates: dict) -> str:
+    """原子合并写 config.json（只改指定键；损坏时以空基底重建）"""
+    raw = {}
+    if os.path.exists(CONFIG_PATH):
+        try:
+            with open(CONFIG_PATH, encoding="utf-8") as f:
+                raw = json.load(f) or {}
+        except Exception:
+            raw = {}
+    if not isinstance(raw, dict):
+        raw = {}
+    raw.update(updates or {})
+    tmp = CONFIG_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(raw, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, CONFIG_PATH)
     return CONFIG_PATH
 
 

@@ -150,8 +150,65 @@ def _scan_adapter(input_str):
     return registry.match_url(input_str) or registry.sniff_url(input_str)
 
 
+def cmd_onboard(args, client: ApiClient = None):
+    """首次引导门：状态/完成/重置（SKILL.md 标签位 + config.onboarded，2026-10-17）"""
+    import onboard as ob
+    if getattr(args, "complete", False):
+        try:
+            r = ob.complete()
+        except ob.OnboardError as e:
+            print(f"引导未完成：{e}", file=sys.stderr)
+            sys.exit(2)
+        note = "标签位已同步置 0" if r.get("flag_written") else "未找到 SKILL.md 标记（已跳过文件改写）"
+        print(f"✅ 引导已完成（onboarded=true；{note}）。今后将直接进入正常使用状态。")
+        return
+    if getattr(args, "reset", False):
+        r = ob.reset()
+        note = "标签位已同步置 1" if r.get("flag_written") else "未找到 SKILL.md 标记（已跳过文件改写）"
+        print(f"↺ 引导已重置（onboarded=false；{note}）。下次运行将重新引导。")
+        return
+    st = ob.read_status()
+    if getattr(args, "json", False):
+        print(json.dumps(st, ensure_ascii=False))
+        return
+    flag = st["flag"]
+    print("=== everything-learn 首次引导（onboarding） ===")
+    print(f"状态：ONBOARDING = {flag if flag is not None else '（未解析到标签位）'}"
+          "（1=未完成，必须完成下方四项确认；0=已完成，可跳过文末引导）")
+    print()
+    print("① 产出目录（硬性，必须由用户自选）")
+    print(f"   当前：{st['out_dir'] or '未配置'}")
+    print("   建议：新建「学习笔记」总文件夹；确认后写入 config.out_dir（或用 --out 临时覆盖）。")
+    print()
+    print("② Whisper 档位（转写质量/速度取舍）")
+    print("   fast = small（出厂默认，速度快、资源小）")
+    print("   medium（强烈推荐：实机验证效果最佳）｜ large-v3（最高，资源要求高）")
+    print(f"   当前：{st['whisper_model'] or '未配置'}")
+    print("   建议：硬件允许时升级 medium（config.whisper_model 或 --model medium）。")
+    print()
+    print("③ 依赖清单（推荐全部安装以获得完整体验）")
+    import doctor
+    missing = doctor.missing_optional()
+    if not missing:
+        print("   ✅ 可选依赖已全部就绪")
+    else:
+        for d in missing:
+            print(f"   ❌ {d['name']}：{d['hint']}")
+    print()
+    print("④ 使用说明（一图流）")
+    print("   用途：把视频/音频/图文/帖子总结为中文详解学习报告（11 平台）。")
+    print("   常用：el.py run <链接> [--all/--pages/--model/--budget] ｜ el.py scan <列表链接>")
+    print("   产物：content_info.json / content.txt / report_template.md / recheck_report.json（+assets/）")
+    print("   报告规则见 SKILL.md「正常调用工作流」。")
+    print()
+    print("完成后执行：python scripts/el.py onboard --complete")
+
+
 def cmd_scan(args, client: ApiClient = None):
     """账号级扫描：枚举列表 → 过滤/优先级/快照（不抓内容）"""
+    if not config.load_config().get("onboarded"):
+        print("ℹ️ 引导未完成：建议先完成首次引导（python scripts/el.py onboard 查看清单；"
+              "完成后 --complete 置位；说明见 SKILL.md 文末）。", file=sys.stderr)
     from core import scan as scan_core
     if not str(args.input).startswith(("http://", "https://")):
         print("scan 需要 URL（名称类请先 search，或直接 run）", file=sys.stderr)
@@ -308,6 +365,9 @@ def cmd_frames(args, client: ApiClient = None):
 def cmd_run(args, client: ApiClient = None):
     cfg = config.load_config()
     config.apply_hf_env(cfg)
+    if not cfg.get("onboarded"):
+        print("ℹ️ 引导未完成：建议先完成首次引导（python scripts/el.py onboard 查看清单；"
+              "完成后 --complete 置位；说明见 SKILL.md 文末）。", file=sys.stderr)
     client = client or ApiClient(max_retries=cfg.get("api_retries", 4),
                                  retry_base_delay=cfg.get("api_retry_base", 1.5))
     platform = getattr(args, "platform", None)
@@ -493,6 +553,11 @@ def main(argv=None):
     pf.set_defaults(func=cmd_platforms)
     doc = sub.add_parser("doctor", help="环境自检（cookie/GPU/whisper/模型缓存/vision）")
     doc.set_defaults(func=_cmd_doctor)
+    obp = sub.add_parser("onboard", help="首次引导门：状态/完成/重置（SKILL.md 标签位 + config.onboarded）")
+    obp.add_argument("--complete", action="store_true", help="完成引导（校验 out_dir；标签位置 0）")
+    obp.add_argument("--reset", action="store_true", help="重开引导（标签位置 1）")
+    obp.add_argument("--json", action="store_true", help="输出 JSON 状态")
+    obp.set_defaults(func=cmd_onboard)
     run = sub.add_parser("run", help="获取内容（字幕/转写）并落盘")
     run.add_argument("input", nargs="?", default=None, help="内容链接/名称（--fav 模式可省略）")
     g = run.add_mutually_exclusive_group()

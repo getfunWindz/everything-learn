@@ -622,11 +622,11 @@ def test_vad_flag_reaches_transcriber(tmp_path, monkeypatch):
                                     no_whisper=False, pick=1, lang=None, model=None, vad=True),
                  client=FakeClient(lines=None))
     assert seen["vad"] is True
-    assert seen["model_size"] == "medium"
+    assert seen["model_size"] == "small"   # 出厂默认 fast 档（2026-10-17）
     assert seen["duration_sec"] == 100
 
-def test_whisper_default_model_medium(tmp_path, monkeypatch):
-    """无 --model 时用配置默认 medium（用户可降级/升级）"""
+def test_whisper_default_model_small(tmp_path, monkeypatch):
+    """无 --model 时用出厂默认 fast 档 small（首次引导建议升 medium）"""
     from core import config as cfg
     monkeypatch.setattr(cfg, "CONFIG_PATH", str(tmp_path / "none.json"))
     import transcriber as tr_mod
@@ -639,7 +639,7 @@ def test_whisper_default_model_medium(tmp_path, monkeypatch):
     el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
                                     no_whisper=False, pick=1, lang=None, model=None),
                  client=FakeClient(lines=None))
-    assert seen["model_size"] == "medium"
+    assert seen["model_size"] == "small"
     assert seen["vad"] is None  # config 默认 auto → 由 transcriber 按视频时长决策
 
 
@@ -813,3 +813,70 @@ def test_scan_unknown_url_hint(monkeypatch, capsys):
         el.cmd_scan(args)
     assert ei.value.code == 2
     assert "自进化" in capsys.readouterr().err
+
+
+# ---------- 首次引导门（onboard） ----------
+
+def _onboard_env(tmp_path, monkeypatch, onboarded=False, out_dir=None):
+    import onboard as ob
+    from core import config as cfg_mod
+    monkeypatch.setattr(cfg_mod, "CONFIG_PATH", str(tmp_path / "config.json"))
+    skill = tmp_path / "SKILL.md"
+    skill.write_text("<!-- ⛳ ONBOARDING: 1 -->\n<!-- ⛔ READ-GATE: ONBOARDING: 1 -->\n",
+                     encoding="utf-8")
+    monkeypatch.setattr(ob, "SKILL_PATH", str(skill))
+    cfg_mod.write_user_config({"out_dir": out_dir if out_dir is not None else str(tmp_path / "out"),
+                               "onboarded": onboarded})
+    return ob, cfg_mod
+
+
+def test_onboard_command_shows_checklist(tmp_path, monkeypatch, capsys):
+    """el.py onboard：状态 + 四项确认点 + 依赖提示 + 完成指引"""
+    _onboard_env(tmp_path, monkeypatch)
+    el.cmd_onboard(argparse.Namespace(complete=False, reset=False, json=False))
+    out = capsys.readouterr().out
+    assert "引导" in out
+    assert "产出目录" in out and "Whisper" in out and "依赖" in out and "使用" in out
+    assert "onboard --complete" in out
+
+
+def test_onboard_complete_and_reset(tmp_path, monkeypatch, capsys):
+    ob, _ = _onboard_env(tmp_path, monkeypatch)
+    el.cmd_onboard(argparse.Namespace(complete=True, reset=False, json=False))
+    st = ob.read_status()
+    assert st["onboarded"] is True and st["flag"] == 0
+    el.cmd_onboard(argparse.Namespace(complete=False, reset=True, json=False))
+    st = ob.read_status()
+    assert st["onboarded"] is False and st["flag"] == 1
+
+
+def test_onboard_complete_requires_out_dir(tmp_path, monkeypatch, capsys):
+    _onboard_env(tmp_path, monkeypatch, out_dir="")
+    with pytest.raises(SystemExit) as e:
+        el.cmd_onboard(argparse.Namespace(complete=True, reset=False, json=False))
+    assert e.value.code == 2
+
+
+def test_onboard_json(tmp_path, monkeypatch, capsys):
+    _onboard_env(tmp_path, monkeypatch)
+    el.cmd_onboard(argparse.Namespace(complete=False, reset=False, json=True))
+    data = json.loads(capsys.readouterr().out)
+    assert data["flag"] == 1 and data["onboarded"] is False and "out_dir" in data
+
+
+def test_run_soft_onboarding_notice(tmp_path, monkeypatch, capsys):
+    """onboarded 未完成 → run 软提示（stderr），不阻塞主流程"""
+    _onboard_env(tmp_path, monkeypatch, onboarded=False)
+    out = tmp_path / "out"
+    el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
+                                  no_whisper=False, pick=1), client=FakeClient())
+    err = capsys.readouterr().err
+    assert "引导" in err and "onboard" in err
+
+
+def test_run_no_notice_when_onboarded(tmp_path, monkeypatch, capsys):
+    _onboard_env(tmp_path, monkeypatch, onboarded=True)
+    out = tmp_path / "out"
+    el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
+                                  no_whisper=False, pick=1), client=FakeClient())
+    assert "引导未完成" not in capsys.readouterr().err

@@ -7,7 +7,8 @@ from core import config as cfg
 def test_default_config(tmp_path, monkeypatch):
     monkeypatch.setattr(cfg, "CONFIG_PATH", str(tmp_path / "none.json"))
     c = cfg.load_config()
-    assert c["whisper_model"] == "medium"
+    assert c["whisper_model"] == "small"      # fast 档（出厂默认；引导建议升 medium）
+    assert c["onboarded"] is False
     assert c["out_dir"] == ""
     assert c["hf_endpoint"] == ""
     assert c["hf_disable_xet"] is True
@@ -51,7 +52,7 @@ def test_ensure_creates_default(tmp_path, monkeypatch):
     path = cfg.ensure_config()
     assert os.path.exists(path)
     c = json.load(open(path, encoding="utf-8"))
-    assert c["whisper_model"] == "medium" and c["out_dir"] == ""
+    assert c["whisper_model"] == "small" and c["out_dir"] == ""
 
 
 def test_apply_hf_env(tmp_path, monkeypatch):
@@ -129,3 +130,25 @@ def test_load_config_deep_merges_nested(tmp_path, monkeypatch):
     assert cfg["recheck"]["tier3"]["max_density"] == 1.5 # 嵌套缺省补齐
     assert cfg["vision"]["pricing"]["currency"] == "CNY"
     assert cfg["vision"]["pricing"]["input_per_1m"] == 0.3
+
+
+def test_write_user_config_merges_and_preserves(tmp_path, monkeypatch):
+    """write_user_config：只改指定键，既有配置保留；load_config 可读回"""
+    p = tmp_path / "config.json"
+    monkeypatch.setattr(cfg, "CONFIG_PATH", str(p))
+    p.write_text(json.dumps({"out_dir": "D:/笔记"}), encoding="utf-8")
+    cfg.write_user_config({"onboarded": True, "whisper_model": "medium"})
+    raw = json.load(open(p, encoding="utf-8"))
+    assert raw["out_dir"] == "D:/笔记"
+    assert raw["onboarded"] is True and raw["whisper_model"] == "medium"
+    c = cfg.load_config()
+    assert c["onboarded"] is True and c["whisper_model"] == "medium"
+
+
+def test_write_user_config_recovers_corrupt(tmp_path, monkeypatch):
+    """损坏 JSON → 以空基底重建（不抛异常）"""
+    p = tmp_path / "config.json"
+    monkeypatch.setattr(cfg, "CONFIG_PATH", str(p))
+    p.write_text("{broken", encoding="utf-8")
+    cfg.write_user_config({"onboarded": True})
+    assert json.load(open(p, encoding="utf-8")) == {"onboarded": True}
