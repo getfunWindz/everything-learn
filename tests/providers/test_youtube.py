@@ -395,3 +395,11 @@ def test_fetch_media_urls_video_lowest_filters_hls(monkeypatch):
     assert urls[0] == "https://b.googlevideo.com/h360"     # 与 pick_video_url(lowest) 一致
     assert all("m3u8" not in u and "manifest" not in u for u in urls)
     assert len(urls) == 3
+
+
+def test_ydl_opts_have_socket_timeout():
+    """实测：yt-dlp 提取在弱网下 28 分钟无返回；必须有 socket 超时"""
+    a = YouTubeAdapter()
+    opts = a._ydl_opts()
+    assert opts["socket_timeout"] >= 10
+    assert opts["skip_download"] is True

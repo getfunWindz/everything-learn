@@ -149,8 +149,15 @@ class YouTubeAdapter:
 
     # ---------------- yt-dlp 封装 ----------------
 
+    # 弱网/代理抖动下 extract_info 可能长时间无返回：socket 超时 + 重试上限
+    YDL_BASE_OPTS = {"quiet": True, "no_warnings": True, "skip_download": True,
+                     "socket_timeout": 20, "extractor_retries": 2, "retries": 2}
+
+    def _ydl_opts(self, **opts):
+        return {**self.YDL_BASE_OPTS, **opts}
+
     def _extract(self, url, **opts):
-        ydl_opts = {"quiet": True, "no_warnings": True, "skip_download": True, **opts}
+        ydl_opts = self._ydl_opts(**opts)
         with _load_ytdlp().YoutubeDL(ydl_opts) as ydl:
             return ydl.extract_info(url, download=False)
 
