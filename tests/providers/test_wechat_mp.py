@@ -4,7 +4,7 @@ import pytest
 from core.adapter import SearchNeeded
 from providers.wechat_mp import (WeChatMpAdapter, WeChatError,
                                  parse_sogou_results, parse_meta, extract_article,
-                                 parse_album)
+                                 parse_album, strip_boilerplate)
 from tests.contract.harness import run_contract
 
 
@@ -238,3 +238,15 @@ def test_signed_url_uses_sogou_referer():
     res = a.fetch_content(ref)
     assert res.status == "ok"
     assert s.headers_seen[0]["Referer"] == "https://weixin.sogou.com/"
+
+
+def test_strip_boilerplate_removes_ui_noise():
+    """实测：正文混入「预览时标签不可点 / 微信扫一扫 / <div」等模板噪声"""
+    blocks = [{"heading": "", "text": "正文第一段"},
+              {"heading": "", "text": "预览时标签不可点"},
+              {"heading": "", "text": "微信扫一扫\n关注该公众号"},
+              {"heading": "", "text": "阅读原文"},
+              {"heading": "", "text": "<div class=x"},
+              {"heading": "", "text": "正文第二段"}]
+    out = strip_boilerplate(blocks)
+    assert [b["text"] for b in out] == ["正文第一段", "正文第二段"]

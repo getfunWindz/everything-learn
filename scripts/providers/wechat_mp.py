@@ -101,6 +101,28 @@ def _album_article_id(url: str) -> str:
     return f"wx-{hashlib.md5(url.encode('utf-8')).hexdigest()[:12]}"
 
 
+_NOISE_EXACT = {
+    "预览时标签不可点", "阅读原文", "赞", "分享", "收藏", "在看", "微信扫一扫",
+    "关注该公众号", "知道了", "取消", "允许", "分析", "使用完整服务",
+    "轻点两下取消赞", "轻点两下取消在看", "网页由 mp.weixin.qq.com 提供",
+}
+_NOISE_PREFIX = ("<", "微信扫一扫", "预览时标签不可点", "使用完整服务",
+                 "轻点两下取消")
+
+
+def strip_boilerplate(blocks):
+    """过滤公众号页面模板噪声（正文切片边界不稳时混入的 UI 文案/残片）"""
+    out = []
+    for b in blocks or []:
+        text = (b.get("text") or "").strip()
+        if not text:
+            continue
+        if text in _NOISE_EXACT or text.startswith(_NOISE_PREFIX):
+            continue
+        out.append(b)
+    return out
+
+
 def extract_article(html: str):
     """正文切片（js_content → bottom bar）→ (blocks, images)；页面异常抛 WeChatError"""
     if "rich_media_content" not in (html or ""):
@@ -113,7 +135,8 @@ def extract_article(html: str):
     if end < 0:
         end = html.find("rich_media_area_extra", start)
     seg = html[start:end if end > start else len(html)]
-    return html_to_blocks(seg)
+    blocks, images = html_to_blocks(seg)
+    return strip_boilerplate(blocks), images
 
 
 def strip_tags(raw: str) -> str:
