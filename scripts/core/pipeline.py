@@ -453,11 +453,18 @@ def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False)
             except Exception as e:
                 print(f"  P{label} 图片下载失败（不影响正文）：{str(e)[:80]}", file=sys.stderr)
         recheck_meta = _document_lite_recheck(adapter, res, opts)
+        text_len = sum(len((b or {}).get("text") or "") for b in res.blocks)
+        doc_hint = None
+        if text_len < 80 and not (getattr(res, "video_lines", None) or []):
+            doc_hint = (f"正文过短（{text_len} 字）：可能仅为图片帖/会员墙/被截断，"
+                        "建议换含正文的链接或补 OCR/人工核对")
+            print(f"  ⚠️ {doc_hint}", file=sys.stderr)
         info = artifacts.build_info(meta, ref, kind="document", source=src,
                                     page_count=opts.page_count, assets=assets,
                                     recheck=recheck_meta,
                                     provenance=("whisper" if recheck_meta else None),
-                                    language=(res.language or None))
+                                    language=(res.language or None),
+                                    quality_hint=doc_hint)
         artifacts.write_item_artifacts(out_dir, info, DocumentContent(blocks=res.blocks, images=res.images))
         if recheck_meta:
             artifacts.write_recheck_report(out_dir, recheck_meta)

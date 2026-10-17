@@ -638,3 +638,33 @@ def test_process_item_glossary_absorb_from_vision_correction(tmp_path, monkeypat
     assert (saved.get("_aliases") or {}).get("雄鹰", {}).get("correct") == "熊鹰"
     info = json.load(open(os.path.join(out_dir, "content_info.json"), encoding="utf-8"))
     assert (info.get("glossary") or {}).get("absorbed", {}).get("雄鹰") == "熊鹰"
+
+
+def test_document_short_body_sets_quality_hint(tmp_path):
+    """实测：微博图片帖只抓出 29 字，却无任何低内容提示"""
+    class A(FakeAdapter):
+        def __init__(self, text):
+            super().__init__(kind="document")
+            self.content.blocks = [{"heading": "", "text": text}]
+            self.content.video_lines = []
+
+    out = str(tmp_path / "out")
+    status, _src, _n, out_dir, _err = process_item(A("DeepSeek v4.1 flash 1017版本发布"), _ref(),
+                                                   out, RunOptions(out_root=out), single=True)
+    assert status == "ok"
+    info = json.load(open(os.path.join(out_dir, "content_info.json"), encoding="utf-8"))
+    assert "正文过短" in info["quality_hint"]
+
+
+def test_document_long_body_has_no_quality_hint(tmp_path):
+    class A(FakeAdapter):
+        def __init__(self):
+            super().__init__(kind="document")
+            self.content.blocks = [{"heading": "", "text": "正" * 200}]
+            self.content.video_lines = []
+
+    out = str(tmp_path / "out")
+    status, _src, _n, out_dir, _err = process_item(A(), _ref(), out,
+                                                   RunOptions(out_root=out), single=True)
+    info = json.load(open(os.path.join(out_dir, "content_info.json"), encoding="utf-8"))
+    assert "quality_hint" not in info
