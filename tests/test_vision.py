@@ -336,3 +336,74 @@ def test_window_primitives_kept():
                  "describe_video", "vision_transcribe", "sample_window_frames",
                  "check_window", "parse_window_result", "check_attribution_aligned"):
         assert callable(getattr(vision, name, None)), name
+
+
+def test_window_prompt_requires_proper_noun_and_number_correction():
+    """实测教训：画面写着 Claude Opus 5，转写 Cloud Opus 5，旧提示词返回「无遗漏」"""
+    p = vision.WINDOW_CHECK_PROMPT
+    assert "专有名词" in p
+    assert "数字" in p
+    assert "必须" in p and "校正" in p
+
+
+def test_parse_window_result_accepts_second_suffix():
+    """实测：模型输出 [41.0s] / [41.0秒]，旧正则要求 [41.0] → 全部被丢弃"""
+    text = ("[41.0s] 校正：原转写「Cloud Opus 5」→「Claude Opus 5」\n"
+            "[42秒] 补充：图中还有 Kimi K3\n"
+            "[43] 不确定：画面模糊")
+    items = vision.parse_window_result(text)
+    assert len(items) == 3
+    assert items[0]["kind"] == "correction"
+    assert items[0]["original"] == "Cloud Opus 5" and items[0]["text"] == "Claude Opus 5"
+    assert items[1]["kind"] == "supplement"
+    assert items[2]["kind"] == "uncertain"
+
+
+def test_describe_video_retries_when_reasoning_eats_max_tokens(monkeypatch):
+    """实测：deepseek 推理占满 max_tokens → content 空字符串；必须加倍重试而非静默返回空"""
+    calls = []
+
+    class Resp:
+        def __init__(self, payload):
+            self._p = payload
+        def raise_for_status(self):
+            return None
+        def json(self):
+            return self._p
+
+    class FakeSession:
+        def __init__(self):
+            self.trust_env = True
+        def post(self, url, json=None, headers=None, timeout=None):
+            calls.append(json["max_tokens"])
+            if len(calls) == 1:
+                return Resp({"choices": [{"message": {"content": ""},
+                                          "finish_reason": "length"}]})
+            return Resp({"choices": [{"message": {"content": "[1.0s] 校正：原转写「A」→「B」"},
+                                      "finish_reason": "stop"}]})
+
+    monkeypatch.setattr(vision.requests, "Session", FakeSession)
+    cfg = {"enabled": True, "base_url": "http://x", "api_key": "k",
+           "model": "m", "max_tokens": 4096}
+    out = vision.describe_video(cfg, [(1.0, b"jpeg")], prompt="p")
+    assert out.startswith("[1.0s]")
+    assert calls == [4096, 8192]
+
+
+def test_describe_video_raises_on_empty_without_length(monkeypatch):
+    class Resp:
+        def raise_for_status(self):
+            return None
+        def json(self):
+            return {"choices": [{"message": {"content": ""}, "finish_reason": "stop"}]}
+
+    class FakeSession:
+        def __init__(self):
+            self.trust_env = True
+        def post(self, *a, **k):
+            return Resp()
+
+    monkeypatch.setattr(vision.requests, "Session", FakeSession)
+    cfg = {"enabled": True, "base_url": "http://x", "api_key": "k", "model": "m"}
+    with pytest.raises(vision.VisionError):
+        vision.describe_video(cfg, [(0, b"jpeg")], prompt="p")

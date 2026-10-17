@@ -62,19 +62,29 @@ def describe_video(cfg_vision: dict, frames: list, prompt: str = None) -> str:
     payload = {
         "model": cfg_vision.get("model", "gpt-4o-mini"),
         "messages": [{"role": "user", "content": content}],
-        "max_tokens": 4096,
+        "max_tokens": int(cfg_vision.get("max_tokens") or 4096),
     }
     session = requests.Session()
     session.trust_env = False  # 不继承环境代理（requests.post 不接受 trust_env 参数，直接传会 TypeError）
-    r = session.post(url, json=payload,
-                     headers={"Authorization": f"Bearer {cfg_vision['api_key']}"},
-                     timeout=300)
-    r.raise_for_status()
-    data = r.json()
-    try:
-        return data["choices"][0]["message"]["content"]
-    except (KeyError, IndexError, TypeError):
-        raise VisionError(f"多模态 API 返回格式异常：{str(data)[:200]}")
+    for attempt in range(2):
+        r = session.post(url, json=payload,
+                         headers={"Authorization": f"Bearer {cfg_vision['api_key']}"},
+                         timeout=300)
+        r.raise_for_status()
+        data = r.json()
+        try:
+            choice = data["choices"][0]
+            text = ((choice.get("message") or {}).get("content") or "").strip()
+        except (KeyError, IndexError, TypeError):
+            raise VisionError(f"多模态 API 返回格式异常：{str(data)[:200]}")
+        if text:
+            return text
+        # 推理型模型（如 deepseek-flash）可能把 max_tokens 全用在 reasoning_content → 空正文
+        if choice.get("finish_reason") == "length" and attempt == 0:
+            payload["max_tokens"] *= 2
+            continue
+        raise VisionError("多模态返回空内容（可能 max_tokens 被推理占满）；"
+                          "请提高 vision.max_tokens 或缩小复检窗口")
 
 
 def vision_transcribe(cfg_vision: dict, video_path: str, prompt: str = None) -> str:
@@ -244,11 +254,14 @@ def sample_window_frames(video_path, start, end, fps=3, max_side=640,
 WINDOW_CHECK_PROMPT = (
     "你是学习报告工具的「画面保真复检」助手。以下是一个时间窗内的画面帧（每秒 3 帧：头/中/尾，"
     "每帧标注时间戳）与同一窗口的转写文本。\n"
-    "请以画面为准，指出转写的问题：\n"
+    "先逐帧读取画面中所有可见文字（标题/表格/图表/代码/字幕），再与转写文本逐项对照。\n"
+    "必须检查以下两类硬性差异，发现就必须输出校正，不得因为画面内容已被转写大致提到而忽略：\n"
+    "- 专有名词（模型名/产品名/人名/英文缩写）与画面不一致 → `[时间戳秒] 校正：原转写「X」→「Y」`\n"
+    "- 数字/单位/百分比与画面不一致 → `[时间戳秒] 校正：原转写「X」→「Y」`\n"
+    "其他情况：\n"
     "- 画面有知识材料（公式/PPT/代码/图表/演示步骤）而转写未覆盖 → 输出 `[时间戳秒] 补充：内容`\n"
-    "- 转写字词明显错误（同音字/口误，且画面证据明确）→ 输出 `[时间戳秒] 校正：原转写「X」→「Y」`\n"
     "- 画面不足以判断（如纯口播）→ 输出 `[时间戳秒] 不确定：原因`\n"
-    "- 没有任何问题 → 只输出四个字 `无遗漏`\n"
+    "- 画面无文字且转写无明显错误 → 只输出四个字 `无遗漏`\n"
     "只输出上述格式，用中文。"
 )
 
@@ -268,7 +281,7 @@ def parse_window_result(text):
     if not text or "无遗漏" in text:
         return []
     items = []
-    for m in re.finditer(r"\[(\d+(?:\.\d+)?)\]\s*(补充|校正|不确定)[：:]\s*(.+)", text):
+    for m in re.finditer(r"\[(\d+(?:\.\d+)?)\s*(?:s|秒)?\]\s*(补充|校正|不确定)[：:]\s*(.+)", text):
         ts = float(m.group(1))
         kind = {"补充": "supplement", "校正": "correction", "不确定": "uncertain"}[m.group(2)]
         body = m.group(3).strip()
