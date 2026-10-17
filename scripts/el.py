@@ -688,7 +688,8 @@ def main(argv=None):
     run.add_argument("--fav", default=None, help='从收藏夹选视频（收藏夹id或名称，配合 --pick 选第N个）')
     run.add_argument("--platform", default=None,
                      help="指定平台（wechat=公众号搜索后立即抓取；默认自动路由）")
-    run.add_argument("--resume", action="store_true", help="跳过已成功处理的P（断点续跑）")
+    run.add_argument("--resume", action="store_true",
+                     help="断点续跑：跳过已成功分P；复检复用已完成窗口（.recheck_ckpt）")
     run.add_argument("--lang", default=None, help='字幕语言（zh/ja/en等，默认自动中文优先）')
     run.add_argument("--model", default=None, help="whisper 模型（tiny/small/medium/large-v3，默认 config.whisper_model）")
     gv = run.add_mutually_exclusive_group()

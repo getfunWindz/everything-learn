@@ -149,6 +149,8 @@ python scripts/el.py run <链接> --budget 1.5           # 本次运行复检金
 - **转写语言**：默认自动检测（B 站/抖音不再硬编码 zh）；英文/多语视频会按实际语言转写，`content_info.language` 回填检测结果；需要强制时用 `--lang`。
 - **视觉复检可观测**：逐窗打印 `复检窗口 i/N`；`recheck_report.checked_windows` 区分「已检查」与「未覆盖」；推理型 vision 模型（如 deepseek-flash）把 max_tokens 吃满时会自动加倍重试（默认 8192，最多 3 次）。
 - **校正置信度分级**：每条校正带「高/中/低」；低置信只留痕（`windows.kind=low_confidence`）不改正文，避免图表多行数字串行误改。
+- **预算口径**：`budget.estimate` 是闸门上界（3fps 计划帧），`budget.actual` 按去重后实发帧重算（常低 5~10 倍）；`spent_total` 按上界保守累计。
+- **断点续跑**：`--resume` 会复用 `.recheck_ckpt/` 中已完成窗口（区间+转写哈希匹配），中断后只补未完成窗口。
 - **浏览器串行**：知乎/微博/Medium/X/小红书/抖音共用一个 profile，工具用文件锁串行化；另一任务占用时会等待/提示，不要并发跑浏览器型平台。
 - **知乎风控**：短时间大量请求会触发临时限流（40362，通常几十分钟自行恢复）；适配器会给出可读提示。日常使用用浏览器 cookie 路径即可，不要高频循环抓取。
 - **抖音**：detail 接口已对非浏览器调用硬拦（直连 403 Argus/Uifid）→ 取数走真实浏览器上下文（本机需 Playwright + 持久化 profile：`el.py cookie douyin` 打开窗口一次）；风控严格勿高频；scan 已内置 SPA 水合等待。

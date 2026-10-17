@@ -15,10 +15,12 @@
 
 - **小红书搜索 token 化（B2）**：搜索结果直接从页面 state 提取 `xsecToken`，生成可抓取的完整链接；实测 search → run 成功（无需 App 分享）。
 - **公众号搜索结果指纹（B9）**：`search` 落指纹（标题+账号，顺序敏感，1h TTL）；`run --pick` 检测到列表漂移时要求 `--yes` 复核，避免取错条目。
+- **复检窗口级断点（B8）**：每窗口完成即写 `.recheck_ckpt/<platform>_<item>.json`（区间 + 转写哈希 + vision 结果）；`--resume` 复用已完成窗口且不再调用 vision；完整跑完后自动清理。
+- **预算透明**：`recheck_report.budget` 新增 `actual`（按去重后帧重算）、`frames_planned`/`frames_used`；实测 7min 视频计划 1314 帧、实发 153 帧，上界 0.254 USD / 实际约 0.045 USD。
 
 ### 测试
 
-- **819 项离线测试**（新增 6 项）。
+- **820 项离线测试**（新增 7 项）。
 
 ## [0.4.2] - 2026-10-17
 

@@ -2021,6 +2021,8 @@ def test_window_recheck_reports_progress_and_checked_windows(monkeypatch, tmp_pa
                                         {"tier": 2}, opts)
     assert meta["checked_windows"] == 2
     assert meta["coverage_pct"] == 100.0
+    assert meta["budget"]["frames_planned"] == 180
+    assert meta["budget"]["actual"]["frames"] == 2
     err = capsys.readouterr().err
     assert "复检窗口 1/2" in err and "复检窗口 2/2" in err
 
@@ -2080,3 +2082,47 @@ def test_max_seconds_marks_remaining_windows_uncovered(monkeypatch, tmp_path, ca
     assert len(meta["uncovered"]) == 2
     assert any("时长上限" in w.get("text", "") for w in meta["windows"])
     assert "复检计划" in capsys.readouterr().err
+
+
+def test_recheck_resume_reuses_completed_windows(monkeypatch, tmp_path):
+    """B8：中断后 --resume 只补未完成窗口；已完成窗口复用结果，不再调用 vision"""
+    import transcriber
+    import vision
+
+    class Adapter:
+        name = "demo"
+        def fetch_media_url(self, ref, media="video", lowest=False):
+            return "http://v/1"
+
+    monkeypatch.setattr(vision, "deps_available", lambda: True)
+    monkeypatch.setattr(transcriber, "download_audio", lambda url, dest, headers=None: dest)
+    monkeypatch.setattr(vision, "sample_window_frames", lambda *a, **k: [(0.0, b"jpg")])
+
+    calls = {"n": 0}
+    def check(cfg, frames, transcript_text=""):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return [{"ts": 0.0, "kind": "correction", "text": "B", "original": "A",
+                     "confidence": "高"}]
+        raise RuntimeError("vision down")
+
+    monkeypatch.setattr(vision, "check_window", check)
+    cfg = {"recheck": {"frame_fps": 3, "window_sec": 30},
+           "vision": {"enabled": True, "pricing": {}}}
+    ref = ItemRef(platform="demo", item_id="1", duration=60)
+    lines = [{"start": 0, "end": 60, "text": "A 内容"}]
+    meta1 = pipeline._run_window_recheck(Adapter(), ref, lines, cfg, {"tier": 2},
+                                         pipeline.RunOptions(out_root=str(tmp_path)))
+    assert meta1["checked_windows"] == 1 and meta1["window_errors"]
+    assert lines[0]["text"] == "B 内容"
+
+    # 第二轮：模拟进程重启（重新转写得到同样的原始文本）
+    lines2 = [{"start": 0, "end": 60, "text": "A 内容"}]
+    monkeypatch.setattr(vision, "check_window", lambda *a, **k: [])
+    meta2 = pipeline._run_window_recheck(Adapter(), ref, lines2, cfg, {"tier": 2},
+                                         pipeline.RunOptions(out_root=str(tmp_path),
+                                                             resume=True))
+    assert meta2["checked_windows"] == 2 and not meta2["window_errors"]
+    assert lines2[0]["text"] == "B 内容"      # 窗口 1 的校正被复用
+    assert not os.path.exists(pipeline._recheck_ckpt_path(
+        pipeline.RunOptions(out_root=str(tmp_path)), ref))

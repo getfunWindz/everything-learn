@@ -2,6 +2,7 @@
 
 平台差异全部由 SourceAdapter 承担；本模块不感知具体平台。
 """
+import hashlib
 import json
 import logging
 import math
@@ -153,6 +154,35 @@ def _budget_gate(est, cfg, opts, tier=None, duration_sec=None, info=None) -> str
     return choice if choice in ("A", "B", "C") else "B"
 
 
+def _recheck_ckpt_path(opts, ref):
+    root = getattr(opts, "out_root", "") or "."
+    d = os.path.join(root, ".recheck_ckpt")
+    name = f"{ref.platform}_{_safe_name(str(ref.item_id), 40)}_{_safe_name(str(ref.sub_id or '1'), 12)}"
+    return os.path.join(d, name + ".json")
+
+
+def _load_recheck_ckpt(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict) and data.get("version") == 1:
+            return data
+    except (OSError, ValueError):
+        pass
+    return {}
+
+
+def _save_recheck_ckpt(path, entries):
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"version": 1, "windows": entries}, f, ensure_ascii=False)
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
 def _correction_target(lines, ts, orig):
     """校正目标行（Q7）：优先 |start-ts|≤2s 邻域内首个含 orig 的行；
     否则全局首个含 orig 的行；均无 → None（不改，转 correction_unmatched）。"""
@@ -288,6 +318,42 @@ def _run_window_recheck(adapter, ref, lines, cfg, decision, opts, disputed=None)
                               else "超出复检帧预算（max_check_frames）")
             print(f"  · 复检计划：{total_windows} 窗 / 预计 {est_used['amount']:.3f} "
                   f"{est_used.get('currency', 'USD')} / 帧帽 {runtime_cap}", file=sys.stderr)
+            ckpt_path = _recheck_ckpt_path(opts, ref)
+            prior = _load_recheck_ckpt(ckpt_path) if getattr(opts, "resume", False) else {}
+            ckpt_by_key = {tuple(e.get("range") or []): e
+                           for e in (prior.get("windows") or [])}
+            ckpt_entries = []
+
+            def _apply_items(items, cursor, seg_end):
+                for it in items or []:
+                    kind = it.get("kind")
+                    if kind == "supplement":
+                        added.append({"start": float(it["ts"]), "end": float(it["ts"]) + 1,
+                                      "text": it.get("text", ""), "source": "vision补充"})
+                    elif kind == "correction":
+                        if it.get("confidence") == "低":
+                            # 置信度分级（B11）：低置信只留痕，不改正文
+                            reports.append({"range": [cursor, seg_end],
+                                            "kind": "low_confidence",
+                                            "text": it.get("text", ""),
+                                            "original": it.get("original", ""),
+                                            "ts": it.get("ts")})
+                            continue
+                        orig = it.get("original") or ""
+                        target = _correction_target(lines, it.get("ts"), orig) if orig else None
+                        if target is not None:
+                            target["text"] = target["text"].replace(orig, it.get("text", ""), 1)
+                            target["source"] = "vision校正"
+                            target["corrected_from"] = orig
+                            target["corrected_to"] = it.get("text", "")
+                        else:
+                            reports.append({"range": [cursor, seg_end],
+                                            "kind": "correction_unmatched",
+                                            "text": it.get("text", ""), "original": orig})
+                    else:
+                        reports.append({"range": [cursor, seg_end], "kind": "uncertain",
+                                        "text": it.get("text", "")})
+
             started = time.monotonic()
             max_seconds = getattr(opts, "max_seconds", None)
             for wi, (cursor, seg_end) in enumerate(planned_windows, 1):
@@ -304,6 +370,18 @@ def _run_window_recheck(adapter, ref, lines, cfg, decision, opts, disputed=None)
                 print(f"  · 复检窗口 {wi}/{total_windows} [{cursor:.0f}-{seg_end:.0f}s]"
                       + (f"（已用 {elapsed:.0f}s，预计剩余 {eta:.0f}s）" if eta else ""),
                       file=sys.stderr)
+                ctx = " ".join(l["text"] for l in lines
+                               if cursor - 1 <= float(l["start"]) < seg_end)
+                ctx_hash = hashlib.sha1(ctx.encode("utf-8")).hexdigest()
+                ck = (round(cursor, 1), round(seg_end, 1))
+                entry = ckpt_by_key.get(ck)
+                if entry and entry.get("hash") == ctx_hash:
+                    covered += seg_end - cursor
+                    checked += 1
+                    _apply_items(entry.get("items"), cursor, seg_end)
+                    ckpt_entries.append(entry)
+                    print("    复用断点结果（未调用 vision）", file=sys.stderr)
+                    continue
                 window_frames = max(1, int(math.ceil((seg_end - cursor) * fps)))
                 if admitted_theoretical + window_frames > runtime_cap:
                     # 运行帽保护（spec §8.1）：A/B 均不得超 runtime_cap，超出部分标未复检
@@ -324,8 +402,6 @@ def _run_window_recheck(adapter, ref, lines, cfg, decision, opts, disputed=None)
                 if not frames:
                     continue
                 used_frames += len(frames)
-                ctx = " ".join(l["text"] for l in lines
-                               if cursor - 1 <= float(l["start"]) < seg_end)
                 try:
                     items = vision.check_window(conf, frames, transcript_text=ctx)
                 except Exception as ex:  # Q3：单窗复检异常 → 记录并继续
@@ -336,42 +412,28 @@ def _run_window_recheck(adapter, ref, lines, cfg, decision, opts, disputed=None)
                     continue
                 covered += seg_end - cursor  # Q2：仅成功返回的窗口计入覆盖
                 checked += 1
-                for it in items or []:
-                    kind = it.get("kind")
-                    if kind == "supplement":
-                        added.append({"start": float(it["ts"]), "end": float(it["ts"]) + 1,
-                                      "text": it.get("text", ""), "source": "vision补充"})
-                    elif kind == "correction":
-                        if it.get("confidence") == "低":
-                            # 置信度分级（B11）：低置信只留痕，不改正文，避免图表数字串行误改
-                            reports.append({"range": [cursor, seg_end],
-                                            "kind": "low_confidence",
-                                            "text": it.get("text", ""),
-                                            "original": it.get("original", ""),
-                                            "ts": it.get("ts")})
-                            continue
-                        orig = it.get("original") or ""
-                        target = _correction_target(lines, it.get("ts"), orig) if orig else None
-                        if target is not None:  # Q7：邻域优先 + 行内仅改首次出现
-                            target["text"] = target["text"].replace(orig, it.get("text", ""), 1)
-                            target["source"] = "vision校正"
-                            target["corrected_from"] = orig
-                            target["corrected_to"] = it.get("text", "")   # 供术语库自动反哺
-                        else:  # 找不到原句：转待人工关注，不误改
-                            reports.append({"range": [cursor, seg_end],
-                                            "kind": "correction_unmatched",
-                                            "text": it.get("text", ""), "original": orig})
-                    else:
-                        reports.append({"range": [cursor, seg_end], "kind": "uncertain",
-                                        "text": it.get("text", "")})
+                _apply_items(items, cursor, seg_end)
+                ckpt_entries.append({"range": [cursor, seg_end], "hash": ctx_hash,
+                                     "items": items or []})
+                _save_recheck_ckpt(ckpt_path, ckpt_entries)
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
-        if budget_remaining is not None:  # 执行后按估算累计（actual token 未知，用 est_used 代理）
+        if not uncovered and not window_errors:
+            try:
+                os.remove(ckpt_path)
+            except OSError:
+                pass
+        # actual：按「去重后帧数」重算的实际费用参考（estimate 是闸门上界，常高估 5~10 倍）；
+        # spent_total 仍按 estimate 保守累计（与 cap 的“计划帧”口径一致，避免超支）。
+        actual_est = recheck.estimate_budget(used_frames, checked, conf.get("pricing", {}) or {})
+        if budget_remaining is not None:
             opts._budget_spent = (getattr(opts, "_budget_spent", 0.0)
                                   + min(est_used["amount"], budget_remaining))
         lines.extend(added)
         lines.sort(key=lambda x: float(x["start"]))
-        budget_meta = {"estimate": est_used, "user_choice": choice,
+        budget_meta = {"estimate": est_used, "actual": actual_est,
+                       "frames_planned": est_used.get("frames"), "frames_used": used_frames,
+                       "user_choice": choice,
                        "confirmed": budget_info.get("confirmed"),
                        "reason": budget_reason or budget_info.get("reason", ""),
                        "cap": (max(0.0, float(budget_cap)) if budget_cap is not None else None),
