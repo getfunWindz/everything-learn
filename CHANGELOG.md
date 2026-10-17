@@ -2,6 +2,23 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本。
 
+## [0.4.4] - 2026-10-17
+
+**立项批 4**：Medium CF 重试、跨平台质量矩阵、X 视频口播样本。
+
+### Added
+
+- **文档质量矩阵（B10）**：`core.quality.document_quality_hint()` 统一口径（会员墙 > 有口播 > 过短 > 图片为主 > 截断），pipeline 文档分支接入并写 `content_info.quality_hint`；12 项参数化矩阵覆盖 5 平台 × 3 类。
+- **Medium CF 重试（B6）**：`BrowserFetchError` 命中 403/429/Just a moment 等 → 冷却 12s 重试 1 次；非 CF 错误转可读 `MediumError`，不盲目重试。
+
+### Verified
+
+- **X 视频口播（B5）**：OpenAI 官方 GPT-6 Astra 推文（163s 视频）→ 真实英文口播 2.7min，无幻觉；`recheck.lite=true`。样本：`https://x.com/OpenAI/status/2095595741528125780`。
+
+### 测试
+
+- **834 项离线测试**（新增 14 项）。
+
 ## [0.4.3] - 2026-10-17
 
 **立项批 3**：小红书 token 化搜索、播客单集定位、同源长段修正、公众号指纹防漂移。

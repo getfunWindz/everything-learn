@@ -1,5 +1,7 @@
 import sys, os, json
+import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts"))
+from core import browserfetch
 from providers.medium import (MediumAdapter, article_items_to_blocks, list_cards_to_refs,
                              medium_to_blocks, normalize_image_url, parse_feed, payload_status)
 from core.models import ItemRef
@@ -218,3 +220,41 @@ def test_fetch_content_member_only_sets_quality_hint(monkeypatch):
     res = a.fetch_content(ref)
     assert res.status == "suspect"
     assert "会员" in (res.quality_hint or "")
+
+
+def test_medium_cf_retry_then_success(monkeypatch):
+    """B6：CF 拦截首次失败 → 冷却重试一次（不盲目高频）"""
+    a = MediumAdapter(session=object())
+    a.cf_retry_wait = 0
+    calls = {"n": 0}
+    data = {"items": [{"tag": "p", "text": "body " * 40}], "images": [], "title": "T", "author": "A"}
+
+    def flaky(self, ref):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise browserfetch.BrowserFetchError("Just a moment... (HTTP 403)")
+        return data
+
+    monkeypatch.setattr(MediumAdapter, "_extract_article", flaky)
+    ref = ItemRef(platform="medium", item_id="article-z", url="https://medium.com/x-abcdef123456",
+                  sub_id="1", extra={"kind": "article"})
+    got = a._article_data(ref)
+    assert got["title"] == "T" and calls["n"] == 2
+
+
+def test_medium_non_cf_error_no_retry(monkeypatch):
+    from providers.medium import MediumError
+    a = MediumAdapter(session=object())
+    a.cf_retry_wait = 0
+    calls = {"n": 0}
+
+    def boom(self, ref):
+        calls["n"] += 1
+        raise browserfetch.BrowserFetchError("浏览器 profile 正被另一个任务占用")
+
+    monkeypatch.setattr(MediumAdapter, "_extract_article", boom)
+    ref = ItemRef(platform="medium", item_id="article-w", url="https://medium.com/w-abcdef123456",
+                  sub_id="1", extra={"kind": "article"})
+    with pytest.raises(MediumError):
+        a._article_data(ref)
+    assert calls["n"] == 1

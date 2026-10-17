@@ -91,3 +91,26 @@ def is_suspected_hallucination(lines, stats=None) -> bool:
     tpl_chars = sum(len(t) for t in texts
                     if any(p in t.lower() for p in _TEMPLATE_PHRASES))
     return tpl_chars / max(1, len(joined)) > 0.5
+
+
+def document_quality_hint(text_len: int, images=0, video_lines=0,
+                          adapter_hint: str = "", text: str = "") -> str:
+    """文档内容质量提示（跨平台统一口径，2026-10-17 B10）
+
+    优先级：适配器提示（会员墙等）> 有口播（不判过短）> 极短 > 图片为主 > 结尾截断。
+    返回空串 = 无提示。
+    """
+    if adapter_hint:
+        return adapter_hint
+    if video_lines:
+        return ""
+    if text_len < 80:
+        return (f"正文过短（{text_len} 字）：可能仅为图片帖/会员墙/被截断，"
+                "建议换含正文的链接或补 OCR/人工核对")
+    if images and text_len < 300:
+        return (f"正文偏短且含 {images} 张图片（{text_len} 字）：内容可能以图片为主，"
+                "建议读图/OCR 后再写报告")
+    if text and text.rstrip().endswith(("…", "...")) and text_len < 2000:
+        return (f"正文疑似被截断（{text_len} 字，以省略号结尾）：覆盖率可能不足，"
+                "建议换公开全文或人工补全")
+    return ""

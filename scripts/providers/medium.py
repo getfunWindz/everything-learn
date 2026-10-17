@@ -9,6 +9,8 @@ feed（medium.com/feed/...）可用 requests 直取（content:encoded 含全文�
 付费墙：SSR 正文过短时置 suspect。
 """
 import re
+import sys
+import time
 
 import requests
 
@@ -217,10 +219,16 @@ def parse_feed(xml_text: str) -> list:
     return out
 
 
+_CF_RE = re.compile(r"just a moment|attention required|cloudflare|http 403|http 429|challenge",
+                    re.I)
+
+
 @register
 class MediumAdapter:
     name = "medium"
     kinds = {"article"}
+    cf_attempts = 2        # CF 拦截/空正文时的总尝试次数
+    cf_retry_wait = 12.0   # 冷却秒数（平台缓速 10s + 抖动）
 
     def __init__(self, session: requests.Session = None):
         self._session = session
@@ -297,11 +305,31 @@ class MediumAdapter:
             s.pause(4000)
             return s.evaluate(_ARTICLE_JS) or {}
 
+    def _extract_article_with_retry(self, ref) -> dict:
+        """CF 拦截/空正文 → 冷却重试一次；非 CF 错误转可读 MediumError（不盲目重试）"""
+        last = None
+        for i in range(max(1, self.cf_attempts)):
+            try:
+                data = self._extract_article(ref)
+            except browserfetch.BrowserFetchError as e:
+                last = e
+                if i + 1 < self.cf_attempts and _CF_RE.search(str(e)):
+                    print(f"  · Medium 命中 Cloudflare，{self.cf_retry_wait:g}s 后重试……",
+                          file=sys.stderr)
+                    time.sleep(self.cf_retry_wait)
+                    continue
+                raise MediumError(f"Medium 页面被 Cloudflare 拦截或加载失败：{str(e)[:100]}；"
+                                  "请稍后重试（工具已按平台缓速）")
+            if data.get("items"):
+                return data
+            return data    # 空正文不盲目重试（可能是会员墙/结构变化，交给 fetch_content 标注）
+        raise MediumError(f"Medium 页面不可用：{str(last)[:100]}")
+
     def _article_data(self, ref) -> dict:
         """文章数据（抽取 + 实例内缓存：meta/content 两次调用只加载一次页面）"""
         key = ref.item_id or ref.url
         if key not in self._article_cache:
-            self._article_cache[key] = self._extract_article(ref)
+            self._article_cache[key] = self._extract_article_with_retry(ref)
         return self._article_cache[key]
 
     def _extract_list(self, ref) -> dict:

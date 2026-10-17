@@ -540,10 +540,13 @@ def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False)
                 print(f"  P{label} 图片下载失败（不影响正文）：{str(e)[:80]}", file=sys.stderr)
         recheck_meta = _document_lite_recheck(adapter, res, opts)
         text_len = sum(len((b or {}).get("text") or "") for b in res.blocks)
-        doc_hint = getattr(res, "quality_hint", "") or None
-        if not doc_hint and text_len < 80 and not (getattr(res, "video_lines", None) or []):
-            doc_hint = (f"正文过短（{text_len} 字）：可能仅为图片帖/会员墙/被截断，"
-                        "建议换含正文的链接或补 OCR/人工核对")
+        from core import quality as _quality
+        doc_hint = _quality.document_quality_hint(
+            text_len, images=len(res.images or []),
+            video_lines=len(getattr(res, "video_lines", None) or []),
+            adapter_hint=getattr(res, "quality_hint", ""),
+            text=" ".join((b or {}).get("text") or "" for b in res.blocks)) or None
+        if doc_hint:
             print(f"  ⚠️ {doc_hint}", file=sys.stderr)
         info = artifacts.build_info(meta, ref, kind="document", source=src,
                                     page_count=opts.page_count, assets=assets,
