@@ -893,3 +893,26 @@ def test_update_command_delegates(monkeypatch):
     monkeypatch.setattr(upd_mod, "main", lambda argv=None: seen.setdefault("argv2", argv) or 0)
     el.cmd_update(argparse.Namespace(dry_run=False))
     assert seen["argv2"] == []
+
+
+def test_resolve_unknown_url_reports_unsupported(capsys):
+    """实测：未知 URL 被静默当成关键词；应走自进化提示"""
+    el.cmd_resolve(argparse.Namespace(input="https://example.com/abc"))
+    out = json.loads(capsys.readouterr().out)
+    assert out["kind"] == "unsupported" and out["url"] == "https://example.com/abc"
+
+
+def test_resolve_plain_keyword_still_search(capsys):
+    el.cmd_resolve(argparse.Namespace(input="DeepSeek V4.1"))
+    out = json.loads(capsys.readouterr().out)
+    assert out["kind"] == "search"
+
+
+def test_run_unknown_url_does_not_search(tmp_path, capsys):
+    """未知 URL 绝不能回落成关键词搜索"""
+    client = FakeClient()
+    with pytest.raises(SystemExit) as e:
+        el.cmd_run(argparse.Namespace(input="https://example.com/abc", out=str(tmp_path),
+                                      pick=None), client=client)
+    assert e.value.code == 2
+    assert "自进化" in capsys.readouterr().err

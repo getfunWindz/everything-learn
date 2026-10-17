@@ -40,6 +40,15 @@ def cmd_resolve(args):
         print(json.dumps({"kind": "video", "bvid": spec.bvid, "aid": spec.aid,
                           "page": spec.page}, ensure_ascii=False))
     except SearchNeeded:
+        text = str(args.input or "").strip()
+        if text.lower().startswith(("http://", "https://")):
+            print(json.dumps({"kind": "unsupported", "url": text}, ensure_ascii=False))
+            print("未知平台 URL：没有匹配的适配器。按 SKILL「自进化」流程：\n"
+                  "  1) 可行性尽调（形态/获取方式/鉴权/风控/可得性/结论）\n"
+                  "  2) 确认可自动化后按 docs/ADAPTER_TEMPLATE.md 实现\n"
+                  "  3) 通过 fixture 单测 + 契约测试 + 真实链接冒烟后再合入",
+                  file=sys.stderr)
+            return
         print(json.dumps({"kind": "search", "keyword": args.input}, ensure_ascii=False))
 
 
@@ -477,6 +486,14 @@ def cmd_run(args, client: ApiClient = None):
         if platform in ("wechat", "wechat_mp"):
             print(f"无法定位内容：{input_str}（公众号输入需可解析的文章链接）", file=sys.stderr)
             sys.exit(4)
+        if str(input_str or "").lower().startswith(("http://", "https://")):
+            print(f"未知平台 URL：{input_str}\n"
+                  "没有匹配的适配器，不会回落成关键词搜索。按 SKILL「自进化」流程：\n"
+                  "  1) 可行性尽调（形态/获取方式/鉴权/风控/可得性/结论）\n"
+                  "  2) 确认可自动化后按 docs/ADAPTER_TEMPLATE.md 实现\n"
+                  "  3) fixture 单测 + 契约测试 + 真实链接冒烟通过后再合入",
+                  file=sys.stderr)
+            sys.exit(2)
         try:
             results = client.search(input_str, limit=max(1, args.pick))
         except BiliError as e:
