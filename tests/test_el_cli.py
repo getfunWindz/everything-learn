@@ -937,3 +937,7 @@ def test_run_keyword_yes_picks_first(tmp_path):
     el.cmd_run(argparse.Namespace(input="某个关键词", out=str(tmp_path), pick=None, yes=True),
                client=client)
     assert list(tmp_path.rglob("content_info.json"))
+
+
+def test_ensure_utf8_stdout_safe():
+    el._ensure_utf8_stdout()  # 不应抛异常（不可重配置的流跳过）

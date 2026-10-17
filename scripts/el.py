@@ -557,7 +557,20 @@ def cmd_run(args, client: ApiClient = None):
         print("已生成：content_info.json / content.txt / report_template.md")
 
 
+def _ensure_utf8_stdout():
+    """Windows GBK 控制台：强制 UTF-8 输出，避免中文/emoji 乱码（失败则忽略）"""
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+    try:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+
 def main(argv=None):
+    _ensure_utf8_stdout()
     setup_logging()
     config.ensure_config()
     p = argparse.ArgumentParser(prog="el", description="everything-learn 学习内容获取（多平台）")
