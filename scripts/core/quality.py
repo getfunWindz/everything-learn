@@ -58,3 +58,36 @@ def missing_dependencies() -> list:
         return missing_optional()
     except Exception:
         return []
+
+
+# ---------------- 转写幻觉拦截（2026-10-17 实测） ----------------
+# 无语音/短循环音频常被 Whisper 写成片尾套话（如 "Thanks for watching..."），
+# 与真实口播无法区分；命中即丢弃并如实标注，避免进入报告与知识库。
+_TEMPLATE_PHRASES = (
+    "thanks for watching", "like and subscribe", "please subscribe",
+    "subscribe to the channel", "see you next time",
+    "请点赞", "点赞订阅", "订阅频道", "下期再见",
+)
+
+
+def is_suspected_hallucination(lines, stats=None) -> bool:
+    """转写是否为疑似幻觉：无语音占比高 / 同一句高频重复 / 全是模板句"""
+    import re
+    from collections import Counter
+    texts = [(l or {}).get("text") or "" for l in (lines or [])]
+    texts = [t.strip() for t in texts if t and t.strip()]
+    if not texts:
+        return False
+    nsp = (stats or {}).get("no_speech_ratio")
+    if isinstance(nsp, (int, float)) and nsp > 0.6:
+        return True
+    norm = [re.sub(r"\W+", "", t.lower()) for t in texts]
+    norm = [t for t in norm if t]
+    if len(norm) >= 3:
+        top_n = Counter(norm).most_common(1)[0][1]
+        if top_n >= 3 and top_n / len(norm) >= 0.6:
+            return True
+    joined = " ".join(texts).lower()
+    tpl_chars = sum(len(t) for t in texts
+                    if any(p in t.lower() for p in _TEMPLATE_PHRASES))
+    return tpl_chars / max(1, len(joined)) > 0.5

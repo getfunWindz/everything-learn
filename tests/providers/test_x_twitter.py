@@ -252,3 +252,21 @@ def test_list_items_home_not_logged_in(monkeypatch):
         assert False
     except ValueError as e:
         assert "未登录" in str(e)
+
+
+def test_video_hallucination_is_not_written(monkeypatch):
+    """实测：游戏录屏被写成 Thanks for watching ×2，必须丢弃并标注"""
+    a = XTwitterAdapter(session=_ApiSession(_JsonResp(_fx("tweet_video.json"))))
+    ref = a.resolve("https://x.com/SpaceX/status/2109957980011552839")
+    import transcriber
+
+    def fake(url, **kw):
+        kw.get("stats", {}).update({"no_speech_ratio": 0.95})
+        return [{"start": 0.0, "end": 2.0,
+                 "text": "Thanks for watching! If you enjoyed this video, please like and subscribe!"}] * 2
+
+    monkeypatch.setattr(transcriber, "transcribe_url", fake)
+    res = a.fetch_content(ref)
+    block = [b for b in res.blocks if b["heading"] == "视频口播内容"][0]
+    assert "幻觉" in block["text"]
+    assert res.video_lines == []

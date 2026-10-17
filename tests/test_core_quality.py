@@ -52,3 +52,24 @@ def test_tier_ordering():
     assert quality.tier_index("tiny") < quality.tier_index("small")
     assert quality.tier_index("small") < quality.tier_index("medium")
     assert quality.tier_index("medium") < quality.tier_index("large-v3")
+
+
+def test_is_suspected_hallucination_looped_outro():
+    """实测：无语音视频被 Whisper 写成「Thanks for watching...」两遍"""
+    from core import quality
+    lines = [{"start": 0, "end": 2,
+              "text": "Thanks for watching! If you enjoyed this video, please like and subscribe!"}] * 2
+    assert quality.is_suspected_hallucination(lines, {"no_speech_ratio": 0.9})
+
+
+def test_is_suspected_hallucination_template_only():
+    from core import quality
+    lines = [{"start": 0, "end": 2, "text": "Thanks for watching! Please like and subscribe!"}]
+    assert quality.is_suspected_hallucination(lines, {})
+
+
+def test_is_suspected_hallucination_normal_content():
+    from core import quality
+    lines = [{"start": 0, "end": 2, "text": "今天讲 DeepSeek V4.1 的成本结构"},
+             {"start": 2, "end": 4, "text": "单任务大约 0.2 美元"}]
+    assert not quality.is_suspected_hallucination(lines, {"no_speech_ratio": 0.1})
