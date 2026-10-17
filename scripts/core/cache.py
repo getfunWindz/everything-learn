@@ -1,16 +1,27 @@
 """核心缓存：按 (platform, item_id, sub_id) 保存字幕/转写结果到 scripts/cache/"""
+import hashlib
 import json
 import os
+import re
 
 CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "cache")
 
 CACHE_VERSION = 3  # B3：payload 持久化 provenance/language/recheck（v2 旧缓存不携带 → 失效）
 
 
+def _safe_part(part: str, limit: int = 120) -> str:
+    """文件名安全化：非法字符替换 + 短哈希防撞（gid://、URL、查询串）"""
+    s = str(part or "")
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", s).strip("._") or "x"
+    if safe != s:
+        safe += "_" + hashlib.sha1(s.encode("utf-8")).hexdigest()[:8]
+    return safe[:limit]
+
+
 def _cache_path(platform: str, item_id: str, sub_id: str = "") -> str:
-    name = f"{platform}_{item_id}"
+    name = f"{platform}_{_safe_part(item_id)}"
     if sub_id:
-        name += f"_{sub_id}"
+        name += f"_{_safe_part(sub_id, 32)}"
     return os.path.join(CACHE_DIR, name + ".json")
 
 

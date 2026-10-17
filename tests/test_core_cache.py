@@ -104,3 +104,22 @@ def test_cache_version_bumps_invalidate_legacy(tmp_path, monkeypatch):
     p3 = os.path.join(str(tmp_path), "demo_item3.json")
     json.dump([{"start": 0, "end": 1, "text": "legacy"}], open(p3, "w", encoding="utf-8"))
     assert cache.get_cached("demo", "item3", "") is None
+
+
+def test_cache_path_sanitizes_windows_illegal_chars():
+    """Art19 GUID 含 gid:// 与 /，Windows 下必须可写且可回读"""
+    gid = "gid://art19-episode-locator/V0/DI_C_mWtVmdV4it"
+    cache.set_cached("podcast", gid, "1", [{"start": 0, "end": 1, "text": "hi"}])
+    got = cache.get_cached("podcast", gid, "1")
+    assert got and got["items"][0]["text"] == "hi"
+    name = os.path.basename(cache._cache_path("podcast", gid, "1"))
+    assert not any(ch in name for ch in ':?*"<>|')
+
+
+def test_cache_path_distinct_for_colliding_sanitized_ids():
+    """净化后同形但不同 id 不应串缓存"""
+    a, b = "gid://x/a", "gid://x_a"
+    cache.set_cached("podcast", a, "1", [{"start": 0, "end": 1, "text": "A"}])
+    cache.set_cached("podcast", b, "1", [{"start": 0, "end": 1, "text": "B"}])
+    assert cache.get_cached("podcast", a, "1")["items"][0]["text"] == "A"
+    assert cache.get_cached("podcast", b, "1")["items"][0]["text"] == "B"
