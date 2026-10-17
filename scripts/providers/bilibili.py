@@ -434,7 +434,6 @@ def resolve_input(text: str) -> VideoSpec:
 class BilibiliAdapter:
     name = "bilibili"
     kinds = {"video"}
-    language_hint = "zh"   # 平台主语言（M13 §12：转写语言提示）
     has_video = True       # 具备画面层（档位复检可用）
 
     def __init__(self, client=None):
@@ -530,7 +529,7 @@ class BilibiliAdapter:
         return ContentResult(
             kind="timeline", status="ok" if lines else "empty",
             segments=[{"start": l.start, "end": l.end, "text": l.content} for l in lines],
-            provenance=provenance, language="zh",
+            provenance=provenance, language=(self.lang or "zh"),
             label="字幕(AI)" if provenance == "auto" else "字幕")
 
     def fetch_media_url(self, ref, media: str = "audio", lowest: bool = False):

@@ -40,8 +40,8 @@ def test_timeline_adapters_declare_source_flags():
     from providers.podcast import PodcastAdapter
     from providers.ted import TedAdapter
     from providers.youtube import YouTubeAdapter
-    assert BilibiliAdapter.language_hint == "zh" and BilibiliAdapter.has_video is True
-    assert DouyinAdapter.language_hint == "zh" and DouyinAdapter.has_video is True
+    assert getattr(BilibiliAdapter, "language_hint", None) is None and BilibiliAdapter.has_video is True
+    assert getattr(DouyinAdapter, "language_hint", None) is None and DouyinAdapter.has_video is True
     assert TedAdapter.has_video is True and getattr(TedAdapter, "language_hint", None) is None
     assert YouTubeAdapter.has_video is True and getattr(YouTubeAdapter, "language_hint", None) is None
     assert PodcastAdapter.has_video is False

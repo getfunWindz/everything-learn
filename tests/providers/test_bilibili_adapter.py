@@ -119,7 +119,7 @@ def test_fetch_content_no_subtitle_is_empty_none():
 def test_adapter_declares_language_hint_and_video():
     """M13 §8.3/§12：适配器类属性声明主语言与画面层能力"""
     a = _adapter()
-    assert a.language_hint == "zh" and a.has_video is True
+    assert getattr(a, "language_hint", None) is None and a.has_video is True
 
 
 def test_fetch_media_url():

@@ -176,7 +176,6 @@ def post_to_itemref(it: dict, index: int) -> ItemRef:
 class DouyinAdapter:
     name = "douyin"
     kinds = {"video"}
-    language_hint = "zh"   # 平台主语言（转写语言提示）
     has_video = True       # 具备画面层（档位复检可用）
 
     def __init__(self, session=None):
