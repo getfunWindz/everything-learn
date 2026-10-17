@@ -25,6 +25,13 @@ _USER_RE = re.compile(r"xiaohongshu\.com/user/profile/([0-9a-f]{24})")
 _COLLECT_PAGE_API = re.compile(r"/api/sns/web/v2/note/collect/page")   # 取证确认（见 m12-ladder2-dd）
 _USER_POSTED_API = re.compile(r"/api/sns/web/v1/user_posted")   # 主页笔记分页（滚动触发）
 _SHORT_RE = re.compile(r"https?://xhslink\.(?:cn|com)/[A-Za-z0-9/]+")
+_URL_RE = re.compile(r"https?://[^\s\"'<>，。]+")
+
+
+def extract_share_url(text: str) -> str:
+    """从 App 分享文本中提取首个链接（分享文本常夹带 emoji/「复制本条信息」）"""
+    m = _URL_RE.search(text or "")
+    return m.group(0) if m else ""
 _TOKEN_IN_EXPLORE = r"/explore/{nid}\?xsec_token=([A-Za-z0-9_\-=]+)"
 _EXPLORE_URL = "https://www.xiaohongshu.com/explore"
 
@@ -143,14 +150,19 @@ class XiaohongshuAdapter:
 
     def match(self, url: str) -> bool:
         url = url or ""
-        return bool(_ID_RE.search(url) or _SHORT_RE.match(url) or _USER_RE.search(url))
+        return bool(_ID_RE.search(url) or _SHORT_RE.search(url) or _USER_RE.search(url))
 
     def resolve(self, q: str) -> ItemRef:
         q = (q or "").strip()
+        if not (_ID_RE.search(q) or _SHORT_RE.search(q) or _USER_RE.search(q)):
+            extracted = extract_share_url(q)
+            if extracted:
+                q = extracted
         m = _ID_RE.search(q)
-        if not m and _SHORT_RE.match(q):
+        if not m and _SHORT_RE.search(q):
+            short = _SHORT_RE.search(q).group(0)
             try:
-                r = self.session.get(q, allow_redirects=True, timeout=20, stream=True)
+                r = self.session.get(short, allow_redirects=True, timeout=20, stream=True)
                 r.close()
                 m = _ID_RE.search(getattr(r, "url", "") or "")
                 q = getattr(r, "url", q)
@@ -296,7 +308,8 @@ class XiaohongshuAdapter:
                 last = e
         if not token and not harvested:
             raise XhsError("笔记链接缺少 xsec_token，且 explore 兜底未命中；"
-                           "请从小红书 App「分享 → 复制链接」重新获取（含 token），稍后再试")
+                           "获取方法：打开小红书 App → 笔记右上角「分享」→「复制链接」，"
+                           "把整段分享文字直接粘给 el.py（会自动提取链接），稍后再试")
         raise XhsError(f"{last or '笔记不可读'}；建议从小红书 App 重新分享（含 token 的链接）")
 
     def fetch_meta(self, ref) -> ItemMeta:

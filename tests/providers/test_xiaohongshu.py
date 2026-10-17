@@ -347,3 +347,20 @@ def test_parse_collect_payload_and_list_items(monkeypatch):
     assert len(items) == 2
     assert "xsec_token=tokC" in items[0].url
     assert items[0].sub_id == "1"
+
+
+def test_extract_share_url_from_text():
+    from providers.xiaohongshu import extract_share_url
+    text = ("34 小红薯发布了一篇小红书笔记，快来看吧！ 😆 "
+            "http://xhslink.com/a/AbCdEf 复制本条信息，打开【小红书】App查看精彩内容！")
+    assert extract_share_url(text) == "http://xhslink.com/a/AbCdEf"
+
+
+def test_match_and_resolve_share_text_with_direct_link():
+    a = XiaohongshuAdapter(session=object())
+    text = ("看看这篇笔记 https://www.xiaohongshu.com/explore/"
+            "6acde40b000000001b02c980?xsec_token=ABC123=&xsec_source=app_share 复制本条信息")
+    assert a.match(text)
+    ref = a.resolve(text)
+    assert ref.item_id == "xhs-6acde40b000000001b02c980"
+    assert ref.extra["token"] == "ABC123="
