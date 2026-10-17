@@ -916,3 +916,24 @@ def test_run_unknown_url_does_not_search(tmp_path, capsys):
                                       pick=None), client=client)
     assert e.value.code == 2
     assert "自进化" in capsys.readouterr().err
+
+
+def test_run_keyword_requires_explicit_pick(tmp_path, capsys):
+    """实测：名称输入静默取第一条；必须列候选并要求 --pick"""
+    client = FakeClient()
+    client.search_out = [{"bvid": "BV1GJ411x7h7", "title": "候选A"}]
+    with pytest.raises(SystemExit) as e:
+        el.cmd_run(argparse.Namespace(input="某个关键词", out=str(tmp_path), pick=None),
+                   client=client)
+    assert e.value.code == 2
+    cap = capsys.readouterr()
+    assert "1. 候选A（BV1GJ411x7h7）" in (cap.out + cap.err)
+    assert "--pick" in cap.err
+
+
+def test_run_keyword_yes_picks_first(tmp_path):
+    client = FakeClient()
+    client.search_out = [{"bvid": "BV1GJ411x7h7", "title": "候选A"}]
+    el.cmd_run(argparse.Namespace(input="某个关键词", out=str(tmp_path), pick=None, yes=True),
+               client=client)
+    assert list(tmp_path.rglob("content_info.json"))

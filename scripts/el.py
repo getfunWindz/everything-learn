@@ -391,6 +391,22 @@ def cmd_frames(args, client: ApiClient = None):
         print("提示：无人声视频建议加 --range \"起-止\" 指定区间、--fps 1 每秒一帧", file=sys.stderr)
 
 
+def _confirm_candidate(args, items, label: str, fmt) -> int:
+    """名称搜索候选闸门：始终列出候选；未显式 --pick/--yes 时拒绝静默取第一条"""
+    for i, it in enumerate(items, 1):
+        print(fmt(i, it))
+    pick = getattr(args, "pick", None)
+    if pick is None and not getattr(args, "yes", False):
+        print(f"请用 --pick N 指定要抓取的{label}（上方共 {len(items)} 条候选）；"
+              "确定取第一条可加 --yes", file=sys.stderr)
+        sys.exit(2)
+    pick = pick or 1
+    if pick < 1 or pick > len(items):
+        print(f"--pick {pick} 超出候选范围 1..{len(items)}", file=sys.stderr)
+        sys.exit(2)
+    return pick
+
+
 def cmd_run(args, client: ApiClient = None):
     cfg = config.load_config()
     config.apply_hf_env(cfg)
@@ -429,7 +445,7 @@ def cmd_run(args, client: ApiClient = None):
             pass  # 检测失败不阻断主流程
     if getattr(args, "fav", None):
         try:
-            bvid, _t = _resolve_fav(client, args.fav, args.pick)
+            bvid, _t = _resolve_fav(client, args.fav, args.pick or 1)
         except BiliError as e:
             print(f"收藏夹解析失败：{e}", file=sys.stderr)
             sys.exit(2)
@@ -442,17 +458,18 @@ def cmd_run(args, client: ApiClient = None):
             print("未找到 wechat_mp 适配器（检查 scripts/providers/wechat_mp.py）", file=sys.stderr)
             sys.exit(2)
         try:
-            hits = adapter.search_articles(input_str, limit=max(1, args.pick))
+            hits = adapter.search_articles(input_str, limit=max(args.pick or 5, 5))
         except Exception as e:
             print(f"搜索失败：{e}（搜狗可能触发验证码，建议改用文章链接）", file=sys.stderr)
             sys.exit(2)
         if not hits:
             print(f"未找到与「{input_str}」相关的文章", file=sys.stderr)
             sys.exit(1)
-        for i, h in enumerate(hits, 1):
-            print(f"{i}. {h['title']} — {h['account']}（{h['date']}）")
-        hit = hits[args.pick - 1]
-        print(f"名称搜索命中：{hit['title']}（{hit['account']}）")
+        pick = _confirm_candidate(
+            args, hits, "文章",
+            lambda i, h: f"{i}. {h['title']} — {h['account']}（{h['date']}）")
+        hit = hits[pick - 1]
+        print(f"名称搜索命中（{pick}/{len(hits)}）：{hit['title']}（{hit['account']}）")
         try:
             input_str = adapter.resolve_sogou_link(hit["link"])
         except Exception as e:
@@ -495,15 +512,18 @@ def cmd_run(args, client: ApiClient = None):
                   file=sys.stderr)
             sys.exit(2)
         try:
-            results = client.search(input_str, limit=max(1, args.pick))
+            results = client.search(input_str, limit=max(args.pick or 5, 5))
         except BiliError as e:
             print(f"搜索失败：{e}（可能是风控，建议改用链接）", file=sys.stderr)
             sys.exit(2)
         if not results:
             print(f"未找到与「{input_str}」相关的视频", file=sys.stderr)
             sys.exit(1)
-        hit = results[args.pick - 1]
-        print(f"名称搜索命中：{hit['title']}（{hit['bvid']}）")
+        pick = _confirm_candidate(
+            args, results, "视频",
+            lambda i, h: f"{i}. {h['title']}（{h['bvid']}）")
+        hit = results[pick - 1]
+        print(f"名称搜索命中（{pick}/{len(results)}）：{hit['title']}（{hit['bvid']}）")
         try:
             result = _run(hit["bvid"])
         except PipelineError as e:
@@ -627,7 +647,10 @@ def main(argv=None):
     run.add_argument("--no-whisper", action="store_true", help="无字幕时不转写直接失败")
     run.add_argument("--no-cache", dest="no_cache", action="store_true", help="不使用字幕/转写缓存（重新获取）")
     run.add_argument("--interval", type=float, default=1.5, help="批量分P之间的请求间隔秒数（默认 1.5，防接口限流）")
-    run.add_argument("--pick", type=int, default=1, help="名称搜索时选第 N 个候选")
+    run.add_argument("--pick", type=int, default=None,
+                     help="名称搜索时选第 N 个候选（不传则只列候选并退出）")
+    run.add_argument("--yes", action="store_true",
+                     help="名称搜索时直接取第一条候选（非交互；默认要求 --pick）")
     run.set_defaults(func=cmd_run)
     def _cmd_merge(args):
         import mergeutil
