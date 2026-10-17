@@ -326,6 +326,14 @@ def _run_window_recheck(adapter, ref, lines, cfg, decision, opts, disputed=None)
                         added.append({"start": float(it["ts"]), "end": float(it["ts"]) + 1,
                                       "text": it.get("text", ""), "source": "vision补充"})
                     elif kind == "correction":
+                        if it.get("confidence") == "低":
+                            # 置信度分级（B11）：低置信只留痕，不改正文，避免图表数字串行误改
+                            reports.append({"range": [cursor, seg_end],
+                                            "kind": "low_confidence",
+                                            "text": it.get("text", ""),
+                                            "original": it.get("original", ""),
+                                            "ts": it.get("ts")})
+                            continue
                         orig = it.get("original") or ""
                         target = _correction_target(lines, it.get("ts"), orig) if orig else None
                         if target is not None:  # Q7：邻域优先 + 行内仅改首次出现
@@ -643,7 +651,7 @@ def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False)
     recheck_report.pop("uncovered", None)
     recheck_report["same_source"] = ss or {}
     recheck_report["uncertain"] = [w for w in (recheck_meta.get("windows") or [])
-                                   if w.get("kind") == "uncertain"]
+                                   if w.get("kind") in ("uncertain", "low_confidence")]
     # 6.5) 低配质量检测（2026-10-17）：低档 + 质量弱 → 强制推荐（补依赖 + 升 medium）
     if src == "whisper" and asr_stats:
         from core import quality as _quality

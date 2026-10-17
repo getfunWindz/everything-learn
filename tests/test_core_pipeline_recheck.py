@@ -2023,3 +2023,32 @@ def test_window_recheck_reports_progress_and_checked_windows(monkeypatch, tmp_pa
     assert meta["coverage_pct"] == 100.0
     err = capsys.readouterr().err
     assert "复检窗口 1/2" in err and "复检窗口 2/2" in err
+
+
+def test_low_confidence_correction_not_applied(monkeypatch, tmp_path):
+    """置信度分级：低置信校正只留痕、不改正文（避免图表数字串行误改）"""
+    import transcriber
+    import vision
+
+    class Adapter:
+        name = "demo"
+        def fetch_media_url(self, ref, media="video", lowest=False):
+            return "http://v/1"
+
+    monkeypatch.setattr(vision, "deps_available", lambda: True)
+    monkeypatch.setattr(transcriber, "download_audio",
+                        lambda url, dest, headers=None: dest)
+    monkeypatch.setattr(vision, "sample_window_frames", lambda *a, **k: [(0.0, b"jpg")])
+    monkeypatch.setattr(vision, "check_window",
+                        lambda *a, **k: [{"ts": 0.0, "kind": "correction",
+                                          "text": "19.1", "original": "74.0",
+                                          "confidence": "低"}])
+
+    cfg = {"recheck": {"frame_fps": 3, "window_sec": 30},
+           "vision": {"enabled": True, "pricing": {}}}
+    ref = ItemRef(platform="demo", item_id="1", duration=60)
+    lines = [{"start": 0, "end": 60, "text": "Opus 5 的 74.0"}]
+    meta = pipeline._run_window_recheck(Adapter(), ref, lines, cfg, {"tier": 2},
+                                        pipeline.RunOptions(out_root=str(tmp_path)))
+    assert lines[0]["text"] == "Opus 5 的 74.0"
+    assert any(w.get("kind") == "low_confidence" for w in meta["windows"])

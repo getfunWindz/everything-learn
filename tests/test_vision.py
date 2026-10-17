@@ -343,7 +343,7 @@ def test_window_prompt_requires_proper_noun_and_number_correction():
     p = vision.WINDOW_CHECK_PROMPT
     assert "专有名词" in p
     assert "数字" in p
-    assert "必须" in p and "校正" in p
+    assert "必须" in p and "校正" in p and "置信度" in p
 
 
 def test_parse_window_result_accepts_second_suffix():
@@ -407,3 +407,13 @@ def test_describe_video_raises_on_empty_without_length(monkeypatch):
     cfg = {"enabled": True, "base_url": "http://x", "api_key": "k", "model": "m"}
     with pytest.raises(vision.VisionError):
         vision.describe_video(cfg, [(0, b"jpeg")], prompt="p")
+
+
+def test_parse_window_result_reads_confidence():
+    text = ("[41.0s] 校正(置信度:高)：原转写「Cloud Opus 5」→「Claude Opus 5」\n"
+            "[42s] 校正（置信度：低）：原转写「74.0」→「19.1」\n"
+            "[43s] 校正：原转写「A」→「B」")
+    items = vision.parse_window_result(text)
+    assert items[0]["confidence"] == "高"
+    assert items[1]["confidence"] == "低"
+    assert items[2]["confidence"] == "中"   # 旧格式默认中（仍然应用）

@@ -256,8 +256,9 @@ WINDOW_CHECK_PROMPT = (
     "每帧标注时间戳）与同一窗口的转写文本。\n"
     "先逐帧读取画面中所有可见文字（标题/表格/图表/代码/字幕），再与转写文本逐项对照。\n"
     "必须检查以下两类硬性差异，发现就必须输出校正，不得因为画面内容已被转写大致提到而忽略：\n"
-    "- 专有名词（模型名/产品名/人名/英文缩写）与画面不一致 → `[时间戳秒] 校正：原转写「X」→「Y」`\n"
-    "- 数字/单位/百分比与画面不一致 → `[时间戳秒] 校正：原转写「X」→「Y」`\n"
+    "- 专有名词（模型名/产品名/人名/英文缩写）与画面不一致 → `[时间戳秒] 校正(置信度:高|中|低)：原转写「X」→「Y」`\n"
+    "- 数字/单位/百分比与画面不一致 → `[时间戳秒] 校正(置信度:高|中|低)：原转写「X」→「Y」`\n"
+    "置信度口径：高=画面文字清晰且唯一；中=画面可读但有歧义；低=画面模糊/仅能推测（低置信不会自动改正文，只留痕）。\n"
     "其他情况：\n"
     "- 画面有知识材料（公式/PPT/代码/图表/演示步骤）而转写未覆盖 → 输出 `[时间戳秒] 补充：内容`\n"
     "- 画面不足以判断（如纯口播）→ 输出 `[时间戳秒] 不确定：原因`\n"
@@ -277,18 +278,24 @@ def check_window(cfg_vision, frames, transcript_text="", secondary_text=""):
 
 
 def parse_window_result(text):
-    """解析窗口复检输出 → [{ts, kind, text, original}]"""
+    """解析窗口复检输出 → [{ts, kind, text, original, confidence}]"""
     if not text or "无遗漏" in text:
         return []
     items = []
-    for m in re.finditer(r"\[(\d+(?:\.\d+)?)\s*(?:s|秒)?\]\s*(补充|校正|不确定)[：:]\s*(.+)", text):
+    pat = (r"\[(\d+(?:\.\d+)?)\s*(?:s|秒)?\]\s*(补充|校正|不确定)"
+           r"\s*(?:[（(][^）)]*[）)])?\s*[：:]\s*(.+)")
+    for m in re.finditer(pat, text):
         ts = float(m.group(1))
         kind = {"补充": "supplement", "校正": "correction", "不确定": "uncertain"}[m.group(2)]
         body = m.group(3).strip()
-        original = ""
+        cm = None
         if kind == "correction":
             cm = re.match(r"原转写[「\"](.+?)[」\"]\s*(?:→|->)\s*[「\"](.+?)[」\"]", body)
             if cm:
                 original, body = cm.group(1), cm.group(2)
-        items.append({"ts": ts, "kind": kind, "text": body, "original": original})
+        conf = re.search(r"置信度[:：]?\s*(高|中|低)", m.group(0))
+        body = re.sub(r"[（(]?置信度[:：]?\s*[高中低][）)]?", "", body).strip()
+        items.append({"ts": ts, "kind": kind, "text": body,
+                      "original": (cm.group(1) if cm else ""),
+                      "confidence": (conf.group(1) if conf else "中")})
     return items
