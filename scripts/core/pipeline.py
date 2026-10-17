@@ -271,6 +271,8 @@ def _run_window_recheck(adapter, ref, lines, cfg, decision, opts, disputed=None)
         tmpdir = tempfile.mkdtemp(prefix="el_rc_")
         covered = 0.0
         used_frames = 0
+        checked = 0            # 成功完成 vision 检查的窗口数（区别于 uncovered/error）
+        total_windows = len(planned_windows)
         reports = []
         window_errors = []  # Q2/Q3：抽帧/复检异常窗口（不计入 covered）
         uncovered = []      # Q8：因帧帽未处理的 planned windows
@@ -283,7 +285,9 @@ def _run_window_recheck(adapter, ref, lines, cfg, decision, opts, disputed=None)
             uncovered_text = ("超出复检金额预算（--budget）"
                               if budget_reason == "budget_cap"
                               else "超出复检帧预算（max_check_frames）")
-            for cursor, seg_end in planned_windows:
+            for wi, (cursor, seg_end) in enumerate(planned_windows, 1):
+                print(f"  · 复检窗口 {wi}/{total_windows} [{cursor:.0f}-{seg_end:.0f}s]",
+                      file=sys.stderr)
                 window_frames = max(1, int(math.ceil((seg_end - cursor) * fps)))
                 if admitted_theoretical + window_frames > runtime_cap:
                     # 运行帽保护（spec §8.1）：A/B 均不得超 runtime_cap，超出部分标未复检
@@ -315,6 +319,7 @@ def _run_window_recheck(adapter, ref, lines, cfg, decision, opts, disputed=None)
                     window_errors.append(err)
                     continue
                 covered += seg_end - cursor  # Q2：仅成功返回的窗口计入覆盖
+                checked += 1
                 for it in items or []:
                     kind = it.get("kind")
                     if kind == "supplement":
@@ -354,7 +359,7 @@ def _run_window_recheck(adapter, ref, lines, cfg, decision, opts, disputed=None)
                 "uncovered": [[float(s), float(e)] for (s, e) in uncovered],  # T16：骨架未覆盖区间
                 "budget": budget_meta,
                 "effective_tier": effective_tier, "capped": bool(uncovered),
-                "frames_used": used_frames}
+                "checked_windows": checked, "frames_used": used_frames}
     except Exception as e:
         lines[:] = original_lines  # Q3：外层异常 → 回滚，不留半应用修改
         return {"skipped": str(e)[:100]}

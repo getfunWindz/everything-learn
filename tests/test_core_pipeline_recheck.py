@@ -1991,3 +1991,35 @@ def test_window_recheck_skips_when_vision_deps_missing(monkeypatch):
                                        cfg, {"tier": 1, "score": 0.4, "reasons": []},
                                        pipeline.RunOptions())
     assert "缺少画面复检依赖" in out.get("skipped", "")
+
+
+def test_window_recheck_reports_progress_and_checked_windows(monkeypatch, tmp_path, capsys):
+    """复检逐窗进度 + checked_windows：2 个窗口无问题时也必须可区分「已检查」"""
+    import transcriber
+    import vision
+
+    class Adapter:
+        name = "demo"
+        def fetch_media_url(self, ref, media="video", lowest=False):
+            return "http://v/1"
+
+    monkeypatch.setattr(vision, "deps_available", lambda: True)
+    monkeypatch.setattr(transcriber, "download_audio",
+                        lambda url, dest, headers=None: dest)
+    monkeypatch.setattr(vision, "sample_window_frames",
+                        lambda *a, **k: [(0.0, b"jpg")])
+    calls = []
+    monkeypatch.setattr(vision, "check_window",
+                        lambda cfg, frames, transcript_text="": calls.append(transcript_text) or [])
+
+    cfg = {"recheck": {"frame_fps": 3, "window_sec": 30, "dedup": True},
+           "vision": {"enabled": True, "pricing": {}}}
+    ref = ItemRef(platform="demo", item_id="1", duration=60)
+    lines = [{"start": 0, "end": 60, "text": "讲了一堆东西"}]
+    opts = pipeline.RunOptions(out_root=str(tmp_path), budget=None)
+    meta = pipeline._run_window_recheck(Adapter(), ref, lines, cfg,
+                                        {"tier": 2}, opts)
+    assert meta["checked_windows"] == 2
+    assert meta["coverage_pct"] == 100.0
+    err = capsys.readouterr().err
+    assert "复检窗口 1/2" in err and "复检窗口 2/2" in err
