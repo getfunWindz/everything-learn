@@ -366,3 +366,29 @@ def test_profile_lock_gets_readable_error():
         bf.BrowserSession("medium", launcher=locked).page
     msg = str(e.value)
     assert "浏览器" in msg and "串行" in msg
+
+
+def test_profile_lock_taken_by_other_process(tmp_path, monkeypatch):
+    """跨进程占用：等待超时后给可读错误（用父进程 PID 模拟存活的其他任务）"""
+    import os
+    lock = tmp_path / ".browser_profile.lock"
+    lock.write_text(str(os.getppid()), encoding="utf-8")
+    monkeypatch.setattr(bf, "_LOCK_PATH", str(lock))
+    with pytest.raises(BrowserFetchError) as e:
+        bf._acquire_profile_lock(timeout=0.3)
+    assert "占用" in str(e.value) and "串行" in str(e.value)
+
+
+def test_profile_lock_reclaims_stale(tmp_path, monkeypatch):
+    import os
+    lock = tmp_path / ".browser_profile.lock"
+    lock.write_text("999999", encoding="utf-8")
+    old = 0
+    os.utime(lock, (old, old))
+    monkeypatch.setattr(bf, "_LOCK_PATH", str(lock))
+    fd = bf._acquire_profile_lock(timeout=0.5)
+    try:
+        assert lock.exists() and lock.read_text(encoding="utf-8").strip() == str(os.getpid())
+    finally:
+        bf._release_profile_lock(fd)
+    assert not lock.exists()

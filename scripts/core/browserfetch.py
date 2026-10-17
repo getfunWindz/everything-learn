@@ -20,7 +20,69 @@ _STEALTH = ["--disable-blink-features=AutomationControlled"]
 _OFFSCREEN = _STEALTH + ["--window-position=-2600,-2600", "--window-size=1200,800"]
 _VISIBLE = _STEALTH + ["--window-position=80,80", "--window-size=1280,900",
                        "--no-first-run", "--no-default-browser-check"]
-_ctx = {"pw": None, "context": None, "page": None, "interactive": None}
+_ctx = {"pw": None, "context": None, "page": None, "interactive": None, "lock_fd": None}
+_LOCK_PATH = os.path.join(_HERE, ".browser_profile.lock")
+_LOCK_STALE_SEC = 600
+
+
+def _pid_alive(pid: int) -> bool:
+    if not pid or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+    except Exception:
+        return False
+
+
+def _acquire_profile_lock(timeout: float = 20.0):
+    """跨进程 profile 互斥（文件锁 + PID 存活/龄期判定）；返回 fd（同进程可重入 → None）"""
+    start = time.monotonic()
+    waited = False
+    while True:
+        try:
+            fd = os.open(_LOCK_PATH, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, str(os.getpid()).encode("ascii"))
+            return fd
+        except FileExistsError:
+            try:
+                pid = int((open(_LOCK_PATH, encoding="utf-8", errors="ignore").read() or "0").strip())
+            except (OSError, ValueError):
+                pid = 0
+            age = time.time() - os.path.getmtime(_LOCK_PATH) if os.path.exists(_LOCK_PATH) else 0
+            stale = (not pid) or age > _LOCK_STALE_SEC or (pid != os.getpid() and not _pid_alive(pid))
+            if stale:
+                try:
+                    os.remove(_LOCK_PATH)
+                except OSError:
+                    pass
+                continue
+            if pid == os.getpid():
+                return None       # 同进程重入：由既有会话持有
+            if not waited:
+                print("  · 浏览器 profile 被其他任务占用，等待释放……", file=sys.stderr)
+                waited = True
+            if time.monotonic() - start >= timeout:
+                raise BrowserFetchError(
+                    f"浏览器 profile 正被另一个任务占用（PID {pid}）；"
+                    "请串行执行浏览器型平台（知乎/微博/Medium/X/小红书/抖音），"
+                    "或关闭残留的 Edge/Chrome 窗口后重试")
+            time.sleep(0.2)
+
+
+def _release_profile_lock(fd=None):
+    """释放锁：仅当文件内 PID 为本进程时删除（避免误删他人锁）"""
+    try:
+        if fd is not None:
+            os.close(fd)
+        if os.path.exists(_LOCK_PATH):
+            pid = int((open(_LOCK_PATH, encoding="utf-8", errors="ignore").read() or "0").strip())
+            if pid == os.getpid():
+                os.remove(_LOCK_PATH)
+    except (OSError, ValueError):
+        pass
 
 
 def _launch_args(interactive: bool, proxy: str = "") -> list:
@@ -125,12 +187,16 @@ def _ensure_page(browser="msedge", interactive=False, launcher=None):
         shutdown()                                     # 离屏↔可见 模式切换 → 重启
         print("  · 浏览器启动模式切换（离屏↔可见），已重启", file=sys.stderr)
     launch = launcher or _launch
+    lock_fd = _acquire_profile_lock()
     try:
         parts = launch(browser, interactive)
     except BrowserFetchError:
+        _release_profile_lock(lock_fd)
         raise
     except Exception as e:
+        _release_profile_lock(lock_fd)
         raise BrowserFetchError(_launch_error_message(e))
+    parts["lock_fd"] = lock_fd
     _ctx.update(parts)
     _ctx["interactive"] = interactive
     return _ctx["page"]
@@ -277,7 +343,8 @@ def shutdown():
             _ctx["pw"].stop()
     except Exception:
         pass
-    _ctx.update(pw=None, context=None, page=None, interactive=None)
+    _release_profile_lock(_ctx.get("lock_fd"))
+    _ctx.update(pw=None, context=None, page=None, interactive=None, lock_fd=None)
 
 
 atexit.register(shutdown)   # 护栏：解释器退出/异常退出时自动关闭浏览器，避免残留
