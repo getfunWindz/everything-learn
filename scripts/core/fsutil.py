@@ -31,7 +31,7 @@ def safe_title(title: str, maxlen: int = 60) -> str:
     - 仅保留 Unicode alnum + 空格；折叠空白；空 → 未命名
     """
     t = unicodedata.normalize("NFKC", str(title or ""))
-    t = re.sub(r"[-_/|]+", " ", t)
+    t = re.sub(r"[-_/|丨｜]+", " ", t)
     t = "".join(ch if ch.isalnum() else " " for ch in t)
     t = re.sub(r"\s+", " ", t).strip()
     return t[:maxlen].strip() or "未命名"

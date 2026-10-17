@@ -241,6 +241,7 @@ def test_safe_title_strips_symbols_and_emoji():
         "重磅 DeepSeek V4 1 Flash 1017 上线 实测"
     assert safe_title("###") == "未命名"
     assert safe_title("Q&A: A/B 测试") == "Q A A B 测试"
+    assert safe_title("新闻周刊丨AI监管") == "新闻周刊 AI监管"
 
 
 def test_write_baseline_report_timeline(tmp_path):
