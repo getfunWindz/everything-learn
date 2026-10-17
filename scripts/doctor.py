@@ -6,10 +6,20 @@
 import os
 import sys
 import importlib.util
+import time
+
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+COOKIE_FILES = {
+    "bilibili": os.path.join(_SCRIPT_DIR, ".bili_cookie"),
+    "zhihu": os.path.join(_SCRIPT_DIR, ".zhihu_cookie"),
+    "weibo": os.path.join(_SCRIPT_DIR, ".weibo_cookie"),
+    "douyin": os.path.join(_SCRIPT_DIR, ".douyin_cookie"),
+}
+COOKIE_MAX_AGE_DAYS = 3
 
 
 def check_cookie(client=None) -> bool:
-    """cookie 有效性：nav 接口正常即有效；异常视为无效"""
+    """B 站 cookie 有效性：nav 接口正常即有效；异常视为无效"""
     try:
         if client is None:
             from providers.bilibili import ApiClient
@@ -17,6 +27,36 @@ def check_cookie(client=None) -> bool:
         return client.check_login()
     except Exception:
         return False
+
+
+def cookie_status(client=None, now: float = None) -> list:
+    """逐平台 cookie 状态（不盲称「有效」）：bilibili 真实探针；其余看文件与龄期。
+
+    state：valid / invalid / missing / expired_risk / unverified。
+    除 B 站外不做网络请求，避免 doctor 变成高频风控触发源。
+    """
+    now = time.time() if now is None else now
+    rows = []
+    for platform, path in COOKIE_FILES.items():
+        row = {"platform": platform, "path": path, "age_days": None}
+        if not os.path.exists(path):
+            row.update(state="missing", label="未配置")
+            rows.append(row)
+            continue
+        age = max(0.0, (now - os.path.getmtime(path)) / 86400.0)
+        row["age_days"] = round(age, 1)
+        if platform == "bilibili":
+            ok = check_cookie(client)
+            row.update(state="valid" if ok else "invalid",
+                       label="有效" if ok else "无效/已过期，请重新导出")
+        elif age > COOKIE_MAX_AGE_DAYS:
+            row.update(state="expired_risk",
+                       label=f"未验证（文件 {age:.0f} 天未更新，可能已过期）")
+        else:
+            row.update(state="unverified",
+                       label=f"未验证（文件 {age:.1f} 天前导出）")
+        rows.append(row)
+    return rows
 
 
 def check_gpu() -> dict:
@@ -184,8 +224,13 @@ def main(argv=None) -> int:
     args = sys.argv[1:] if argv is None else argv
     print("=== everything-learn 环境自检 ===")
     # cookie
-    ok = check_cookie()
-    print(f"{'✅' if ok else '❌'} cookie 登录态：{'有效' if ok else '无效/未配置（检查 scripts/.bili_cookie 或环境变量 BILI_COOKIE）'}")
+    rows = cookie_status()
+    for r in rows:
+        icon = {"valid": "✅", "invalid": "❌", "missing": "❌",
+                "expired_risk": "⚠️", "unverified": "ℹ️"}.get(r["state"], "ℹ️")
+        print(f"{icon} cookie[{r['platform']}]：{r['label']}")
+    if any(r["state"] == "invalid" for r in rows):
+        print("  提示：cookie 失效时用 python scripts/el.py cookie <平台> 一键重新导出")
     # GPU
     g = check_gpu()
     gpu_flag = "✅" if (g["device"] == "cuda" and g["cublas_ok"] and g["cudnn_ok"]) else "❌"

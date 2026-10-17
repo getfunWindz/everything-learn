@@ -198,3 +198,27 @@ def test_missing_optional_empty_when_ready(monkeypatch, tmp_path):
     monkeypatch.setattr(cfg, "CONFIG_PATH", str(p))
     monkeypatch.setattr(doctor, "_has_module", lambda name: True)
     assert doctor.missing_optional() == []
+
+
+def test_cookie_status_per_platform_and_age(tmp_path, monkeypatch):
+    """实测：doctor 只验 B 站却显示「cookie 有效」，知乎实际已过期 → 必须逐平台区分"""
+    import os
+    import time
+    z = tmp_path / ".zhihu_cookie"
+    z.write_text("d_c0=x", encoding="utf-8")
+    old = time.time() - 5 * 86400
+    os.utime(z, (old, old))
+    w = tmp_path / ".weibo_cookie"
+    w.write_text("SUB=x", encoding="utf-8")
+
+    monkeypatch.setattr(doctor, "COOKIE_FILES", {
+        "bilibili": str(tmp_path / ".bili_cookie"),  # missing
+        "zhihu": str(z),
+        "weibo": str(w),
+    })
+    monkeypatch.setattr(doctor, "check_cookie", lambda client=None: False)
+    rows = {r["platform"]: r for r in doctor.cookie_status()}
+    assert rows["bilibili"]["state"] == "missing"
+    assert rows["zhihu"]["state"] == "expired_risk"
+    assert rows["weibo"]["state"] == "unverified"
+    assert "有效" not in rows["zhihu"]["label"]
