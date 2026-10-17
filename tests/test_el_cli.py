@@ -54,7 +54,7 @@ class FakeClient:
         return self.search_out
 
 def report_dir(out):
-    """cmd_run 输出在 out/<UP主>/<日期>_<标题>[/_P{n}] 子目录，取唯一路径"""
+    """cmd_run 输出在 out/<UP主>/<标题>[ P{n}] 子目录，取唯一路径"""
     ups = [d for d in os.listdir(out) if os.path.isdir(os.path.join(out, d))]
     assert len(ups) == 1, f"期望唯一 UP主 目录，实际 {ups}"
     sub = [d for d in os.listdir(os.path.join(out, ups[0]))
@@ -149,8 +149,8 @@ def _mk_lines(texts):
 def _batch_dir(out):
     ups = [d for d in os.listdir(out) if os.path.isdir(os.path.join(out, d))]
     assert len(ups) == 1, f"期望唯一 UP主 目录，实际 {ups}"
-    d = [x for x in os.listdir(os.path.join(out, ups[0])) if x.endswith("_合集")]
-    assert len(d) == 1, f"期望唯一 _合集 目录，实际 {d}"
+    d = [x for x in os.listdir(os.path.join(out, ups[0])) if x.endswith(" 合集")]
+    assert len(d) == 1, f"期望唯一 合集 目录，实际 {d}"
     return os.path.join(out, ups[0], d[0])
 
 def test_batch_all_structure(tmp_path):
@@ -219,7 +219,7 @@ def test_batch_failure_records_error(tmp_path):
 def test_resume_skips_done_pages(tmp_path):
     out = tmp_path / "out"
     # 上次已成功 P1，这次只处理 P2、P3
-    base = os.path.join(str(out), "测试UP", "2026-08-20_测试合集_合集")
+    base = os.path.join(str(out), "测试UP", "测试合集 合集")
     os.makedirs(base, exist_ok=True)
     json.dump({"title": "测试合集", "platform": "bilibili", "item_id": "BV1GJ411x7h7",
                "pages": [{"page": 1, "status": "ok"}, {"page": 2, "status": "failed"}]},

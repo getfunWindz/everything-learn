@@ -311,7 +311,7 @@ def test_run_input_batch(tmp_path):
     assert summary["kind"] == "batch" and summary["page_count"] == 3
     base = os.path.join(out, "作者A")
     subs = os.listdir(base)
-    coll = [d for d in subs if d.endswith("_合集")]
+    coll = [d for d in subs if d.endswith(" 合集")]
     assert len(coll) == 1
     assert os.path.exists(os.path.join(base, coll[0], "content_info.json"))
     assert os.path.exists(os.path.join(base, coll[0], "report_template.md"))
@@ -391,7 +391,7 @@ def test_run_input_uses_adapter_root_meta_hook(tmp_path):
     opts = RunOptions(out_root=out, all_=True, interval=0)
     run_input("http://fake/v/1", opts, adapter=HookAdapter(n_items=2))
     base = os.path.join(out, "合集作者")
-    coll = [d for d in os.listdir(base) if d.endswith("_合集")]
+    coll = [d for d in os.listdir(base) if d.endswith(" 合集")]
     assert coll and "合集根标题" in coll[0]
 
 

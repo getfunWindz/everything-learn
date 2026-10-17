@@ -262,7 +262,8 @@ def _transcribe_with(WhisperModel, model_size: str, device: str, audio_path: str
 def transcribe_url(url, model_size: str = "medium", progress_callback=None,
                    vad=None, duration_sec: float = None,
                    vad_long_sec: float = VAD_LONG_SEC_DEFAULT, headers: dict = None,
-                   language: str = "zh", stats: dict = None) -> list:
+                   language: str = "zh", stats: dict = None,
+                   max_seconds: float = None) -> list:
     """平台无关入口：下载媒体直链（临时目录）+ 转写；vad/duration 透传（长视频默认禁 VAD）
 
     url：媒体直链或候选列表（core 多候选回退，见 download_audio）。
@@ -270,7 +271,8 @@ def transcribe_url(url, model_size: str = "medium", progress_callback=None,
     language：默认 zh（B 站向）；多语平台（如 X）传 None 自动检测。
     stats：可选 dict 出参，回填置信度（质量检测用）。"""
     with tempfile.TemporaryDirectory() as td:
-        audio_path = download_audio(url, os.path.join(td, "audio.m4s"), headers=headers)
+        audio_path = download_audio(url, os.path.join(td, "audio.m4s"), headers=headers,
+                                    max_seconds=(max_seconds if max_seconds else 180.0))
         return transcribe(audio_path, model_size=model_size, progress_callback=progress_callback,
                           vad=vad, duration_sec=duration_sec, vad_long_sec=vad_long_sec,
                           language=language, stats=stats)

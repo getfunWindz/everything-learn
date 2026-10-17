@@ -5,6 +5,13 @@ from core.browserfetch import strip_json_prefix, parse_fetch_result, BrowserFetc
 import core.browserfetch as bf
 
 
+@pytest.fixture(autouse=True)
+def _cleanup_browser_session():
+    """每个用例后释放 profile 锁/清空单例，避免影响子进程 atexit 用例"""
+    yield
+    bf.shutdown()
+
+
 def test_strip_json_prefix():
     raw = ')]}while(1);</x>{"success":true,"payload":{"value":{}}}'
     assert strip_json_prefix(raw).startswith("{")

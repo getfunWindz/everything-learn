@@ -260,7 +260,7 @@ def test_write_baseline_report_timeline(tmp_path):
     artifacts.write_item_artifacts(out, info, content)
     import os
     files = os.listdir(out)
-    report_name = [f for f in files if f.endswith("_学习报告.md")][0]
+    report_name = [f for f in files if f.endswith("学习报告.md")][0]
     assert "🚨" not in report_name and "！" not in report_name and "：" not in report_name
     text = open(os.path.join(out, report_name), encoding="utf-8").read()
     assert "第一段讲 DeepSeek 的成本" in text and "第二段讲 GPT-6 的能力" in text
@@ -278,7 +278,7 @@ def test_write_baseline_report_document_and_no_overwrite(tmp_path):
     out = str(tmp_path / "out")
     from core.models import DocumentContent
     artifacts.write_item_artifacts(out, info, DocumentContent(blocks=[{"heading": "一、背景", "text": "正文内容"}]))
-    name = [f for f in os.listdir(out) if f.endswith("_学习报告.md")][0]
+    name = [f for f in os.listdir(out) if f.endswith("学习报告.md")][0]
     p = os.path.join(out, name)
     first = open(p, encoding="utf-8").read()
     assert "一、背景" in first and "正文过短" in first

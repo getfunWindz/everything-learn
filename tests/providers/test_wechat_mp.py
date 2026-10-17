@@ -2,6 +2,7 @@ import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts"))
 import pytest
 from core.adapter import SearchNeeded
+from core.models import ItemRef
 from providers.wechat_mp import (WeChatMpAdapter, WeChatError,
                                  parse_sogou_results, parse_meta, extract_article,
                                  parse_album, strip_boilerplate)
@@ -269,3 +270,44 @@ def test_wechat_search_fingerprint_detects_drift(tmp_path, monkeypatch):
     prev = w.load_search_fingerprint("DeepSeek")
     assert prev and w.search_fingerprint(a) == prev["fp"]
     assert w.search_fingerprint(b) != prev["fp"]
+
+
+def test_resolve_sogou_link_passthrough_direct_mp_url():
+    a = WeChatMpAdapter(session=object())
+    u = "https://mp.weixin.qq.com/s?__biz=x&mid=1&idx=1&sn=abc"
+    assert a.resolve_sogou_link(u) == u
+
+
+def test_fetch_content_browser_fallback(monkeypatch):
+    """请求侧「环境异常」→ 浏览器渲染文章（实测：签名链接仅浏览器可读）"""
+    a = WeChatMpAdapter(session=object())
+    ref = ItemRef(platform="wechat_mp", item_id="wx-1",
+                  url="https://mp.weixin.qq.com/s?src=11&signature=x", sub_id="1")
+
+    def boom(*args, **kwargs):
+        raise WeChatError("公众号页面不可读：环境异常")
+
+    monkeypatch.setattr(a, "_get_html", boom)
+    body = "浏览器正文" * 8
+    monkeypatch.setattr(a, "_fetch_browser",
+                        lambda r: ([{"heading": "", "text": body}], [],
+                                   {"title": "T", "account": "A", "published": ""}))
+    res = a.fetch_content(ref)
+    assert res.status == "ok" and res.blocks[0]["text"] == body
+
+
+def test_search_articles_browser_fallback(monkeypatch):
+    class R:
+        text = "<html>antispider</html>"
+
+    class S:
+        headers = {}
+        def get(self, *args, **kwargs):
+            return R()
+
+    a = WeChatMpAdapter(session=S())
+    monkeypatch.setattr(a, "_search_browser",
+                        lambda q, limit: [{"title": "T", "account": "A", "date": "d",
+                                            "link": "https://mp.weixin.qq.com/s?x"}])
+    hits = a.search_articles("k", limit=2)
+    assert hits and hits[0]["link"].startswith("https://mp.weixin.qq.com/")

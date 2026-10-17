@@ -133,12 +133,12 @@ def cmd_search(args):
 
 
 def _find_report_md(target: str) -> str:
-    """查找目录中的报告文件：report.md → <标题>_学习报告.md → report_template.md"""
+    """查找目录中的报告文件：report.md → <标题>学习报告.md → report_template.md"""
     for name in ("report.md",):
         p = os.path.join(target, name)
         if os.path.exists(p):
             return p
-    hits = glob.glob(os.path.join(target, "*_学习报告.md"))
+    hits = glob.glob(os.path.join(target, "*学习报告.md"))
     if hits:
         return hits[0]
     p = os.path.join(target, "report_template.md")
@@ -174,7 +174,7 @@ def cmd_export(args):
     target = args.target
     md_path = _find_report_md(target)
     if not md_path:
-        print(f"目录中没有报告文件（report.md / <标题>_学习报告.md / report_template.md）：{target}", file=sys.stderr)
+        print(f"目录中没有报告文件（report.md / <标题>学习报告.md / report_template.md）：{target}", file=sys.stderr)
         sys.exit(1)
     md = open(md_path, encoding="utf-8").read()
     from export import md_to_html, export_docx
@@ -533,6 +533,7 @@ def cmd_run(args, client: ApiClient = None):
         model=getattr(args, "model", None),
         no_cache=getattr(args, "no_cache", False),
         no_whisper=getattr(args, "no_whisper", False),
+        force_whisper=getattr(args, "force_whisper", False),
         no_vision_check=getattr(args, "no_vision_check", False),
         vad=getattr(args, "vad", None),
         resume=getattr(args, "resume", False),
@@ -603,7 +604,7 @@ def cmd_run(args, client: ApiClient = None):
             sys.exit({"no_subtitle": 3, "failed": 4, "whisper_missing": 5}.get(status, 4))
         _LOGGER.info("single %s ok %s %d行", input_str, src, n)
         print(f"\n完成！输出目录：{out_dir}")
-        print("已生成：content_info.json / content.txt / report_template.md / <标题>_学习报告.md")
+        print("已生成：content_info.json / content.txt / report_template.md / <标题>学习报告.md")
 
 
 def _ensure_utf8_stdout():
@@ -712,6 +713,8 @@ def main(argv=None):
                      help="预授权超阈值按完整档2 执行")
     run.add_argument("--out", default=None, help="报告输出根目录（未配置时必传：首次使用需用户自选）")
     run.add_argument("--no-whisper", action="store_true", help="无字幕时不转写直接失败")
+    run.add_argument("--whisper-auto", dest="force_whisper", action="store_true",
+                     help="自动字幕平台也强制 Whisper 交叉校验（默认按平台策略）")
     run.add_argument("--no-cache", dest="no_cache", action="store_true", help="不使用字幕/转写缓存（重新获取）")
     run.add_argument("--interval", type=float, default=1.5, help="批量分P之间的请求间隔秒数（默认 1.5，防接口限流）")
     run.add_argument("--pick", type=int, default=None,
@@ -728,7 +731,7 @@ def main(argv=None):
     mg.set_defaults(func=_cmd_merge)
     rep = sub.add_parser("report", help="从已有目录（单条/合集）重新生成报告骨架")
     rep.add_argument("target", help="单条或合集目录")
-    rep.add_argument("--force", action="store_true", help="覆盖已存在的 <标题>_学习报告.md")
+    rep.add_argument("--force", action="store_true", help="覆盖已存在的 <标题>学习报告.md")
     rep.set_defaults(func=cmd_report)
     ex = sub.add_parser("export", help="导出报告为 HTML/DOCX")
     ex.add_argument("target", help="含 report.md 的目录")

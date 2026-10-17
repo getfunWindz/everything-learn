@@ -262,7 +262,7 @@ def render_batch_template(summary: dict) -> str:
 # ---------------- 自动基线报告（2026-10-17） ----------------
 # 背景：CLI 只产出 report_template.md（骨架），报告正文依赖 agent 撰写；用户侧
 # 输出目录因此“没有报告本体”。这里提供确定性基线：机械整理 content.txt（不压缩、
-# 不臆造），保证每次 run 都有可读的 <标题>_学习报告.md；agent 可在此基础上深化。
+# 不臆造），保证每次 run 都有可读的 <标题>学习报告.md；agent 可在此基础上深化。
 
 import os
 import re
@@ -273,7 +273,7 @@ _LINE_RE = re.compile(r"^\[(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)\]\s*(.*)$")
 def baseline_report_path(out_dir: str, info: dict) -> str:
     from core.fsutil import safe_title
     name = safe_title(info.get("title") or "未命名", 80)
-    return os.path.join(out_dir, f"{name}_学习报告.md")
+    return os.path.join(out_dir, f"{name}学习报告.md")
 
 
 def _parse_timeline(content_text: str):
@@ -395,7 +395,7 @@ def render_baseline_report(info: dict, content_text: str) -> str:
 
 
 def write_baseline_report(out_dir: str, info: dict, force: bool = False):
-    """写 <标题>_学习报告.md（默认不覆盖已有报告）；返回路径或 None"""
+    """写 <标题>学习报告.md（默认不覆盖已有报告）；返回路径或 None"""
     src = os.path.join(out_dir, "content.txt")
     if not os.path.exists(src):
         return None
@@ -416,7 +416,7 @@ def write_batch_baseline(base: str, summary: dict) -> str:
     import json
     from core.fsutil import safe_title
     from core.fsutil import atomic_write_text
-    path = os.path.join(base, safe_title(summary.get("title") or "合集", 80) + "_合集学习报告.md")
+    path = os.path.join(base, safe_title(summary.get("title") or "合集", 80) + " 合集学习报告.md")
     if os.path.exists(path):
         return path
     parts = [f"# {summary.get('title') or '合集'}", "",

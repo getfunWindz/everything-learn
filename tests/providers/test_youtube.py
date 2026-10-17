@@ -403,3 +403,9 @@ def test_ydl_opts_have_socket_timeout():
     opts = a._ydl_opts()
     assert opts["socket_timeout"] >= 10
     assert opts["skip_download"] is True
+
+
+def test_media_budget_is_relaxed():
+    """实测：googlevideo 下载常失败；预算放宽到 45s，失败即回退字幕"""
+    a = YouTubeAdapter()
+    assert 0 < a.media_budget_sec <= 60

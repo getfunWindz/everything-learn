@@ -51,6 +51,7 @@ class RunOptions:
     _budget_spent: float = 0.0   # 运行级已消费估算（跨条目随同一 opts 累计）
     yes_recheck: bool = False    # 预授权完整档2
     max_seconds: float = None    # 运行时长上限（复检窗口级；超出剩余窗口标未复检）
+    force_whisper: bool = False  # 自动字幕平台也强制走 Whisper（默认按适配器策略）
 
 
 def _safe_name(title: str, maxlen: int = 60) -> str:
@@ -66,11 +67,23 @@ def _progress_printer():
     return _progress
 
 
+def _unique_path(base: str) -> str:
+    if not os.path.exists(base):
+        return base
+    for i in range(2, 1000):
+        cand = f"{base} {i}"
+        if not os.path.exists(cand):
+            return cand
+    return base
+
+
 def _item_out_dir(meta, ref, out_root, single, opts) -> str:
+    """单条：<作者>/<标题>[ P#]（标题严格净化、无日期前缀；重名加空格序号）"""
     if single:
-        return os.path.join(out_root, _safe_name(meta.author),
-                            f"{datetime.now():%Y-%m-%d}_{_safe_name(meta.title)}"
-                            + (f"_P{ref.sub_id}" if opts.page_count > 1 and ref.sub_id else ""))
+        title = _safe_name(meta.title)
+        if opts.page_count > 1 and ref.sub_id:
+            title += f" P{ref.sub_id}"
+        return _unique_path(os.path.join(out_root, _safe_name(meta.author), title))
     return os.path.join(out_root, f"P{int(ref.sub_id or 1):02d}")
 
 
@@ -606,7 +619,16 @@ def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False)
                 why = f"{why}；归属兜底未通过：{fb.get('reason') or fb.get('reason_code')}"
             print(f"  P{label} 未通过同源校验（{why}）→ 转 Whisper", file=sys.stderr)
     elif provenance == "auto":
-        print(f"  P{label} 来源=AI/自动字幕 → Whisper 主选", file=sys.stderr)
+        if getattr(adapter, "accept_auto_subtitle", False) and not opts.force_whisper:
+            # 平台策略放宽（YouTube）：自动字幕直接采信，明确标注未做 Whisper 交叉校验
+            lines = subtitle_candidate
+            src = "字幕(自动)（未交叉校验）"
+            language_used = (res.language or getattr(adapter, "language_hint", None)
+                             or opts.lang or None)
+            print(f"  P{label} 来源=AI/自动字幕 → 平台策略：直接采信（未交叉校验）",
+                  file=sys.stderr)
+        else:
+            print(f"  P{label} 来源=AI/自动字幕 → Whisper 主选", file=sys.stderr)
     # 4) Whisper（无 lines 时）；--no-whisper：绝不转写，尽力给内容（T12 评审）
     if not lines:
         if opts.no_whisper:
@@ -642,7 +664,8 @@ def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False)
                         vad=vad_mode, duration_sec=ref.duration,
                         vad_long_sec=cfg.get("vad_long_sec", 1800),
                         headers=_media_headers(adapter),
-                        language=language, stats=asr_stats)
+                        language=language, stats=asr_stats,
+                        max_seconds=getattr(adapter, "media_budget_sec", None))
                     print("", file=sys.stderr)
                     src = "whisper"
                     # D3：Whisper 实际语言；自动检测时回填 asr_stats.language
@@ -813,10 +836,11 @@ def _load_resume_done(out_root: str, platform: str, item_id: str) -> set:
         if not os.path.isdir(p):
             continue
         candidates = [os.path.join(p, x) for x in os.listdir(p)] if os.path.isdir(p) else []
-        dirs = [d] if d.endswith("_合集") else [x for x in candidates if os.path.isdir(x) and x.endswith("_合集")]
+        def _is_coll(name):
+            return name.endswith(" 合集") or name.endswith("_合集")
+        dirs = [p] if _is_coll(d) else [x for x in candidates
+                                        if os.path.isdir(x) and _is_coll(os.path.basename(x))]
         for vp in dirs:
-            if not vp.endswith("_合集"):
-                continue
             f = os.path.join(vp, "content_info.json")
             if not os.path.exists(f):
                 continue
@@ -834,7 +858,7 @@ def _load_resume_done(out_root: str, platform: str, item_id: str) -> set:
 
 def run_batch(adapter, refs, root_meta, opts: RunOptions) -> dict:
     base = os.path.join(os.path.abspath(opts.out_root), _safe_name(root_meta.author),
-                        f"{datetime.now():%Y-%m-%d}_{_safe_name(root_meta.title)}_合集")
+                        f"{_safe_name(root_meta.title)} 合集")
     os.makedirs(base, exist_ok=True)
     results = []
     t_start = time.time()

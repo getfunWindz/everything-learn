@@ -17,6 +17,7 @@ from urllib.parse import parse_qs, urlparse
 import requests
 
 from core.adapter import SearchNeeded
+from core import browserfetch
 from core.htmlblocks import html_to_blocks
 from core.models import ContentResult, ItemMeta, ItemRef
 from core.registry import register
@@ -230,6 +231,7 @@ class WeChatMpAdapter:
 
     def __init__(self, session: requests.Session = None):
         self._session = session
+        self._browser_meta = {}
 
     @property
     def session(self) -> requests.Session:
@@ -360,36 +362,135 @@ class WeChatMpAdapter:
         return r.text
 
     def fetch_meta(self, ref) -> ItemMeta:
-        m = parse_meta(self._get_html(ref.url, ref.extra.get("referer")))
-        return ItemMeta(title=m["title"] or "公众号文章",
-                        author=m["account"] or m["author"] or "",
-                        url=ref.url, published=m["published"],
-                        desc="" if m["author"] == m["account"] else m["author"],
+        try:
+            m = parse_meta(self._get_html(ref.url, ref.extra.get("referer")))
+        except Exception:
+            m = {}
+        if not m.get("title"):
+            m = self._browser_meta.get(ref.url) or {}
+            if not m:
+                try:
+                    _, _, m = self._fetch_browser(ref)
+                except Exception:
+                    m = {}
+        return ItemMeta(title=m.get("title") or "公众号文章",
+                        author=m.get("account") or m.get("author") or "",
+                        url=ref.url, published=m.get("published") or "",
+                        desc="" if m.get("author") == m.get("account") else (m.get("author") or ""),
                         page=ref.sub_id or "1")
 
     def fetch_content(self, ref) -> ContentResult:
+        blocks, imgs, err = [], [], None
         try:
             blocks, imgs = extract_article(self._get_html(ref.url, ref.extra.get("referer")))
         except WeChatError as e:
-            return ContentResult(kind="document", status="empty",
-                                 reason=str(e)[:120], label="正文")
+            err = e
+        text_len = sum(len(b.get("text") or "") for b in blocks)
+        if not blocks or text_len < 20:
+            try:
+                b2, i2, _ = self._fetch_browser(ref)
+                if b2:
+                    blocks, imgs = b2, i2
+            except Exception:
+                pass
         if not blocks and not imgs:
-            return ContentResult(kind="document", status="empty", reason="正文为空", label="正文")
+            return ContentResult(kind="document", status="empty",
+                                 reason=str(err)[:120] if err else "正文为空", label="正文")
         text_len = sum(len(b.get("text") or "") for b in blocks)
         status = "ok" if (text_len >= 20 or imgs) else "suspect"
         reason = "" if status == "ok" else f"正文过短（{text_len} 字）"
         return ContentResult(kind="document", status=status, blocks=blocks, images=imgs,
                              reason=reason, label="正文")
 
+    # ---------------- 浏览器兜底（2026-10-17） ----------------
+    # 实测：签名链接在 requests 侧返回「环境异常」，但同一 URL 在浏览器可正常渲染；
+    # 搜狗搜索 requests 触发验证码，浏览器会话可正常返回结果。故提供浏览器兜底。
+
+    _BROWSER_JS = r"""(() => {
+      const root = document.querySelector('#js_content');
+      if (!root) return {ok: false};
+      const blocks = [], seen = new Set();
+      const push = (t) => { t = (t || '').trim(); if (t && !seen.has(t)) { seen.add(t); blocks.push({heading: '', text: t}); } };
+      const desc = root.querySelector('#js_image_desc');
+      if (desc) {
+        (desc.innerText || '').split(/\n+/).forEach(push);
+      } else {
+        root.querySelectorAll('h1,h2,h3,h4,p,li,blockquote,section').forEach(el => {
+          if (el.querySelector('h1,h2,h3,h4,p,li,blockquote,section')) return;
+          const t = (el.innerText || '').trim();
+          if (!t) return;
+          if (/^H[1-4]$/.test(el.tagName)) blocks.push({heading: t, text: ''});
+          else push(t);
+        });
+        if (!blocks.length) (root.innerText || '').split(/\n+/).forEach(push);
+      }
+      const images = [...root.querySelectorAll('img')]
+        .map(im => im.getAttribute('data-src') || im.getAttribute('src') || '')
+        .filter(Boolean);
+      const q = (sel) => { const e = document.querySelector(sel); return e ? (e.innerText || '').trim() : ''; };
+      return {ok: true, blocks, images,
+              title: q('#activity-name') || document.title || '',
+              account: q('#js_name'), published: q('#publish_time')};
+    })()"""
+
+    def _fetch_browser(self, ref):
+        """浏览器渲染文章 → (blocks, images, meta)"""
+        with browserfetch.BrowserSession("wechat_mp") as s:
+            s.goto(ref.url)
+            s.pause(2500)
+            data = s.evaluate(self._BROWSER_JS) or {}
+        if not data.get("ok"):
+            raise WeChatError("浏览器也未找到正文容器（#js_content）")
+        blocks = [b for b in (data.get("blocks") or []) if (b.get("text") or b.get("heading"))]
+        images = []
+        for u in data.get("images") or []:
+            if u.startswith("//"):
+                u = "https:" + u
+            if u.startswith("http"):
+                images.append(u)
+        meta = {"title": data.get("title") or "", "account": data.get("account") or "",
+                "author": data.get("account") or "", "published": data.get("published") or ""}
+        self._browser_meta[ref.url] = meta
+        return blocks, images, meta
+
+    def _search_browser(self, query: str, limit: int) -> list:
+        """搜狗搜索浏览器兜底：解析结果 → 逐个解析为 mp.weixin 直链（会话内）"""
+        with browserfetch.BrowserSession("wechat_mp") as s:
+            s.goto(_SOGOU_SEARCH.format(q=urllib.parse.quote(query or "")))
+            s.pause(3000)
+            hits = parse_sogou_results(s.html(), limit=limit)
+            out = []
+            for h in hits[:limit]:
+                link = h.get("link") or ""
+                if link and not link.startswith("https://mp.weixin.qq.com/"):
+                    try:
+                        s.page.goto(link, wait_until="domcontentloaded", timeout=30000)
+                        s.pause(1200)
+                        if (s.page.url or "").startswith("https://mp.weixin.qq.com/"):
+                            h = dict(h)
+                            h["link"] = s.page.url
+                    except Exception:
+                        pass
+                out.append(h)
+            return out
+
     # ---------------- 搜狗搜索（实验性：结果链接会话绑定，仅同进程可用） ----------------
 
     def search_articles(self, query: str, limit: int = 5) -> list:
         url = _SOGOU_SEARCH.format(q=urllib.parse.quote(query or ""))
-        r = self.session.get(url, headers={"Referer": "https://weixin.sogou.com/"}, timeout=25)
-        return parse_sogou_results(r.text, limit=limit)
+        try:
+            r = self.session.get(url, headers={"Referer": "https://weixin.sogou.com/"}, timeout=25)
+            hits = parse_sogou_results(r.text, limit=limit)
+            if hits:
+                return hits
+        except Exception:
+            pass
+        return self._search_browser(query, limit)
 
     def resolve_sogou_link(self, link: str) -> str:
-        """搜狗跳转页 → 微信签名文章 URL（必须与搜索同一会话；实验性）"""
+        """搜狗跳转页 → 微信签名文章 URL；已是 mp.weixin 直链则直接返回"""
+        if (link or "").startswith("https://mp.weixin.qq.com/"):
+            return link
         r = self.session.get(link, headers={"Referer": "https://weixin.sogou.com/weixin"},
                              timeout=25, allow_redirects=False)
         parts = re.findall(r"url \+= '([^']+)'", r.text or "")

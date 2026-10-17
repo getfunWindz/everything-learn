@@ -151,7 +151,7 @@ def test_transcribe_video_flow(tmp_path, monkeypatch):
         def __init__(self): self.url_called = None
         def get_audio_url(self, bvid, cid): self.url_called = (bvid, cid); return "http://audio"
     client = FakeClient()
-    monkeypatch.setattr(transcriber, "download_audio", lambda url, dest, headers=None: dest)
+    monkeypatch.setattr(transcriber, "download_audio", lambda url, dest, headers=None, **kw: dest)
     monkeypatch.setattr(transcriber, "transcribe",
                         lambda path, model_size="medium", progress_callback=None, **kw: [{"start": 0.0, "end": 1.0, "text": "hi"}])
     out = transcriber.transcribe_video(client, "BV1GJ411x7h7", 1001)
@@ -163,7 +163,7 @@ def test_transcribe_url_flow(monkeypatch):
     """平台无关入口：给媒体直链 → 下载 → 转写"""
     calls = {}
     monkeypatch.setattr(transcriber, "download_audio",
-                        lambda url, dest, headers=None: calls.setdefault("url", url) or dest)
+                        lambda url, dest, headers=None, **kw: calls.setdefault("url", url) or dest)
     monkeypatch.setattr(transcriber, "transcribe",
                         lambda path, model_size="medium", **kw: [{"start": 0.0, "end": 1.0, "text": "hi"}])
     out = transcriber.transcribe_url("http://media/audio.m4s", model_size="small", duration_sec=10)
@@ -175,7 +175,7 @@ def test_transcribe_url_passes_language(monkeypatch):
     """language 透传（X 等多语言平台用 None 自动检测；默认仍 zh 保持既有行为）"""
     captured = {}
     monkeypatch.setattr(transcriber, "download_audio",
-                        lambda url, dest, headers=None: dest)
+                        lambda url, dest, headers=None, **kw: dest)
 
     def fake_transcribe(path, **kw):
         captured.update(kw)
@@ -481,7 +481,7 @@ def test_transcribe_collects_stats(monkeypatch):
 
 def test_transcribe_url_passes_stats(monkeypatch):
     """transcribe_url 透传 stats（下载桩）"""
-    monkeypatch.setattr(transcriber, "download_audio", lambda url, dest, headers=None: dest)
+    monkeypatch.setattr(transcriber, "download_audio", lambda url, dest, headers=None, **kw: dest)
 
     def fake_transcribe(path, model_size="medium", **kw):
         if kw.get("stats") is not None:

@@ -109,6 +109,12 @@ def pick_video_url(formats, lowest: bool = True) -> str:
 @register
 class YouTubeAdapter:
     name = "youtube"
+    # 本机/常见代理环境下 googlevideo 下载常失败；把预算从 180s 收到 45s，
+    # 失败即回退字幕（标注「未经同源校验」），避免每条视频白等 3 分钟。
+    media_budget_sec = 45
+    # 实测：本机代理下 googlevideo 几乎不可达；自动字幕直接采信（标注未交叉校验），
+    # 避免每条视频白耗 45s+ 提取/下载。需要强制校验时用 --whisper-auto。
+    accept_auto_subtitle = True
     kinds = {"video"}
     has_video = True   # 具备画面层（档位复检可用）；language_hint 不设 → 转写自动检测
 

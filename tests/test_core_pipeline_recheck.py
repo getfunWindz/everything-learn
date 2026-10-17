@@ -203,7 +203,7 @@ class DemoAdapter:
 
 def _run(monkeypatch, adapter, tmp_path, same_source_passed=True, whisper_lines=None,
          ss_override=None, attr_override=None, whisper_exc=None,
-         no_whisper=False, no_vision_check=False, calls=None):
+         no_whisper=False, no_vision_check=False, calls=None, force_whisper=False):
     """process_item 离线跑：同源校验/归属兜底/Whisper 全部 mock，不落盘。
     calls：可选 dict，记录 {"attribution": [...], "transcribe": [...]} 调用证据。"""
     from core import config as core_config
@@ -240,7 +240,8 @@ def _run(monkeypatch, adapter, tmp_path, same_source_passed=True, whisper_lines=
     monkeypatch.setattr(pipeline.artifacts, "write_item_artifacts", lambda *a, **k: None)
     monkeypatch.setattr(pipeline.artifacts, "build_info", lambda meta, ref, **k: {"kind": "timeline", **k})
     opts = pipeline.RunOptions(out_root=str(tmp_path), no_cache=True,
-                               no_whisper=no_whisper, no_vision_check=no_vision_check)
+                               no_whisper=no_whisper, no_vision_check=no_vision_check,
+                               force_whisper=force_whisper)
     return pipeline.process_item(adapter, ItemRef(platform="demo", item_id="1", duration=120),
                                  str(tmp_path), opts, single=True)
 
@@ -2126,3 +2127,31 @@ def test_recheck_resume_reuses_completed_windows(monkeypatch, tmp_path):
     assert lines2[0]["text"] == "B 内容"      # 窗口 1 的校正被复用
     assert not os.path.exists(pipeline._recheck_ckpt_path(
         pipeline.RunOptions(out_root=str(tmp_path)), ref))
+
+
+def test_accept_auto_subtitle_platform_policy(monkeypatch, tmp_path):
+    """YouTube 放宽：自动字幕直接采信并标注「未交叉校验」，不下载媒体/不 Whisper"""
+    calls = {"n": 0}
+
+    class AutoAdapter(DemoAdapter):
+        accept_auto_subtitle = True
+        def fetch_media_url(self, ref, media="audio", lowest=False):
+            calls["n"] += 1
+            return "http://m/audio"
+
+    res = ContentResult(kind="timeline", status="ok", provenance="auto",
+                        segments=[{"start": 0, "end": 5, "text": "自动字幕内容"}])
+    status, src, n, _, _ = _run(monkeypatch, AutoAdapter(res), tmp_path)
+    assert (status, src) == ("ok", "字幕(自动)（未交叉校验）")
+    assert calls["n"] == 0
+
+
+def test_force_whisper_overrides_auto_accept(monkeypatch, tmp_path):
+    class AutoAdapter(DemoAdapter):
+        accept_auto_subtitle = True
+
+    res = ContentResult(kind="timeline", status="ok", provenance="auto",
+                        segments=[{"start": 0, "end": 5, "text": "自动字幕内容"}])
+    status, src, n, _, _ = _run(monkeypatch, AutoAdapter(res), tmp_path,
+                                force_whisper=True)
+    assert (status, src) == ("ok", "whisper")
