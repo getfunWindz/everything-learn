@@ -871,6 +871,7 @@ def run_batch(adapter, refs, root_meta, opts: RunOptions) -> dict:
             "page_count": len(refs),
             "batch_fetched_at": datetime.now().isoformat(timespec="seconds"),
             "pages": results,
+            "out_dir": base,
             "tool": "everything-learn v0.1",
         }
         with open(os.path.join(base, "content_info.json"), "w", encoding="utf-8") as f:

@@ -41,3 +41,25 @@ def test_export_docx(tmp_path):
     texts = [p.text for p in doc.paragraphs]
     assert "标题一" in texts
     assert "甲" in " ".join(texts) or any("甲" in c.text for t in doc.tables for r in t.rows for c in r.cells)
+
+
+def test_md_to_txt_strips_markdown():
+    from export import md_to_txt
+    t = md_to_txt(SAMPLE_MD)
+    assert "标题一" in t and "#" not in t.split("\n")[0]
+    assert "加粗" in t and "**" not in t and "`" not in t
+    assert "A\t甲" in t or "A | 甲" in t
+
+
+def test_export_report_formats(tmp_path):
+    from export import export_report
+    d = tmp_path / "item"
+    d.mkdir()
+    (d / "测试学习报告.md").write_text(SAMPLE_MD, encoding="utf-8")
+    p_txt = export_report(str(d), "txt")
+    assert p_txt.endswith(".txt") and "标题一" in open(p_txt, encoding="utf-8").read()
+    p_doc = export_report(str(d), "doc")
+    head = open(p_doc, encoding="utf-8").read(200)
+    assert p_doc.endswith(".doc") and "<html" in head.lower()
+    p_html = export_report(str(d), "html")
+    assert p_html.endswith(".html") and "<h1>" in open(p_html, encoding="utf-8").read()

@@ -170,22 +170,29 @@ def cmd_report(args):
 
 
 def cmd_export(args):
-    """从报告目录导出 HTML/DOCX"""
-    target = args.target
-    md_path = _find_report_md(target)
-    if not md_path:
-        print(f"目录中没有报告文件（report.md / <标题>学习报告.md / report_template.md）：{target}", file=sys.stderr)
+    """导出报告：md/html/docx/doc/txt"""
+    from export import export_report
+    try:
+        out = export_report(args.target, args.format, getattr(args, "out", "") or "")
+    except FileNotFoundError:
+        print(f"目录中没有报告文件（report.md / <标题>学习报告.md / report_template.md）：{args.target}",
+              file=sys.stderr)
         sys.exit(1)
-    md = open(md_path, encoding="utf-8").read()
-    from export import md_to_html, export_docx
-    name = os.path.splitext(os.path.basename(md_path))[0]
-    if args.format == "html":
-        out = args.out or os.path.join(target, name + ".html")
-        open(out, "w", encoding="utf-8").write(md_to_html(md))
-    else:
-        out = args.out or os.path.join(target, name + ".docx")
-        export_docx(md, out)
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(2)
     print(f"已导出：{out}")
+
+
+def _auto_export(out_dir: str, fmt: str):
+    if (fmt or "md").lower() == "md":
+        return
+    from export import export_report
+    try:
+        path = export_report(out_dir, fmt)
+        print(f"报告已导出（{fmt}）：{path}")
+    except Exception as e:
+        print(f"报告导出失败（{fmt}）：{str(e)[:120]}", file=sys.stderr)
 
 
 def _scan_adapter(input_str):
@@ -605,6 +612,15 @@ def cmd_run(args, client: ApiClient = None):
         _LOGGER.info("single %s ok %s %d行", input_str, src, n)
         print(f"\n完成！输出目录：{out_dir}")
         print("已生成：content_info.json / content.txt / report_template.md / <标题>学习报告.md")
+        _auto_export(out_dir, getattr(args, "report_format", "md"))
+    else:
+        fmt = getattr(args, "report_format", "md")
+        if fmt and fmt != "md" and isinstance(result, dict) and result.get("out_dir"):
+            _auto_export(result["out_dir"], fmt)
+            for page in result.get("pages") or []:
+                pdir = os.path.join(result["out_dir"], f"P{int(page.get('page') or 1):02d}")
+                if os.path.isdir(pdir):
+                    _auto_export(pdir, fmt)
 
 
 def _ensure_utf8_stdout():
@@ -712,6 +728,9 @@ def main(argv=None):
     run.add_argument("--yes-recheck", dest="yes_recheck", action="store_true",
                      help="预授权超阈值按完整档2 执行")
     run.add_argument("--out", default=None, help="报告输出根目录（未配置时必传：首次使用需用户自选）")
+    run.add_argument("--report-format", dest="report_format", default="md",
+                     choices=["md", "doc", "docx", "txt"],
+                     help="交付报告格式（默认 md；SKILL 要求开工前询问用户）")
     run.add_argument("--no-whisper", action="store_true", help="无字幕时不转写直接失败")
     run.add_argument("--whisper-auto", dest="force_whisper", action="store_true",
                      help="自动字幕平台也强制 Whisper 交叉校验（默认按平台策略）")
@@ -735,7 +754,7 @@ def main(argv=None):
     rep.set_defaults(func=cmd_report)
     ex = sub.add_parser("export", help="导出报告为 HTML/DOCX")
     ex.add_argument("target", help="含 report.md 的目录")
-    ex.add_argument("--format", choices=["html", "docx"], default="html")
+    ex.add_argument("--format", choices=["md", "html", "docx", "doc", "txt"], default="html")
     ex.add_argument("--out", default=None, help="输出文件路径（默认在报告目录）")
     ex.set_defaults(func=cmd_export)
     def _cmd_cookie(args):

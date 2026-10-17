@@ -33,7 +33,7 @@ description: 将多平台学习内容（视频/音频/图文/帖子）总结为�
 ```bash
 python scripts/el.py onboard                  # 首次引导门（状态/四项确认点；--complete/--reset/--json）
 python scripts/el.py doctor                   # 环境自检（依赖/GPU/模型/vision/cookie/out_dir）
-python scripts/el.py run <链接/名称> [--page N | --pages "1-10" | --all] [--model tiny|small|medium|large-v3] [--budget 1.5] [--max-seconds 600]
+python scripts/el.py run <链接/名称> [--page N | --pages "1-10" | --all] [--model tiny|small|medium|large-v3] [--budget 1.5] [--max-seconds 600] [--report-format md|doc|docx|txt]
 python scripts/el.py search <关键词> --platform <平台> [--limit 5] [--json]   # 11 平台搜索（见 platforms 的 search= 列）
 python scripts/el.py scan <列表链接> [--filter "关键,词"] [--priority] [--limit N] [--snapshot]
 python scripts/glossary.py add "<术语>" "<解释>"   # 术语库填塞/沉淀（可重复；支持 add/alias/clean/absorb）
@@ -48,16 +48,23 @@ python scripts/el.py export <目录> --format html
 
 ## 正常调用工作流（每次使用）
 
-### 八步链路
+### 九步链路
 
-1. **读标签位**：=1 → 先走文末「初次调用逻辑」；=0 → 继续。
-2. **识别平台**：链接/名称 → `el.py resolve` 确认平台与标识（未识别 URL → 自进化流程询问）。
-3. **切换适配器与参数**：按平台特性（cookie/代理/缓速）与需求（run/scan/`--all`/页码范围）选定。
-4. **引导用户**：内容与范围（多 P/合集/问题回答/页面范围）+ 复检档位与预算（超阈值必现预算卡）+ 凭据需求（cookie）。
-5. **获得授权**：用户确认后开工（首次/大额/高风控必须确认；小额自动档按 config）。
-6. **执行**：`run`/`scan` → 产物三件套 + `assets/` + `recheck_report.json`。
-7. **复检核查**：核对 `recheck_report.json`（档位/覆盖/同源/不确定项）与 `source`/`provenance`/`quality_hint`；必要时抽帧补漏。
-8. **撰写报告 + 收工总结与输出核验**：按「报告规则 R1-R13」成稿；交付前核对产物（文件齐全/字段/命名/glossary 校验），向用户汇报摘要。
+1. **交付格式确认（每次调用必问，必须早于抓取/转写/复检）**：先问用户要哪种报告格式：
+   - `md`：Markdown，便于阅读/编辑/入库；
+   - `doc`：Word 可直接打开的 `.doc`（Word 兼容 HTML）；
+   - `docx`：Word 标准格式；
+   - `txt`：纯文本。
+   用户回答后再开工；**不得跳过询问、不得默认 md 直接开始转写**（用户明确说「随便/默认」或自动化流水线除外）。
+   记录选择并在 `run` 时传 `--report-format <fmt>`；若用户改主意，交付前用 `el.py export <目录> --format <fmt>` 补导。
+2. **读标签位**：=1 → 先走文末「初次调用逻辑」；=0 → 继续。
+3. **识别平台**：链接/名称 → `el.py resolve` 确认平台与标识（未识别 URL → 自进化流程询问）。
+4. **切换适配器与参数**：按平台特性（cookie/代理/缓速）与需求（run/scan/`--all`/页码范围）选定。
+5. **引导用户**：内容与范围（多 P/合集/问题回答/页面范围）+ 复检档位与预算（超阈值必现预算卡）+ 凭据需求（cookie）。
+6. **获得授权**：用户确认后开工（首次/大额/高风控必须确认；小额自动档按 config）。
+7. **执行**：`run`/`scan` → 产物三件套 + `assets/` + `recheck_report.json`。
+8. **复检核查**：核对 `recheck_report.json`（档位/覆盖/同源/不确定项）与 `source`/`provenance`/`quality_hint`；必要时抽帧补漏。
+9. **撰写报告 + 收工总结与输出核验**：按「报告规则 R1-R13」成稿；按用户选择的格式交付（`run` 已自动导出非 md 格式）；交付前核对产物（文件齐全/字段/命名/glossary 校验），向用户汇报摘要。
 
 ### 平台定位与内容获取
 
@@ -137,7 +144,7 @@ python scripts/el.py run <链接> --budget 1.5           # 本次运行复检金
 
 ### 交付
 
-- 单条：`<out_dir>/<作者>/<标题>[ P##]/<标题>学习报告.md`（`run` 自动生成基线；agent 可覆盖深化；目录不带日期前缀，标题只保留文字/数字/空格）；
+- 单条：`<out_dir>/<作者>/<标题>[ P##]/<标题>学习报告.md`（`run` 自动生成基线；按用户选择的格式同时导出 `.doc/.docx/.txt`；agent 可覆盖深化；目录不带日期前缀，标题只保留文字/数字/空格）；
 - 合集：`<out_dir>/<作者>/<标题> 合集/`（`P01…` 子目录 + 汇总 `content_info.json` + `<标题> 合集学习报告.md` 基线）；
 - 交付前完成 R11 的 glossary 校验；向用户汇报报告摘要（覆盖知识点数/来源/路径），有【画面补充】【画面校正】或未复检区间时一并说明（R13）；
 - timeline 产物含 `recheck_report.json`（档位/评分理由/预算/同源校验/交叉比对/复检明细与不确定项），交付前核对。

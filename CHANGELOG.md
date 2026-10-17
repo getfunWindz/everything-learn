@@ -2,6 +2,17 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本。
 
+## [0.4.8] - 2026-10-17
+
+### Added
+
+- **交付格式确认（每次调用必问）**：SKILL 工作流新增第 1 步，先询问用户 `md / doc / docx / txt`，再开始抓取/转写/复检；`run --report-format` 自动导出所选格式。
+- **四种交付格式**：新增 `doc`（Word 兼容 HTML）与 `txt`（去 Markdown 标记）；`export --format md|html|docx|doc|txt`。
+
+### 测试
+
+- **849 项离线测试**（新增 3 项：txt/doc 导出、run 格式落地）。
+
 ## [0.4.7] - 2026-10-17
 
 ### Changed

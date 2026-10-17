@@ -1,5 +1,7 @@
 """报告导出：Markdown → HTML（纯 Python）/ DOCX（python-docx）"""
+import glob
 import html
+import os
 import re
 
 def md_to_html(md: str) -> str:
@@ -139,3 +141,96 @@ def export_docx(md: str, out_path: str) -> None:
         if stripped:
             doc.add_paragraph(re.sub(r"[*`]", "", stripped))
     doc.save(out_path)
+
+
+def md_to_txt(md: str) -> str:
+    """Markdown → 纯文本（去标题标记/加粗/行内代码/链接语法；表格转 tab）"""
+    out, in_code, code_buf = [], False, []
+    for line in (md or "").split("\n"):
+        s = line.rstrip()
+        st = s.strip()
+        if st.startswith("```"):
+            if in_code:
+                out.extend(code_buf)
+                code_buf, in_code = [], False
+            else:
+                in_code = True
+            continue
+        if in_code:
+            code_buf.append(s)
+            continue
+        if re.match(r"^\|[\s:\-|]+\|?$", st):
+            continue
+        if st.startswith("|"):
+            cells = [c.strip() for c in st.strip("|").split("|")]
+            out.append("\t".join(cells))
+            continue
+        m = re.match(r"^(#{1,6})\s+(.*)", st)
+        if m:
+            out.append(m.group(2).strip())
+            continue
+        if st.startswith(">"):
+            out.append(st[1:].strip())
+            continue
+        if re.match(r"^[-*]\s+", st):
+            out.append(re.sub(r"^[-*]\s+", "- ", st))
+            continue
+        s = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1 (\2)", s)
+        s = re.sub(r"\*\*([^*]+)\*\*", r"\1", s)
+        s = re.sub(r"`([^`]+)`", r"\1", s)
+        out.append(s)
+    return "\n".join(out)
+
+
+def md_to_doc(md: str, title: str = "") -> str:
+    """Word 可打开的 HTML（.doc）：UTF-8 + 基础样式，保留标题/表格/列表"""
+    body = md_to_html(md)
+    safe_title = html.escape(title or "学习报告")
+    return ("<html xmlns:o='urn:schemas-microsoft-com:office:office' "
+            "xmlns:w='urn:schemas-microsoft-com:office:word' "
+            "xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'>"
+            f"<title>{safe_title}</title><style>"
+            "body{font-family:'Microsoft YaHei',SimSun,sans-serif;font-size:11pt;line-height:1.6;}"
+            "table{border-collapse:collapse;}td,th{border:1px solid #999;padding:4px 8px;}"
+            "h1{font-size:20pt;}h2{font-size:16pt;}h3{font-size:13pt;}"
+            "</style></head><body>" + body + "</body></html>")
+
+
+def find_report_md(target: str) -> str:
+    """目录中的报告文件：report.md → *学习报告.md → report_template.md"""
+    p = os.path.join(target, "report.md")
+    if os.path.exists(p):
+        return p
+    hits = sorted(glob.glob(os.path.join(target, "*学习报告.md")))
+    if hits:
+        return hits[0]
+    p = os.path.join(target, "report_template.md")
+    return p if os.path.exists(p) else ""
+
+
+def export_report(target: str, fmt: str, out: str = "") -> str:
+    """导出指定格式（md/html/docx/doc/txt）；返回输出路径；md 返回源文件"""
+    import os
+    md_path = find_report_md(target)
+    if not md_path:
+        raise FileNotFoundError(f"目录中没有报告文件：{target}")
+    md = open(md_path, encoding="utf-8").read()
+    name = os.path.splitext(os.path.basename(md_path))[0]
+    fmt = (fmt or "md").lower()
+    if fmt == "md":
+        return md_path
+    if fmt == "html":
+        path = out or os.path.join(target, name + ".html")
+        open(path, "w", encoding="utf-8").write(md_to_html(md))
+    elif fmt == "docx":
+        path = out or os.path.join(target, name + ".docx")
+        export_docx(md, path)
+    elif fmt == "doc":
+        path = out or os.path.join(target, name + ".doc")
+        open(path, "w", encoding="utf-8").write(md_to_doc(md, name))
+    elif fmt == "txt":
+        path = out or os.path.join(target, name + ".txt")
+        open(path, "w", encoding="utf-8").write(md_to_txt(md))
+    else:
+        raise ValueError(f"不支持的导出格式：{fmt}（md/html/docx/doc/txt）")
+    return path

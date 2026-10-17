@@ -994,3 +994,15 @@ def test_wechat_pick_requires_confirm_when_list_drifted(monkeypatch, tmp_path, c
                                       pick=1), client=FakeClient())
     assert e.value.code == 2
     assert "漂移" in capsys.readouterr().err
+
+
+def test_run_report_format_txt(tmp_path):
+    """交付格式在开工前确认；CLI 用 --report-format 落地（txt 示例）"""
+    out = tmp_path / "out"
+    client = FakeClient()
+    el.cmd_run(argparse.Namespace(input="BV1GJ411x7h7", page=1, out=str(out),
+                                  no_whisper=False, pick=1, report_format="txt"),
+               client=client)
+    rd = report_dir(str(out))
+    txts = [f for f in os.listdir(rd) if f.endswith(".txt") and "学习报告" in f]
+    assert txts, os.listdir(rd)
