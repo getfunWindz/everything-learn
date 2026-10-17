@@ -366,9 +366,11 @@ def test_export_command(tmp_path):
                                     no_whisper=False, pick=1), client=client)
     rd = report_dir(out)
     el.cmd_export(argparse.Namespace(target=rd, format="html", out=None))
-    assert os.path.exists(os.path.join(rd, "report_template.html"))
+    htmls = [f for f in os.listdir(rd) if f.endswith(".html")]
+    assert htmls and any("学习报告" in f for f in htmls)
     el.cmd_export(argparse.Namespace(target=rd, format="docx", out=None))
-    assert os.path.exists(os.path.join(rd, "report_template.docx"))
+    docs = [f for f in os.listdir(rd) if f.endswith(".docx")]
+    assert docs and any("学习报告" in f for f in docs)
 
 def test_model_param_priority_over_config(tmp_path, monkeypatch):
     """--model CLI 参数优先于 config.whisper_model"""

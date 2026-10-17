@@ -164,6 +164,9 @@ def cmd_report(args):
         open(out, "w", encoding="utf-8").write(
             report.render_template_for(info.get("kind", "timeline"), info))
         print(f"已重新生成报告骨架：{out}")
+        rp = report.write_baseline_report(target, info, force=getattr(args, "force", False))
+        if rp:
+            print(f"学习报告（基线）：{rp}")
 
 
 def cmd_export(args):
@@ -600,7 +603,7 @@ def cmd_run(args, client: ApiClient = None):
             sys.exit({"no_subtitle": 3, "failed": 4, "whisper_missing": 5}.get(status, 4))
         _LOGGER.info("single %s ok %s %d行", input_str, src, n)
         print(f"\n完成！输出目录：{out_dir}")
-        print("已生成：content_info.json / content.txt / report_template.md")
+        print("已生成：content_info.json / content.txt / report_template.md / <标题>_学习报告.md")
 
 
 def _ensure_utf8_stdout():
@@ -725,6 +728,7 @@ def main(argv=None):
     mg.set_defaults(func=_cmd_merge)
     rep = sub.add_parser("report", help="从已有目录（单条/合集）重新生成报告骨架")
     rep.add_argument("target", help="单条或合集目录")
+    rep.add_argument("--force", action="store_true", help="覆盖已存在的 <标题>_学习报告.md")
     rep.set_defaults(func=cmd_report)
     ex = sub.add_parser("export", help="导出报告为 HTML/DOCX")
     ex.add_argument("target", help="含 report.md 的目录")

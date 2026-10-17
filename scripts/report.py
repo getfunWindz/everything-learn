@@ -43,10 +43,13 @@ def _recheck_section(info: dict) -> str:
         same_source = "未执行"
     qh = info.get("quality_hint") or {}
     quality_line = ""
-    if qh:
+    if isinstance(qh, str) and qh.strip():
+        quality_line = "- ⚠️ 内容完整性：" + qh.strip() + chr(10)
+    elif isinstance(qh, dict) and qh:
         reasons_txt = "；".join(qh.get("reasons") or []) or "质量信号偏弱"
-        quality_line = (f"- ⚠️ 转写质量提示（低配模式）：{reasons_txt}；"
-                        f"建议升级 medium 并补全依赖（详见 content_info.json 的 quality_hint）\n")
+        quality_line = ("- ⚠️ 转写质量提示（低配模式）：" + reasons_txt + "；"
+                        "建议升级 medium 并补全依赖（详见 content_info.json 的 quality_hint）"
+                        + chr(10))
     elif (info.get("quality") or {}).get("tier_note"):
         quality_line = (f"- ℹ️ 转写档位提示：{(info.get('quality') or {}).get('tier_note')}\n")
     return ("## 复检说明\n\n"
@@ -254,3 +257,194 @@ def render_batch_template(summary: dict) -> str:
               f"- 生成时间：{summary.get('batch_fetched_at', '')}",
               f"- 工具：{summary.get('tool', '')}", ""]
     return "\n".join(lines)
+
+
+# ---------------- 自动基线报告（2026-10-17） ----------------
+# 背景：CLI 只产出 report_template.md（骨架），报告正文依赖 agent 撰写；用户侧
+# 输出目录因此“没有报告本体”。这里提供确定性基线：机械整理 content.txt（不压缩、
+# 不臆造），保证每次 run 都有可读的 <标题>_学习报告.md；agent 可在此基础上深化。
+
+import os
+import re
+
+_LINE_RE = re.compile(r"^\[(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)\]\s*(.*)$")
+
+
+def baseline_report_path(out_dir: str, info: dict) -> str:
+    from core.fsutil import safe_title
+    name = safe_title(info.get("title") or "未命名", 80)
+    return os.path.join(out_dir, f"{name}_学习报告.md")
+
+
+def _parse_timeline(content_text: str):
+    out = []
+    for raw in (content_text or "").splitlines():
+        m = _LINE_RE.match(raw.strip())
+        if m:
+            out.append({"start": float(m.group(1)), "end": float(m.group(2)),
+                        "text": (m.group(3) or "").strip()})
+        elif raw.strip():
+            out.append({"start": None, "end": None, "text": raw.strip()})
+    return out
+
+
+def _segments(items, span_sec=300):
+    """按时间桶切段（默认 5 分钟）；返回 [{start,end,items}]"""
+    segs = []
+    for it in items:
+        if it["start"] is None:
+            if not segs:
+                segs.append({"start": 0.0, "end": 0.0, "items": []})
+            segs[-1]["items"].append(it)
+            continue
+        idx = int(it["start"] // span_sec)
+        while len(segs) <= idx:
+            segs.append({"start": len(segs) * span_sec,
+                         "end": (len(segs) + 1) * span_sec, "items": []})
+        segs[idx]["items"].append(it)
+    return [s for s in segs if s["items"]]
+
+
+def _summary(items) -> str:
+    texts = [i["text"] for i in items if i["text"]][:4]
+    s = " ".join(texts)
+    s = re.sub(r"\s+", " ", s).strip()
+    return (s[:300] + "…") if len(s) > 300 else (s or "（无正文）")
+
+
+def _quality_line(info) -> str:
+    qh = info.get("quality_hint")
+    if isinstance(qh, dict):
+        reasons = "；".join(qh.get("reasons") or []) or "质量信号偏弱"
+        return f"- ⚠️ 质量提示：{reasons}\n"
+    if isinstance(qh, str) and qh.strip():
+        return f"- ⚠️ 内容完整性：{qh.strip()}\n"
+    return ""
+
+
+def render_baseline_report(info: dict, content_text: str) -> str:
+    kind = info.get("kind") or "timeline"
+    items = _parse_timeline(content_text)
+    is_timeline = kind == "timeline"
+    segs = _segments(items) if is_timeline else []
+    out = [f"# {info.get('title') or '未命名'}", "",
+           "> 自动基线报告：由 content.txt 机械整理（不压缩、不臆造）；"
+           "可按 SKILL 的 R1-R13 继续深化。", "",
+           "| 项目 | 内容 |", "|------|------|",
+           f"| 作者/来源 | {info.get('author') or ''} |",
+           f"| 内容ID | {info.get('item_id') or ''} |",
+           f"| 链接 | {info.get('url') or ''} |",
+           f"| 时长 | {info.get('duration_seconds') or ''} 秒 |",
+           f"| 发布日期 | {info.get('published') or ''} |",
+           f"| 内容来源 | {info.get('source') or ''} |", "",
+           _recheck_section(info), "",
+           "## 一句话总结", "", _summary(items), "",
+           "## 知识点全览", ""]
+    if is_timeline:
+        for n, seg in enumerate(segs, 1):
+            first = next((i["text"] for i in seg["items"] if i["text"]), "（无内容）")
+            out.append(f"{n}. [{_fmt_hms(seg['start'])}–{_fmt_hms(seg['end'])}] {first[:50]}")
+    else:
+        for n, line in enumerate([l for l in (content_text or "").splitlines() if l.strip()][:80], 1):
+            if line.startswith("#"):
+                out.append(f"{n}. {line.lstrip('# ').strip()[:50]}")
+    out += ["", "## 知识详解", ""]
+    if is_timeline:
+        for n, seg in enumerate(segs, 1):
+            first = next((i["text"] for i in seg["items"] if i["text"]), "段主题")
+            out += [f"### 段{n}｜[{_fmt_hms(seg['start'])}–{_fmt_hms(seg['end'])}] {first[:30]}", ""]
+            for it in seg["items"]:
+                if it["text"]:
+                    out.append(f"- [{_fmt_hms(it['start'])}] {it['text']}")
+            out.append("")
+    else:
+        block = 0
+        for raw in (content_text or "").splitlines():
+            line = raw.rstrip()
+            if not line:
+                continue
+            if line.startswith("#"):
+                block += 1
+                out += [f"### 段{block}｜{line.lstrip('# ').strip()}", ""]
+            else:
+                out.append(f"- {line}")
+        out.append("")
+    quotes = [i for i in items if i["text"] and len(i["text"]) >= 20]
+    quotes = sorted(quotes, key=lambda x: -len(x["text"]))[:5]
+    quotes.sort(key=lambda x: (x["start"] is None, x["start"] or 0))
+    out += ["## 关键概念 / 术语解释表", "",
+            "| 概念 | 通俗解释 |", "|------|---------|",
+            "| （自动基线未抽取；请按 R11 补充术语库） |  |", "",
+            "## 金句与重要观点", ""]
+    for q in quotes:
+        if is_timeline and q["start"] is not None:
+            out.append(f"- [{_fmt_hms(q['start'])}] {q['text']}")
+        else:
+            out.append(f"- {q['text']}")
+    out += ["", "## 原话摘录", ""]
+    out += [f"- {q['text']}" for q in quotes[:3]] or ["（无）"]
+    out += ["", "## 学习路径与自测", "",
+            "1. 按「知识详解」的分段顺序复述每段主题。",
+            "2. 选 3 个你最有兴趣的知识点，各写一句自己的解释。",
+            "3. 对照「金句与重要观点」，检查是否有遗漏的结论。", "",
+            "## 元信息", "",
+            f"- 生成时间：{info.get('fetched_at') or ''}",
+            f"- 工具：{info.get('tool') or ''}",
+            "- 报告类型：自动基线（如需 R1-R13 详解版，请由 agent 继续撰写）", ""]
+    return "\n".join(out)
+
+
+def write_baseline_report(out_dir: str, info: dict, force: bool = False):
+    """写 <标题>_学习报告.md（默认不覆盖已有报告）；返回路径或 None"""
+    src = os.path.join(out_dir, "content.txt")
+    if not os.path.exists(src):
+        return None
+    path = baseline_report_path(out_dir, info)
+    if os.path.exists(path) and not force:
+        return path
+    text = open(src, encoding="utf-8").read()
+    try:
+        from core.fsutil import atomic_write_text
+        atomic_write_text(path, render_baseline_report(info, text))
+    except Exception:
+        return None
+    return path
+
+
+def write_batch_baseline(base: str, summary: dict) -> str:
+    """合集总报告（基线）：把各 P 的基线报告拼成一份；不覆盖已有文件"""
+    import json
+    from core.fsutil import safe_title
+    from core.fsutil import atomic_write_text
+    path = os.path.join(base, safe_title(summary.get("title") or "合集", 80) + "_合集学习报告.md")
+    if os.path.exists(path):
+        return path
+    parts = [f"# {summary.get('title') or '合集'}", "",
+             "> 合集自动基线报告：由各 P 的 content.txt 机械整理（不压缩、不臆造）。", "",
+             "| 项目 | 内容 |", "|------|------|",
+             f"| 作者/UP主 | {summary.get('author') or ''} |",
+             f"| 内容ID | {summary.get('item_id') or ''} |",
+             f"| 分P | {summary.get('page_count') or ''} |", ""]
+    for r in summary.get("pages") or []:
+        page = str(r.get("page") or "")
+        pdir = os.path.join(base, f"P{int(page or 1):02d}")
+        info_p = os.path.join(pdir, "content_info.json")
+        content_p = os.path.join(pdir, "content.txt")
+        parts += [f"## P{page}｜{r.get('part') or ''}", ""]
+        if r.get("status") != "ok" or not os.path.exists(info_p) or not os.path.exists(content_p):
+            parts += [f"> ⚠️ 该 P 未成功（{r.get('status')}：{r.get('error') or ''}）", ""]
+            continue
+        try:
+            info = json.load(open(info_p, encoding="utf-8"))
+            text = open(content_p, encoding="utf-8").read()
+            body = render_baseline_report(info, text)
+            body = re.sub(r"^# .*\n\n", "", body, count=1)   # 去掉重复 H1
+            parts += [body, ""]
+        except Exception as e:
+            parts += [f"> ⚠️ 该 P 报告生成失败：{str(e)[:80]}", ""]
+    parts += ["## 元信息", "",
+              f"- 生成时间：{summary.get('batch_fetched_at') or ''}",
+              f"- 工具：{summary.get('tool') or ''}",
+              "- 报告类型：合集自动基线", ""]
+    atomic_write_text(path, "\n".join(parts))
+    return path

@@ -90,6 +90,10 @@ def write_item_artifacts(out_dir: str, info: dict, content) -> None:
         f.write(render_content_txt(content))
     with open(os.path.join(out_dir, "report_template.md"), "w", encoding="utf-8") as f:
         f.write(report.render_template_for(info["kind"], info))
+    try:
+        report.write_baseline_report(out_dir, info)   # 报告本体（基线，不覆盖已有）
+    except Exception:
+        pass
 
 
 def write_recheck_report(out_dir: str, data: dict) -> None:

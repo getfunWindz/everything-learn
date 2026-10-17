@@ -54,7 +54,8 @@ class RunOptions:
 
 
 def _safe_name(title: str, maxlen: int = 60) -> str:
-    return re.sub(r'[\\/:*?"<>|\s]+', "_", title).strip("_")[:maxlen] or "untitled"
+    from core.fsutil import safe_title
+    return safe_title(title, maxlen)
 
 
 def _progress_printer():
@@ -872,6 +873,10 @@ def run_batch(adapter, refs, root_meta, opts: RunOptions) -> dict:
     summary = _write_summary()
     with open(os.path.join(base, "report_template.md"), "w", encoding="utf-8") as f:
         f.write(report.render_batch_template(summary))
+    try:
+        report.write_batch_baseline(base, summary)
+    except Exception:
+        pass
     _LOGGER.info("batch %s 完成 总耗时%.0fs", refs[0].item_id, time.time() - t_start)
     ok = sum(1 for r in results if r["status"] == "ok")
     print(f"\n批量完成：{ok}/{len(refs)} P 成功")

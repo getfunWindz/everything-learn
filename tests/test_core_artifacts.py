@@ -233,3 +233,80 @@ def test_render_timeline_template_tier_note():
                       quality={"model": "small", "tier_note": "当前转写档位低于推荐的 medium"})
     tpl = render_template_for("timeline", info)
     assert "转写档位提示" in tpl and "medium" in tpl
+
+
+def test_safe_title_strips_symbols_and_emoji():
+    from core.fsutil import safe_title
+    assert safe_title("🚨重磅！DeepSeek V4.1-Flash-1017 上线（实测）") == \
+        "重磅 DeepSeek V4 1 Flash 1017 上线 实测"
+    assert safe_title("###") == "未命名"
+    assert safe_title("Q&A: A/B 测试") == "Q A A B 测试"
+
+
+def test_write_baseline_report_timeline(tmp_path):
+    import json
+    from core.models import DocumentContent
+    from core import artifacts
+    info = {"kind": "timeline", "title": "🚨重磅！V4.1-Flash 上线（实测）", "author": "UP：A/B",
+            "item_id": "BV1", "url": "u", "duration_seconds": 120, "published": "2026-10-17",
+            "source": "whisper", "fetched_at": "now", "tool": "t",
+            "stats": {"view": 1, "like": 0, "favorite": 0}, "desc": "", "page": "1",
+            "page_count": 1, "recheck": {"tier": 3}}
+    from core.models import TimelineContent
+    content = TimelineContent(segments=[
+        {"start": 0.0, "end": 60.0, "text": "第一段讲 DeepSeek 的成本"},
+        {"start": 60.0, "end": 120.0, "text": "第二段讲 GPT-6 的能力"}])
+    out = str(tmp_path / "out")
+    artifacts.write_item_artifacts(out, info, content)
+    import os
+    files = os.listdir(out)
+    report_name = [f for f in files if f.endswith("_学习报告.md")][0]
+    assert "🚨" not in report_name and "！" not in report_name and "：" not in report_name
+    text = open(os.path.join(out, report_name), encoding="utf-8").read()
+    assert "第一段讲 DeepSeek 的成本" in text and "第二段讲 GPT-6 的能力" in text
+    assert "## 知识详解" in text and "段1" in text and "复检说明" in text
+
+
+def test_write_baseline_report_document_and_no_overwrite(tmp_path):
+    import os
+    from core import artifacts
+    info = {"kind": "document", "title": "Q&A: 测试/报告", "author": "a", "item_id": "p1",
+            "url": "u", "duration_seconds": 0, "published": "", "source": "正文",
+            "fetched_at": "now", "tool": "t",
+            "stats": {"view": 1, "like": 0, "favorite": 0}, "desc": "", "page": "1",
+            "page_count": 1, "quality_hint": "正文过短（29 字）"}
+    out = str(tmp_path / "out")
+    from core.models import DocumentContent
+    artifacts.write_item_artifacts(out, info, DocumentContent(blocks=[{"heading": "一、背景", "text": "正文内容"}]))
+    name = [f for f in os.listdir(out) if f.endswith("_学习报告.md")][0]
+    p = os.path.join(out, name)
+    first = open(p, encoding="utf-8").read()
+    assert "一、背景" in first and "正文过短" in first
+    open(p, "w", encoding="utf-8").write("人工报告")
+    from core.models import DocumentContent
+    artifacts.write_item_artifacts(out, info, DocumentContent(blocks=[{"heading": "一、背景", "text": "正文内容"}]))
+    assert open(p, encoding="utf-8").read() == "人工报告"
+
+
+def test_write_batch_baseline_concatenates_pages(tmp_path):
+    import json, os
+    import report
+    base = str(tmp_path / "coll")
+    for i, (h, t) in enumerate([("一、背景", "第一篇正文"), ("二、方法", "第二篇正文")], 1):
+        d = os.path.join(base, f"P{i:02d}")
+        os.makedirs(d)
+        info = {"kind": "document", "title": f"分P{i}", "author": "a", "item_id": f"p{i}",
+                "url": "", "duration_seconds": 0, "published": "", "source": "正文",
+                "fetched_at": "now", "tool": "t", "stats": {}, "desc": "", "page": str(i),
+                "page_count": 2}
+        json.dump(info, open(os.path.join(d, "content_info.json"), "w", encoding="utf-8"),
+                  ensure_ascii=False)
+        open(os.path.join(d, "content.txt"), "w", encoding="utf-8").write(f"## {h}\n\n{t}\n")
+    summary = {"title": "合集：测试", "author": "a", "item_id": "x", "url": "", "page_count": 2,
+               "batch_fetched_at": "now", "tool": "t",
+               "pages": [{"page": "1", "part": "P1", "status": "ok"},
+                          {"page": "2", "part": "P2", "status": "ok"}]}
+    p = report.write_batch_baseline(base, summary)
+    text = open(p, encoding="utf-8").read()
+    assert "第一篇正文" in text and "第二篇正文" in text
+    assert os.path.basename(p).startswith("合集 测试")

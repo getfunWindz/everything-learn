@@ -37,7 +37,8 @@ python scripts/el.py run <链接/名称> [--page N | --pages "1-10" | --all] [--
 python scripts/el.py search <关键词> --platform <平台> [--limit 5] [--json]   # 11 平台搜索（见 platforms 的 search= 列）
 python scripts/el.py scan <列表链接> [--filter "关键,词"] [--priority] [--limit N] [--snapshot]
 python scripts/glossary.py add "<术语>" "<解释>"   # 术语库填塞/沉淀（可重复；支持 add/alias/clean/absorb）
-python scripts/el.py report <目录> && python scripts/el.py export <目录> --format html
+python scripts/el.py report <目录> [--force]   # 重建骨架 + 基线报告（默认不覆盖已有报告）
+python scripts/el.py export <目录> --format html
 ```
 
 <!-- ⛳ ONBOARDING: 0 -->
@@ -136,14 +137,16 @@ python scripts/el.py run <链接> --budget 1.5           # 本次运行复检金
 
 ### 交付
 
-- 单条：`<out_dir>/<作者>/<YYYY-MM-DD>_<标题>[_P##]/<标题>_学习报告.md`；
-- 合集：`<out_dir>/<作者>/<YYYY-MM-DD>_<标题>_合集/`（`P01…` 子目录 + 汇总 `content_info.json` + 总报告骨架）；
+- 单条：`<out_dir>/<作者>/<YYYY-MM-DD>_<标题>[_P##]/<标题>_学习报告.md`（`run` 自动生成基线；agent 可覆盖深化）；
+- 合集：`<out_dir>/<作者>/<YYYY-MM-DD>_<标题>_合集/`（`P01…` 子目录 + 汇总 `content_info.json` + `<合集>_合集学习报告.md` 基线）；
 - 交付前完成 R11 的 glossary 校验；向用户汇报报告摘要（覆盖知识点数/来源/路径），有【画面补充】【画面校正】或未复检区间时一并说明（R13）；
 - timeline 产物含 `recheck_report.json`（档位/评分理由/预算/同源校验/交叉比对/复检明细与不确定项），交付前核对。
 
 ### 注意事项
 
 - 本文件不写死任何本机路径；一切以用户配置的 `out_dir` 为准。
+- **文件名规范**：目录/文件名只保留文字、数字、空格（连字符/下划线/斜杠转空格，emoji/中英文标点去除）；空标题回退「未命名」。
+- **报告本体**：`run` 会生成机械基线报告；交付前应按 R1-R13 深化（基线不替代知识点完整性要求）。
 - 平台接口偶发错乱（实测 B 站 AI 字幕串台：美食视频拿到「可控核聚变」字幕）：来源分级丢弃 AI 字幕转 Whisper 主选、双 ASR 交叉比对量化分歧、人工/官方字幕过同源校验会自动处理，不要绕过。
 - **YouTube 提取失败**（反爬更新/限流）先升级依赖：`pip install -U yt-dlp`（`el.py doctor` 会显示当前版本）；字幕接口 429 已内置退避重试；媒体下载已内置多候选 + 断点续传 + 时长预算（弱网/代理抖动下自动降级，不阻塞主流程）；yt-dlp 提取设 `socket_timeout=20` + 重试上限。
 - **转写语言**：默认自动检测（B 站/抖音不再硬编码 zh）；英文/多语视频会按实际语言转写，`content_info.language` 回填检测结果；需要强制时用 `--lang`。

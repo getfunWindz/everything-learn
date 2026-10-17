@@ -668,3 +668,13 @@ def test_document_long_body_has_no_quality_hint(tmp_path):
                                                    RunOptions(out_root=out), single=True)
     info = json.load(open(os.path.join(out_dir, "content_info.json"), encoding="utf-8"))
     assert "quality_hint" not in info
+
+
+def test_item_out_dir_strips_symbols_from_author_and_title(tmp_path):
+    from core.pipeline import _item_out_dir
+    meta = ItemMeta(title="🚨重磅！V4.1-Flash 上线（实测）", author="UP：A/B")
+    ref = ItemRef(platform="demo", item_id="1", sub_id="1")
+    p = _item_out_dir(meta, ref, str(tmp_path), True, RunOptions(out_root=str(tmp_path)))
+    parts = os.path.relpath(p, str(tmp_path)).split(os.sep)
+    assert all(not any(ch in x for ch in "🚨！：/（）") for x in parts)
+    assert "重磅" in parts[-1] and "上线" in parts[-1]
