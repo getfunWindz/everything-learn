@@ -972,3 +972,23 @@ def test_cmd_search_unavailable_is_readable(monkeypatch, capsys):
         el.cmd_search(argparse.Namespace(platform="x_twitter", keyword="k", limit=1, json=False))
     assert e.value.code == 2
     assert "搜索不可用" in capsys.readouterr().err
+
+
+def test_wechat_pick_requires_confirm_when_list_drifted(monkeypatch, tmp_path, capsys):
+    """列表漂移时 --pick 不可直接复用（防取错条目）"""
+    class WeChat:
+        name = "wechat_mp"
+        kinds = {"article"}
+        def match(self, u): return "mp.weixin.qq.com" in u
+        def search_articles(self, kw, limit=5):
+            return [{"title": "新条目", "account": "号", "date": "2026-10-17", "link": "L"}]
+        def search_fingerprint(self, hits): return "NEW"
+        def load_search_fingerprint(self, q): return {"fp": "OLD", "ts": 0}
+        def save_search_fingerprint(self, q, hits): pass
+        def resolve_sogou_link(self, link): return "https://mp.weixin.qq.com/s/x"
+    monkeypatch.setattr(el, "_wechat_adapter", lambda: WeChat())
+    with pytest.raises(SystemExit) as e:
+        el.cmd_run(argparse.Namespace(input="DeepSeek", out=str(tmp_path), platform="wechat",
+                                      pick=1), client=FakeClient())
+    assert e.value.code == 2
+    assert "漂移" in capsys.readouterr().err

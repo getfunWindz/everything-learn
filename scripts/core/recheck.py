@@ -321,8 +321,31 @@ def _norm_for_match(text: str) -> str:
 
 
 def _text_in_range(lines, start, end, pad=6.0):
-    return " ".join(l["text"] for l in (lines or [])
-                    if start - pad <= float(l["start"]) <= end + pad)
+    """取与 [start,end] 重叠的字幕文本；长段按时间比例切片（播客 VTT 段可达 30s+）。
+
+    旧实现要求 l.start 落在窗口内：① 长段起点早于 start-pad 会被漏掉；② 整段文本与
+    12s ASR 片段对比相似度必然偏低（实测播客 avg=0.371 误杀）。"""
+    start, end = float(start), float(end)
+    parts = []
+    for l in (lines or []):
+        try:
+            ls, le = float(l["start"]), float(l["end"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if le < start - pad or ls > end + pad:
+            continue
+        text = l.get("text") or ""
+        a, b = max(ls, start), min(le, end)
+        if b <= a:
+            continue
+        span = le - ls
+        if span <= (end - start) + 2 * pad or not text:
+            parts.append(text)
+            continue
+        n = len(text)
+        fa, fb = (a - ls) / span, (b - ls) / span
+        parts.append(text[int(n * fa):max(int(n * fb), int(n * fa) + 1)])
+    return " ".join(parts)
 
 
 def _similarity(a, b):

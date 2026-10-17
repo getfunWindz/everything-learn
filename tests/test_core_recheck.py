@@ -570,3 +570,25 @@ def test_cross_check_line_start_at_window_boundary_half_open():
     cc = recheck.cross_check(primary, secondary, window_sec=15)
     # 窗 [0,15) 副侧为空 → 跳过；窗 [15,20] 两侧均为 "bbbb" → agree
     assert cc == {"agree_pct": 1.0, "compared": 1, "disputed": []}
+
+
+def test_text_in_range_slices_long_cue_proportionally():
+    """长字幕段（播客 VTT 常见 30s+）不能整段对比 12s ASR，否则必然误杀"""
+    from core import recheck
+    text = "A" * 100 + "B" * 100 + "C" * 100
+    lines = [{"start": 40.0, "end": 70.0, "text": text}]  # 30s / 300 chars
+    seg = recheck._text_in_range(lines, 55.0, 65.0)
+    assert 50 <= len(seg) < 200          # 只取重叠 ~10s 的 1/3
+    assert "B" in seg
+
+
+def test_same_source_accepts_long_cue_overlap():
+    from core import recheck
+    body = "one two three four five six seven eight nine ten " * 6
+    lines = [{"start": 40.0, "end": 70.0, "text": body},
+             {"start": 100.0, "end": 130.0, "text": body}]
+    clip = body[100:180]
+    assert recheck._similarity(recheck._text_in_range(lines, 55, 65), clip) > 0.5
+    r = recheck.same_source_check([(55.0, 65.0, clip), (105.0, 115.0, clip)],
+                                  lines, {"recheck": {}})
+    assert r["checked"] is True and r["passed"] is True

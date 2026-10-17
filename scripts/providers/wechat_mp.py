@@ -6,6 +6,9 @@
 """
 import hashlib
 import html as html_mod
+import json
+import os
+import time
 import re
 import urllib.parse
 from datetime import datetime, timedelta, timezone
@@ -29,6 +32,43 @@ _ALBUM_API = ("https://mp.weixin.qq.com/mp/appmsgalbum?action=getalbum&__biz={bi
 _ALBUM_COUNT = 10
 _ALBUM_MAX_PAGES = 30
 _SOGOU_SEARCH = "https://weixin.sogou.com/weixin?type=2&query={q}"
+_SEARCH_FP_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "cache")
+_SEARCH_FP_TTL = 3600
+
+
+def search_fingerprint(hits) -> str:
+    """搜索结果指纹（标题+账号，顺序敏感）：用于检测搜狗结果漂移"""
+    raw = chr(10).join(f"{(h or {}).get('title', '')}|{(h or {}).get('account', '')}"
+                        for h in (hits or []))
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def _fp_path(query: str) -> str:
+    return os.path.join(_SEARCH_FP_DIR, f"wechat_search_{hashlib.sha1(str(query).encode('utf-8')).hexdigest()[:16]}.json")
+
+
+def save_search_fingerprint(query: str, hits) -> None:
+    try:
+        os.makedirs(_SEARCH_FP_DIR, exist_ok=True)
+        tmp = _fp_path(query) + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"ts": time.time(), "query": query, "fp": search_fingerprint(hits),
+                       "titles": [(h or {}).get("title", "") for h in (hits or [])]},
+                      f, ensure_ascii=False)
+        os.replace(tmp, _fp_path(query))
+    except OSError:
+        pass
+
+
+def load_search_fingerprint(query: str):
+    try:
+        with open(_fp_path(query), encoding="utf-8") as f:
+            data = json.load(f)
+        if time.time() - float(data.get("ts") or 0) > _SEARCH_FP_TTL:
+            return None
+        return data
+    except (OSError, ValueError):
+        return None
 
 
 class WeChatError(ValueError):

@@ -15,6 +15,59 @@ _MATCH_HOSTS = ("feeds.", "simplecast.com", "megaphone.fm", "acast.com", "blubrr
                 "fireside.fm", "anchor.fm", "podcasts.apple.com", "npr.org")
 _MATCH_PATH = re.compile(r"(/feed|/rss|\.rss$|\.xml$|podcast)", re.I)
 _APPLE_ID = re.compile(r"/id(\d+)")
+_APPLE_EP = re.compile(r"[?&]i=(\d+)")
+
+
+def _norm_title(t: str) -> str:
+    return re.sub(r"[^a-z0-9一-鿿]+", " ", (t or "").lower()).strip()
+
+
+def match_episode(titles, target) -> int:
+    """在 feed 标题列表中定位 Apple 单集（i=trackId）对应的下标；找不到 → None"""
+    import difflib
+    nt = _norm_title(target)
+    if not nt:
+        return None
+    norm = [_norm_title(t) for t in titles]
+    if nt in norm:
+        return norm.index(nt)
+    tset = set(nt.split())
+    for i, n in enumerate(norm):
+        if not n:
+            continue
+        if n.startswith(nt) or nt.startswith(n):
+            return i
+        nset = set(n.split())
+        if tset and nset and (tset.issubset(nset) or nset.issubset(tset)):
+            return i
+    best, score = None, 0.0
+    for i, n in enumerate(norm):
+        r = difflib.SequenceMatcher(None, nt, n).ratio()
+        if r > score:
+            best, score = i, r
+    return best if score >= 0.75 else None
+
+
+def _apple_slug_title(url: str) -> str:
+    """Apple 单集 URL 的 slug（标题截断）→ 归一化文本；旧单集 lookup 常返回空，用 slug 兜底"""
+    from urllib.parse import urlparse
+    parts = [p for p in urlparse(url or "").path.split("/") if p]
+    for seg in reversed(parts):
+        if re.fullmatch(r"id\d+", seg):
+            continue
+        if seg in ("podcast", "us", "cn"):
+            continue
+        return re.sub(r"[-_]+", " ", seg).strip().lower()
+    return ""
+
+
+def _itunes_episode_title(track_id: str) -> str:
+    import requests
+    r = requests.get("https://itunes.apple.com/lookup", params={"id": track_id},
+                     headers=_UA, timeout=20)
+    r.raise_for_status()
+    results = r.json().get("results") or []
+    return (results[0].get("trackName") or "") if results else ""
 
 
 def parse_duration(text) -> int:
@@ -90,8 +143,24 @@ class PodcastAdapter:
             if not m:
                 raise ValueError(f"无法从 Apple 链接解析播客 ID：{q}")
             feed = _itunes_lookup_feed(m.group(1))
-            return ItemRef(platform="podcast", item_id=feed, url=feed,
-                           extra={"feed": feed, "apple_id": m.group(1)})
+            feed_ref = ItemRef(platform="podcast", item_id=feed, url=feed,
+                               extra={"feed": feed, "apple_id": m.group(1)})
+            ep = _APPLE_EP.search(q)
+            if ep:
+                try:
+                    target = _itunes_episode_title(ep.group(1))
+                except Exception:
+                    target = ""
+                if not target:
+                    target = _apple_slug_title(q)
+                if target:
+                    items = self.list_items(feed_ref)
+                    idx = match_episode([it.title for it in items], target)
+                    if idx is not None:
+                        return items[idx]
+                    raise ValueError(f"未在 feed 中找到该单集（i={ep.group(1)}）：{target[:60]}；"
+                                     "请改用 RSS 单集链接或最新单集")
+            return feed_ref
         if not self.match(q):
             raise ValueError(f"不是播客 RSS/Apple 链接：{q}")
         return ItemRef(platform="podcast", item_id=q, url=q, extra={"feed": q})

@@ -138,6 +138,22 @@ _X_JS = r"""(() => Array.from(document.querySelectorAll('article')).map(art => {
 }))()"""
 
 
+_XHS_JS = """(() => {
+  const f = (((window.__INITIAL_STATE__ || {}).search || {}).feeds) || {};
+  const arr = f._rawValue || f._value || [];
+  return (Array.isArray(arr) ? arr : []).map(it => {
+    const nc = it.noteCard || {};
+    const token = it.xsecToken || '';
+    const id = it.id || nc.noteId || '';
+    const href = id ? ('https://www.xiaohongshu.com/explore/' + id +
+      (token ? ('?xsec_token=' + token + '&xsec_source=pc_search') : '')) : '';
+    const author = (nc.user && nc.user.nickname) || '';
+    const title = nc.displayTitle || it.displayTitle || '';
+    return {href, own: title + (author ? (String.fromCharCode(10) + author) : ''), card: ''};
+  });
+})()"""
+
+
 _WEIBO_JS = """(() => Array.from(document.querySelectorAll('div.card-wrap')).map(c => {
   const a = c.querySelector('.from a') || c.querySelector('a[href*="weibo.com/"]');
   const t = c.querySelector('.txt') || c;
@@ -153,7 +169,7 @@ _BROWSER_JS = """(() => Array.from(document.querySelectorAll('a')).map(a => {
 }))()"""
 
 
-_SPECIAL_JS = {"weibo": _WEIBO_JS, "x_twitter": _X_JS}
+_SPECIAL_JS = {"weibo": _WEIBO_JS, "x_twitter": _X_JS, "xiaohongshu": _XHS_JS}
 
 
 def _browser_anchors(platform: str, url: str, wait_ms: int = 4000, esc: bool = False) -> list:

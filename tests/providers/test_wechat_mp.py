@@ -257,3 +257,15 @@ def test_strip_boilerplate_multiline_block():
     blocks = [{"heading": "", "text": "正文段\n预览时标签不可点\n阅读原文\n微信扫一扫\n<div\n分析"}]
     out = strip_boilerplate(blocks)
     assert out and out[0]["text"] == "正文段"
+
+
+def test_wechat_search_fingerprint_detects_drift(tmp_path, monkeypatch):
+    """搜狗结果顺序漂移：指纹不同 → 抓取前必须要求复核"""
+    import providers.wechat_mp as w
+    monkeypatch.setattr(w, "_SEARCH_FP_DIR", str(tmp_path))
+    a = [{"title": "A", "account": "X"}, {"title": "B", "account": "Y"}]
+    b = [{"title": "B", "account": "Y"}, {"title": "A", "account": "X"}]
+    w.save_search_fingerprint("DeepSeek", a)
+    prev = w.load_search_fingerprint("DeepSeek")
+    assert prev and w.search_fingerprint(a) == prev["fp"]
+    assert w.search_fingerprint(b) != prev["fp"]

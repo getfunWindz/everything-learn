@@ -73,6 +73,8 @@ def _search_wechat(args):
     if not hits:
         print("无搜索结果", file=sys.stderr)
         sys.exit(1)
+    if hasattr(adapter, "save_search_fingerprint"):
+        adapter.save_search_fingerprint(args.keyword, hits)
     if getattr(args, "json", False):
         print(json.dumps(hits, ensure_ascii=False, indent=1))
         return
@@ -500,6 +502,14 @@ def cmd_run(args, client: ApiClient = None):
         if not hits:
             print(f"未找到与「{input_str}」相关的文章", file=sys.stderr)
             sys.exit(1)
+        prev = adapter.load_search_fingerprint(input_str) if hasattr(adapter, "load_search_fingerprint") else None
+        fp = adapter.search_fingerprint(hits) if hasattr(adapter, "search_fingerprint") else ""
+        if prev and fp and prev.get("fp") != fp and not getattr(args, "yes", False):
+            print("⚠ 搜狗结果与上次搜索不一致（列表漂移）：请重新核对候选；"
+                  "确认取当前列表的第 N 条请加 --yes 一并指定 --pick N", file=sys.stderr)
+            sys.exit(2)
+        if hasattr(adapter, "save_search_fingerprint"):
+            adapter.save_search_fingerprint(input_str, hits)
         pick = _confirm_candidate(
             args, hits, "文章",
             lambda i, h: f"{i}. {h['title']} — {h['account']}（{h['date']}）")

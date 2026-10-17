@@ -161,3 +161,18 @@ def test_adapter_declares_no_video():
 def test_contract():
     from tests.contract.harness import run_contract
     assert run_contract(PodcastAdapter()) == []
+
+
+def test_match_episode_by_title():
+    from providers.podcast import match_episode
+    items = ["Episode 1: GPT-5.2", "Episode 2: something else", "DeepSeek weekly"]
+    assert match_episode(items, "Episode 1: GPT-5.2") == 0
+    assert match_episode(items, "gpt-5.2 episode 1") == 0
+    assert match_episode(items, "不存在的标题") is None
+
+
+def test_apple_slug_extraction():
+    from providers.podcast import _apple_slug_title
+    q = ("https://podcasts.apple.com/us/podcast/ai-business-and-development-weekly-"
+         "rundown-gpt-5-2/id1684415169?i=1000741157774")
+    assert _apple_slug_title(q) == "ai business and development weekly rundown gpt 5 2"
