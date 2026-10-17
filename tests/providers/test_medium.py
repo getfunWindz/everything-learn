@@ -205,3 +205,16 @@ def test_session_is_throttled():
     from core.throttle import ThrottledSession
     a = MediumAdapter()
     assert isinstance(a.session, ThrottledSession) and a.session.platform == "medium"
+
+
+def test_fetch_content_member_only_sets_quality_hint(monkeypatch):
+    """实测：会员文静默截断（1230 字后以 an… 结束），必须显式提示"""
+    a = MediumAdapter(session=object())
+    data = {"items": [{"tag": "p", "text": "Member-only story " + "word " * 300 + "an…"}],
+            "images": [], "title": "T", "author": "A"}
+    monkeypatch.setattr(MediumAdapter, "_article_data", lambda self, ref: data)
+    ref = ItemRef(platform="medium", item_id="article-y", url="https://medium.com/y-abcdef123456",
+                  sub_id="1", extra={"kind": "article"})
+    res = a.fetch_content(ref)
+    assert res.status == "suspect"
+    assert "会员" in (res.quality_hint or "")

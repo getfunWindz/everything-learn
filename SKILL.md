@@ -23,7 +23,7 @@ description: 将多平台学习内容（视频/音频/图文/帖子）总结为�
 | Medium | `document`（图文） | ✅ 可用（双通道：浏览器 SSR 抽取正文 + feed 解析；书签/列表 scan（`@handle/list/<slug>`，需登录）；CF 平台缓速 10s） |
 | 微博 | `document`（帖子） | ✅ 可用（单帖：正文/长文/图片/转发；用户时间线/**我的收藏**/**关注** `scan` 需 cookie：`el.py cookie weibo`） |
 | 微信公众号 | `document`（图文） | ✅ 可用（单篇链接直连，无需 cookie；**合集（album）scan**；搜狗搜索实验性：`el.py search --platform wechat`） |
-| X（Twitter） | `document`（推文） | ✅ 可用（单推文：正文/图片/口播转写；主页时间线 scan（需登录 + 浏览器代理）；搜索不做） |
+| X（Twitter） | `document`（推文） | ✅ 可用（单推文：正文/图片/口播转写；主页时间线 scan（需登录 + 浏览器代理）；搜索实验性：`el.py search --platform x_twitter`，依赖已登录浏览器） |
 | 小红书 | `document`（笔记） | ✅ 可用（单笔记：正文/图片；视频笔记附口播转写；链接需含短时效 token；主页/收藏枚举：`scan`，需登录） |
 | 抖音 | `timeline`（视频） | ✅ 可用（单视频：**浏览器上下文取 detail（B1）** + Whisper；主页作品/收藏/喜欢列表：浏览器辅助 scan（收藏/喜欢需登录），不逆向签名） |
 | 名单外平台 | — | 走「自进化」流程（见「正常调用工作流 · 自进化」） |
@@ -33,7 +33,8 @@ description: 将多平台学习内容（视频/音频/图文/帖子）总结为�
 ```bash
 python scripts/el.py onboard                  # 首次引导门（状态/四项确认点；--complete/--reset/--json）
 python scripts/el.py doctor                   # 环境自检（依赖/GPU/模型/vision/cookie/out_dir）
-python scripts/el.py run <链接/名称> [--page N | --pages "1-10" | --all] [--model tiny|small|medium|large-v3] [--budget 1.5]
+python scripts/el.py run <链接/名称> [--page N | --pages "1-10" | --all] [--model tiny|small|medium|large-v3] [--budget 1.5] [--max-seconds 600]
+python scripts/el.py search <关键词> --platform <平台> [--limit 5] [--json]   # 11 平台搜索（见 platforms 的 search= 列）
 python scripts/el.py scan <列表链接> [--filter "关键,词"] [--priority] [--limit N] [--snapshot]
 python scripts/glossary.py add "<术语>" "<解释>"   # 术语库填塞/沉淀（可重复；支持 add/alias/clean/absorb）
 python scripts/el.py report <目录> && python scripts/el.py export <目录> --format html
@@ -60,8 +61,9 @@ python scripts/el.py report <目录> && python scripts/el.py export <目录> --f
 ### 平台定位与内容获取
 
 - 链接 / 平台标识：`python scripts/el.py resolve <输入>` 确认平台与标识；
-- 名称类输入：走平台搜索（B 站 `el.py search <关键词>`），**列出候选让用户确认**后再继续；
+- 名称类输入：先用 `el.py search <关键词> --platform <平台>` 找候选（bilibili / wechat / youtube / podcast / 知乎 / 微博 / X / 小红书 / 抖音 / Medium / TED）；
   `run "关键词"` 默认只列候选并退出，确认后用 `--pick N`；非交互场景可 `--yes` 显式取第一条；
+  `--json` 输出机读结果；浏览器型平台（知乎/微博/X/小红书/抖音/Medium/TED）依赖本机已登录 profile，会与其它浏览器任务串行。
 - **公众号搜索（实验性）**：`el.py search --platform wechat "<关键词>"` 列出候选；直接抓取用 `el.py run --platform wechat "<关键词>" --pick N`（搜狗结果链接**会话绑定**，必须同进程立即抓取，不能跨进程复用）。
 - **账号级扫描（M11/M12）**：用户主页/收藏夹/频道/我的收藏等列表链接 → `el.py scan <链接> [--filter] [--priority] [--limit] [--snapshot]` 先枚举与筛选（命中项可 `--snapshot` 存档）；批量抓取用 `el.py run <链接> --all`（或 `--pages "1-10"`）；微博收藏入口 `https://weibo.com/u/favorites`（需 cookie）；微博关注 `https://weibo.com/u/page/follow/<uid>`；公众号合集（album 链接）；B站 UP主 `https://space.bilibili.com/<mid>`；Medium 列表/书签：`scan "https://medium.com/@<handle>/list/<slug>"`（需登录）；B站账号数据另有 `el.py toview|history|following`（需 cookie）。
 
@@ -146,11 +148,13 @@ python scripts/el.py run <链接> --budget 1.5           # 本次运行复检金
 - **YouTube 提取失败**（反爬更新/限流）先升级依赖：`pip install -U yt-dlp`（`el.py doctor` 会显示当前版本）；字幕接口 429 已内置退避重试；媒体下载已内置多候选 + 断点续传 + 时长预算（弱网/代理抖动下自动降级，不阻塞主流程）；yt-dlp 提取设 `socket_timeout=20` + 重试上限。
 - **转写语言**：默认自动检测（B 站/抖音不再硬编码 zh）；英文/多语视频会按实际语言转写，`content_info.language` 回填检测结果；需要强制时用 `--lang`。
 - **视觉复检可观测**：逐窗打印 `复检窗口 i/N`；`recheck_report.checked_windows` 区分「已检查」与「未覆盖」；推理型 vision 模型（如 deepseek-flash）把 max_tokens 吃满时会自动加倍重试（默认 8192，最多 3 次）。
+- **校正置信度分级**：每条校正带「高/中/低」；低置信只留痕（`windows.kind=low_confidence`）不改正文，避免图表多行数字串行误改。
+- **浏览器串行**：知乎/微博/Medium/X/小红书/抖音共用一个 profile，工具用文件锁串行化；另一任务占用时会等待/提示，不要并发跑浏览器型平台。
 - **知乎风控**：短时间大量请求会触发临时限流（40362，通常几十分钟自行恢复）；适配器会给出可读提示。日常使用用浏览器 cookie 路径即可，不要高频循环抓取。
 - **抖音**：detail 接口已对非浏览器调用硬拦（直连 403 Argus/Uifid）→ 取数走真实浏览器上下文（本机需 Playwright + 持久化 profile：`el.py cookie douyin` 打开窗口一次）；风控严格勿高频；scan 已内置 SPA 水合等待。
 - 搜索接口偶发风控：失败时提示用户改用链接。
-- **X（Twitter）**：单推文无需 cookie；限流会跨宿主升级（429 → SSL EOF，含图片/视频 CDN）；缓速默认 10s，被拒时退避一次即给可读提示，不要循环重试；时间线与搜索不做（实测不可靠）。
-- **小红书**：依赖短时效 `xsec_token`（旧 token 失效 → sec-404）；连发 note 请求会 sec-404，缓速 12s；无 token 时 explore 兜底命中率低（如实提示重新分享）；账号级能力（主页/收藏）列为后续方向（M11）。
+- **X（Twitter）**：单推文无需 cookie；限流会跨宿主升级（429 → SSL EOF，含图片/视频 CDN）；缓速默认 10s，被拒时退避一次即给可读提示，不要循环重试；主页时间线 scan 与搜索为实验性（依赖已登录浏览器 + 代理），失败时改用链接。
+- **小红书**：依赖短时效 `xsec_token`（旧 token 失效 → sec-404）；连发 note 请求会 sec-404，缓速 12s；无 token 时 explore 兜底命中率低（如实提示重新分享）；**搜索结果链接不含 token，抓取请用 App 分享文本**；账号级能力（主页/收藏）列为后续方向（M11）。
 - **公众号**：单篇链接无需 cookie；搜狗搜索为实验性（验证码/antispider 风险，结果链接会话绑定、不可跨进程复用）；页面「参数错误/系统出错」等异常会给可读提示。
 - **低配模式（2026-10-17）**：仅必要依赖（无 faster-whisper / yt-dlp / playwright 等）时——字幕平台自动降级采信并标注「低配：未经同源校验」+ `quality_hint` 强制推荐；whisper 平台给出安装引导；画面复检依赖（Pillow/PyAV）缺失时自动提前跳过。转写档位低于 medium 时产物带 `quality.tier_note` 常驻建议（实机验证 medium 效果最佳）。
 - **术语库反哺链（2026-10-17）**：每次转写按 `references/glossary.json` 的勘误别名自动筛验术语名（`content_info.glossary` 留痕；存疑项不替换、如实标注）；画面校正对命中术语库 → 自动沉淀别名；报告写作 R11 沉淀新术语；`glossary.py absorb <wiki>` 吸收知识库。初启可手动填塞术语；推荐配套 `bilibili-to-wiki`。

@@ -2052,3 +2052,31 @@ def test_low_confidence_correction_not_applied(monkeypatch, tmp_path):
                                         pipeline.RunOptions(out_root=str(tmp_path)))
     assert lines[0]["text"] == "Opus 5 的 74.0"
     assert any(w.get("kind") == "low_confidence" for w in meta["windows"])
+
+
+def test_max_seconds_marks_remaining_windows_uncovered(monkeypatch, tmp_path, capsys):
+    """B8：--max-seconds 到点停止，剩余窗口如实标未复检（不假装覆盖）"""
+    import transcriber
+    import vision
+
+    class Adapter:
+        name = "demo"
+        def fetch_media_url(self, ref, media="video", lowest=False):
+            return "http://v/1"
+
+    monkeypatch.setattr(vision, "deps_available", lambda: True)
+    monkeypatch.setattr(transcriber, "download_audio", lambda url, dest, headers=None: dest)
+    monkeypatch.setattr(vision, "sample_window_frames", lambda *a, **k: [(0.0, b"jpg")])
+    monkeypatch.setattr(vision, "check_window", lambda *a, **k: [])
+
+    cfg = {"recheck": {"frame_fps": 3, "window_sec": 30},
+           "vision": {"enabled": True, "pricing": {}}}
+    ref = ItemRef(platform="demo", item_id="1", duration=60)
+    lines = [{"start": 0, "end": 60, "text": "内容"}]
+    meta = pipeline._run_window_recheck(Adapter(), ref, lines, cfg, {"tier": 2},
+                                        pipeline.RunOptions(out_root=str(tmp_path),
+                                                            max_seconds=0))
+    assert meta["checked_windows"] == 0
+    assert len(meta["uncovered"]) == 2
+    assert any("时长上限" in w.get("text", "") for w in meta["windows"])
+    assert "复检计划" in capsys.readouterr().err

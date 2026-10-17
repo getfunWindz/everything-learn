@@ -68,3 +68,4 @@ class ContentResult:
     language: str = ""              # 字幕/转写语言（如 zh / en；空=未知）
     video_lines: list = field(default_factory=list)   # document（视频帖）：口播转写片段 {start,end,text}（B2）
     video_duration: float = 0.0                       # 视频帖时长（秒；B2 档位评估）
+    quality_hint: str = ""                            # 适配器级质量提示（付费墙/截断等）

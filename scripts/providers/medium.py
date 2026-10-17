@@ -373,9 +373,16 @@ class MediumAdapter:
         if not blocks:
             return ContentResult(kind="document", status="empty", reason="正文为空", label="正文")
         text_len = sum(len(b["text"]) + len(b["heading"]) for b in blocks)
-        if text_len < 120:
+        text = " ".join((b.get("text") or "") for b in blocks)
+        paywalled = ("Member-only story" in text
+                     or text.rstrip().endswith(("…", "...")))
+        if text_len < 120 or paywalled:
+            reason = (f"正文过短（{text_len} 字，可能付费墙/未完整加载）" if text_len < 120
+                      else "Medium 会员文/正文被截断")
             return ContentResult(kind="document", status="suspect", blocks=blocks, images=images,
-                                 reason=f"正文过短（{text_len} 字，可能付费墙/未完整加载）", label="正文")
+                                 reason=reason, label="正文",
+                                 quality_hint=("Medium 会员文章或正文被截断：报告覆盖率会不足；"
+                                               "建议换公开文章或人工补全后再写报告"))
         return ContentResult(kind="document", status="ok", blocks=blocks,
                              images=images, label="正文")
 

@@ -73,6 +73,9 @@ def _search_wechat(args):
     if not hits:
         print("无搜索结果", file=sys.stderr)
         sys.exit(1)
+    if getattr(args, "json", False):
+        print(json.dumps(hits, ensure_ascii=False, indent=1))
+        return
     for i, h in enumerate(hits, 1):
         print(f"{i}. {h['title']} — {h['account']}（{h['date']}）")
     print("\n提示：搜狗结果链接会话绑定，不能跨进程复用；直接抓取请运行：", file=sys.stderr)
@@ -83,6 +86,31 @@ def cmd_search(args):
     platform = getattr(args, "platform", "bilibili")
     if platform in ("wechat", "wechat_mp"):
         return _search_wechat(args)
+    if platform != "bilibili":
+        from core import search as search_mod
+        try:
+            hits = search_mod.search(platform, args.keyword, limit=args.limit)
+        except search_mod.SearchUnavailable as e:
+            print(f"搜索不可用：{e}", file=sys.stderr)
+            sys.exit(2)
+        if not hits:
+            print("无搜索结果", file=sys.stderr)
+            sys.exit(1)
+        if getattr(args, "json", False):
+            print(search_mod.to_json(hits))
+            return
+        for i, h in enumerate(hits, 1):
+            extra = " ".join(x for x in (h.get("author"), h.get("duration_text"),
+                                         h.get("date")) if x)
+            print(f"{i}. {h['title']} — {extra}")
+            print(f"   {h['url']}" if h.get("url") else "   （需 App 分享链接）")
+        if platform == "xiaohongshu":
+            print("提示：小红书搜索结果链接不含 xsec_token，直接 run 可能失败；"
+                  "请用 App「分享 → 复制链接」的文本。", file=sys.stderr)
+        elif platform == "x_twitter":
+            print("提示：X 搜索依赖本机已登录的自动化浏览器（需代理）。", file=sys.stderr)
+        print("提示：选中后运行 el.py run <url> 抓取。", file=sys.stderr)
+        return
     client = ApiClient()
     try:
         results = client.search(args.keyword, limit=args.limit)
@@ -95,6 +123,9 @@ def cmd_search(args):
     if not results:
         print("无搜索结果", file=sys.stderr)
         sys.exit(1)
+    if getattr(args, "json", False):
+        print(json.dumps(results, ensure_ascii=False, indent=1))
+        return
     for i, r in enumerate(results, 1):
         print(f"{i}. [{r['bvid']}] {r['title']} — UP主: {r['author']}（时长 {r['duration']}）")
 
@@ -277,9 +308,13 @@ def cmd_scan(args, client: ApiClient = None):
 def cmd_platforms(args, client: ApiClient = None):
     """列出已注册平台适配器（名单）+ 自进化入口"""
     from core import registry
+    from core import search as search_mod
     registry.load_providers()
+    caps = search_mod.available()
     for a in sorted(registry.all(), key=lambda x: x.name):
-        print(f"{a.name:12s} kinds={','.join(sorted(a.kinds))}")
+        kind = caps.get(a.name, "")
+        print(f"{a.name:12s} kinds={','.join(sorted(a.kinds)):10s} "
+              f"search={kind or '需链接'}")
     print("\n名单外平台走自进化流程（SKILL §3）：")
     print(registry.SELF_EVOLUTION_HINT)
 
@@ -492,6 +527,7 @@ def cmd_run(args, client: ApiClient = None):
         recheck=("off" if getattr(args, "no_recheck", False) else getattr(args, "recheck", None)),
         budget=getattr(args, "budget", None),
         yes_recheck=getattr(args, "yes_recheck", False),
+        max_seconds=getattr(args, "max_seconds", None),
     )
 
     def _run(inp):
@@ -577,9 +613,11 @@ def main(argv=None):
     sub = p.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("resolve", help="解析输入为平台标识")
     r.add_argument("input"); r.set_defaults(func=cmd_resolve)
-    s = sub.add_parser("search", help="搜索视频候选（bilibili/wechat）")
+    s = sub.add_parser("search", help="搜索候选（bilibili/wechat/youtube/podcast/知乎/微博/X/小红书/抖音/Medium/TED）")
     s.add_argument("keyword"); s.add_argument("--limit", type=int, default=5)
-    s.add_argument("--platform", default="bilibili", choices=["bilibili", "wechat"])
+    s.add_argument("--platform", default="bilibili",
+                   help="平台标识（见 el.py platforms 的 search= 列）")
+    s.add_argument("--json", action="store_true", help="输出 JSON（便于程序处理）")
     s.set_defaults(func=cmd_search)
     fv = sub.add_parser("favs", help="列出账号收藏夹")
     fv.set_defaults(func=cmd_favs)
@@ -654,6 +692,8 @@ def main(argv=None):
     run.add_argument("--no-recheck", dest="no_recheck", action="store_true",
                      help="= --recheck 3（显式豁免，产物标注）")
     run.add_argument("--budget", type=float, default=None, help="本次运行复检预算上限（金额）")
+    run.add_argument("--max-seconds", dest="max_seconds", type=float, default=None,
+                     help="本次运行复检时长上限（秒）；到点剩余窗口标未复检")
     run.add_argument("--yes-recheck", dest="yes_recheck", action="store_true",
                      help="预授权超阈值按完整档2 执行")
     run.add_argument("--out", default=None, help="报告输出根目录（未配置时必传：首次使用需用户自选）")

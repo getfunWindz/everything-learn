@@ -941,3 +941,34 @@ def test_run_keyword_yes_picks_first(tmp_path):
 
 def test_ensure_utf8_stdout_safe():
     el._ensure_utf8_stdout()  # 不应抛异常（不可重配置的流跳过）
+
+
+def test_cmd_search_multi_platform_prints_candidates(monkeypatch, capsys):
+    from core import search as search_mod
+    monkeypatch.setattr(search_mod, "search",
+                        lambda p, k, limit=5: [{"platform": p, "title": "候选T",
+                                                "url": "https://x/1", "author": "A",
+                                                "duration_text": "1:00"}])
+    el.cmd_search(argparse.Namespace(platform="zhihu", keyword="k", limit=2, json=False))
+    out = capsys.readouterr().out
+    assert "1. 候选T" in out and "https://x/1" in out
+
+
+def test_cmd_search_json(monkeypatch, capsys):
+    from core import search as search_mod
+    monkeypatch.setattr(search_mod, "search",
+                        lambda p, k, limit=5: [{"platform": p, "title": "T", "url": "u"}])
+    el.cmd_search(argparse.Namespace(platform="youtube", keyword="k", limit=1, json=True))
+    data = json.loads(capsys.readouterr().out)
+    assert data[0]["title"] == "T"
+
+
+def test_cmd_search_unavailable_is_readable(monkeypatch, capsys):
+    from core import search as search_mod
+    def boom(*a, **k):
+        raise search_mod.SearchUnavailable("暂未接入搜索")
+    monkeypatch.setattr(search_mod, "search", boom)
+    with pytest.raises(SystemExit) as e:
+        el.cmd_search(argparse.Namespace(platform="x_twitter", keyword="k", limit=1, json=False))
+    assert e.value.code == 2
+    assert "搜索不可用" in capsys.readouterr().err

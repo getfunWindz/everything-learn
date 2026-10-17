@@ -49,6 +49,7 @@ class RunOptions:
     budget: float = None         # 本次运行金额上限（运行级；spec §11.2）
     _budget_spent: float = 0.0   # 运行级已消费估算（跨条目随同一 opts 累计）
     yes_recheck: bool = False    # 预授权完整档2
+    max_seconds: float = None    # 运行时长上限（复检窗口级；超出剩余窗口标未复检）
 
 
 def _safe_name(title: str, maxlen: int = 60) -> str:
@@ -285,8 +286,23 @@ def _run_window_recheck(adapter, ref, lines, cfg, decision, opts, disputed=None)
             uncovered_text = ("超出复检金额预算（--budget）"
                               if budget_reason == "budget_cap"
                               else "超出复检帧预算（max_check_frames）")
+            print(f"  · 复检计划：{total_windows} 窗 / 预计 {est_used['amount']:.3f} "
+                  f"{est_used.get('currency', 'USD')} / 帧帽 {runtime_cap}", file=sys.stderr)
+            started = time.monotonic()
+            max_seconds = getattr(opts, "max_seconds", None)
             for wi, (cursor, seg_end) in enumerate(planned_windows, 1):
-                print(f"  · 复检窗口 {wi}/{total_windows} [{cursor:.0f}-{seg_end:.0f}s]",
+                elapsed = time.monotonic() - started
+                if max_seconds is not None and elapsed >= max_seconds:
+                    for (c, e) in planned_windows[wi - 1:]:
+                        uncovered.append((c, e))
+                        reports.append({"range": [c, e], "kind": "uncovered",
+                                        "text": "超出运行时长上限（--max-seconds）"})
+                    print(f"  · 已达 --max-seconds={max_seconds:g}s，剩余 "
+                          f"{total_windows - wi + 1} 窗标未复检", file=sys.stderr)
+                    break
+                eta = (elapsed / (wi - 1)) * (total_windows - wi + 1) if wi > 1 else None
+                print(f"  · 复检窗口 {wi}/{total_windows} [{cursor:.0f}-{seg_end:.0f}s]"
+                      + (f"（已用 {elapsed:.0f}s，预计剩余 {eta:.0f}s）" if eta else ""),
                       file=sys.stderr)
                 window_frames = max(1, int(math.ceil((seg_end - cursor) * fps)))
                 if admitted_theoretical + window_frames > runtime_cap:
@@ -462,8 +478,8 @@ def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False)
                 print(f"  P{label} 图片下载失败（不影响正文）：{str(e)[:80]}", file=sys.stderr)
         recheck_meta = _document_lite_recheck(adapter, res, opts)
         text_len = sum(len((b or {}).get("text") or "") for b in res.blocks)
-        doc_hint = None
-        if text_len < 80 and not (getattr(res, "video_lines", None) or []):
+        doc_hint = getattr(res, "quality_hint", "") or None
+        if not doc_hint and text_len < 80 and not (getattr(res, "video_lines", None) or []):
             doc_hint = (f"正文过短（{text_len} 字）：可能仅为图片帖/会员墙/被截断，"
                         "建议换含正文的链接或补 OCR/人工核对")
             print(f"  ⚠️ {doc_hint}", file=sys.stderr)

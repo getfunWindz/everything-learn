@@ -2,6 +2,24 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本。
 
+## [0.4.2] - 2026-10-17
+
+**立项批 2**：11 平台搜索 + 校正置信度 + 浏览器串行 + 长任务可预期 + Medium 截断提示。
+
+### Added
+
+- **11 平台搜索**：`el.py search --platform <p>` 覆盖 bilibili/wechat/youtube/podcast/知乎/微博/X/小红书/抖音/Medium/TED；`--json` 机读；`platforms` 输出 `search=native|api|browser|需链接`。
+  - API：YouTube（yt-dlp ytsearch）、播客（iTunes Search）。
+  - Browser：知乎/微博/X/小红书/抖音/Medium/TED（复用登录 profile，文件锁串行）。
+- **校正置信度分级（B11）**：`校正(置信度:高|中|低)`；低置信只留痕（`windows.kind=low_confidence`）不改正文；`recheck_report.uncertain` 同时收录低置信项。
+- **浏览器 profile 文件锁（B7）**：跨进程互斥 + 占用等待/可读提示 + 失效锁回收。
+- **复检计划/ETA（B3）**：开始前打印窗口数/预估金额/帧帽；逐窗打印已用与预计剩余；`--max-seconds` 到点剩余窗口标未覆盖。
+- **Medium 会员文提示（B6）**：`Member-only story`/截断结尾 → `status=suspect` + `quality_hint`；`ContentResult.quality_hint` 通用字段。
+
+### 测试
+
+- **813 项离线测试**（新增 18 项）。
+
 ## [0.4.1] - 2026-10-17
 
 **11 平台实测缺陷修复批 1**：阻断级转写/复检/路径问题 + 一批可信度问题。详见
