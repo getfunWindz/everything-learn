@@ -62,11 +62,11 @@ def describe_video(cfg_vision: dict, frames: list, prompt: str = None) -> str:
     payload = {
         "model": cfg_vision.get("model", "gpt-4o-mini"),
         "messages": [{"role": "user", "content": content}],
-        "max_tokens": int(cfg_vision.get("max_tokens") or 4096),
+        "max_tokens": int(cfg_vision.get("max_tokens") or 8192),
     }
     session = requests.Session()
     session.trust_env = False  # 不继承环境代理（requests.post 不接受 trust_env 参数，直接传会 TypeError）
-    for attempt in range(2):
+    for attempt in range(3):
         r = session.post(url, json=payload,
                          headers={"Authorization": f"Bearer {cfg_vision['api_key']}"},
                          timeout=300)
@@ -80,7 +80,7 @@ def describe_video(cfg_vision: dict, frames: list, prompt: str = None) -> str:
         if text:
             return text
         # 推理型模型（如 deepseek-flash）可能把 max_tokens 全用在 reasoning_content → 空正文
-        if choice.get("finish_reason") == "length" and attempt == 0:
+        if choice.get("finish_reason") == "length" and attempt < 2:
             payload["max_tokens"] *= 2
             continue
         raise VisionError("多模态返回空内容（可能 max_tokens 被推理占满）；"

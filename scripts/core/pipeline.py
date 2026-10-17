@@ -555,7 +555,8 @@ def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False)
                         language=language, stats=asr_stats)
                     print("", file=sys.stderr)
                     src = "whisper"
-                    language_used = language  # D3：Whisper 实际使用的语言（None=自动检测）
+                    # D3：Whisper 实际语言；自动检测时回填 asr_stats.language
+                    language_used = language or asr_stats.get("language")
             except transcriber.WhisperNotInstalled:
                 if subtitle_candidate:
                     # 低配降级（2026-10-17）：无 faster-whisper → 采信字幕候选 + 标注 + 强制推荐

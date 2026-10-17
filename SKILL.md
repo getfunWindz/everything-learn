@@ -39,7 +39,7 @@ python scripts/glossary.py add "<术语>" "<解释>"   # 术语库填塞/沉淀�
 python scripts/el.py report <目录> && python scripts/el.py export <目录> --format html
 ```
 
-<!-- ⛳ ONBOARDING: 1 -->
+<!-- ⛳ ONBOARDING: 0 -->
 
 > **标签位①（引导状态）**：`1` = 首次引导**未完成** → 必须先执行文末「初次调用逻辑」（四项确认 + `el.py onboard --complete` 置位）；
 > `0` = 已完成 → 跳过文末章节，直接按下方工作流正常使用（省 token）。由 `el.py onboard --complete` 自动 1→0。
@@ -61,6 +61,7 @@ python scripts/el.py report <目录> && python scripts/el.py export <目录> --f
 
 - 链接 / 平台标识：`python scripts/el.py resolve <输入>` 确认平台与标识；
 - 名称类输入：走平台搜索（B 站 `el.py search <关键词>`），**列出候选让用户确认**后再继续；
+  `run "关键词"` 默认只列候选并退出，确认后用 `--pick N`；非交互场景可 `--yes` 显式取第一条；
 - **公众号搜索（实验性）**：`el.py search --platform wechat "<关键词>"` 列出候选；直接抓取用 `el.py run --platform wechat "<关键词>" --pick N`（搜狗结果链接**会话绑定**，必须同进程立即抓取，不能跨进程复用）。
 - **账号级扫描（M11/M12）**：用户主页/收藏夹/频道/我的收藏等列表链接 → `el.py scan <链接> [--filter] [--priority] [--limit] [--snapshot]` 先枚举与筛选（命中项可 `--snapshot` 存档）；批量抓取用 `el.py run <链接> --all`（或 `--pages "1-10"`）；微博收藏入口 `https://weibo.com/u/favorites`（需 cookie）；微博关注 `https://weibo.com/u/page/follow/<uid>`；公众号合集（album 链接）；B站 UP主 `https://space.bilibili.com/<mid>`；Medium 列表/书签：`scan "https://medium.com/@<handle>/list/<slug>"`（需登录）；B站账号数据另有 `el.py toview|history|following`（需 cookie）。
 
@@ -79,7 +80,7 @@ python scripts/el.py run <链接> --budget 1.5           # 本次运行复检金
 - **document 源**（知乎/公众号/微博）：正文提取（章节/段落/公式/图片）→ 图片入 `assets/`；问题链接用 `--all` 展开首屏 5 条回答（深分页需 API 签名，本期不做）；
   - **公众号细节**：单篇链接直连（无需 cookie；正文服务端渲染、图片 `data-src` 自动入 `assets/`）；搜狗搜索为实验性路径（验证码/限流风险 + 签名链接会话绑定）；
   - **X（Twitter）细节**：单推文直连（无需 cookie，syndication 公开接口）；图片入 `assets/`；视频推文自动取 mp4 并 Whisper 转写为「视频口播内容」小节（多语自动检测）；缓速 10s（限流会升级，遇 429/连接异常时给可读提示，不要高频重试）；
-  - **小红书细节**：单笔记直连（`xhslink` 短链自动展开）；正文/标签/图片入 `assets/`；视频笔记自动取 mp4 并 Whisper 转写「视频口播内容」；**依赖 `xsec_token`（短时效）**——分享链自带优先，缺失/失效时 explore 兜底现取（实验性，命中率低）；都没有则提示重新分享；缓速 12s；
+  - **小红书细节**：单笔记直连（`xhslink` 短链自动展开；也可直接粘贴 App 分享文本，自动提取其中的链接）；正文/标签/图片入 `assets/`；视频笔记自动取 mp4 并 Whisper 转写「视频口播内容」；**依赖 `xsec_token`（短时效）**——分享链自带优先，缺失/失效时 explore 兜底现取（实验性，命中率低）；都没有则提示「App → 分享 → 复制链接」；缓速 12s；
 - 产物：三件套（`content_info.json`（元信息+来源标记+`recheck`/`quality`/`glossary` 摘要）/ `content.txt`（timeline 带时间戳，含【画面补充】【画面校正】标注）/ `report_template.md`（按形态的报告骨架））+ timeline 的 `recheck_report.json`（档位/评分/预算/同源校验/交叉比对/不确定项全量留痕）；
 - 批量：失败不中断，汇总增量写入，`--resume` 断点续跑；
 - 抽帧供读图复检（agent 执行时）：`python scripts/el.py frames <视频> --range "起-止" --fps 1 --out <目录>`。
@@ -142,7 +143,9 @@ python scripts/el.py run <链接> --budget 1.5           # 本次运行复检金
 
 - 本文件不写死任何本机路径；一切以用户配置的 `out_dir` 为准。
 - 平台接口偶发错乱（实测 B 站 AI 字幕串台：美食视频拿到「可控核聚变」字幕）：来源分级丢弃 AI 字幕转 Whisper 主选、双 ASR 交叉比对量化分歧、人工/官方字幕过同源校验会自动处理，不要绕过。
-- **YouTube 提取失败**（反爬更新/限流）先升级依赖：`pip install -U yt-dlp`（`el.py doctor` 会显示当前版本）；字幕接口 429 已内置退避重试；媒体下载已内置多候选 + 断点续传 + 时长预算（弱网/代理抖动下自动降级，不阻塞主流程）。
+- **YouTube 提取失败**（反爬更新/限流）先升级依赖：`pip install -U yt-dlp`（`el.py doctor` 会显示当前版本）；字幕接口 429 已内置退避重试；媒体下载已内置多候选 + 断点续传 + 时长预算（弱网/代理抖动下自动降级，不阻塞主流程）；yt-dlp 提取设 `socket_timeout=20` + 重试上限。
+- **转写语言**：默认自动检测（B 站/抖音不再硬编码 zh）；英文/多语视频会按实际语言转写，`content_info.language` 回填检测结果；需要强制时用 `--lang`。
+- **视觉复检可观测**：逐窗打印 `复检窗口 i/N`；`recheck_report.checked_windows` 区分「已检查」与「未覆盖」；推理型 vision 模型（如 deepseek-flash）把 max_tokens 吃满时会自动加倍重试（默认 8192，最多 3 次）。
 - **知乎风控**：短时间大量请求会触发临时限流（40362，通常几十分钟自行恢复）；适配器会给出可读提示。日常使用用浏览器 cookie 路径即可，不要高频循环抓取。
 - **抖音**：detail 接口已对非浏览器调用硬拦（直连 403 Argus/Uifid）→ 取数走真实浏览器上下文（本机需 Playwright + 持久化 profile：`el.py cookie douyin` 打开窗口一次）；风控严格勿高频；scan 已内置 SPA 水合等待。
 - 搜索接口偶发风控：失败时提示用户改用链接。
@@ -152,7 +155,7 @@ python scripts/el.py run <链接> --budget 1.5           # 本次运行复检金
 - **低配模式（2026-10-17）**：仅必要依赖（无 faster-whisper / yt-dlp / playwright 等）时——字幕平台自动降级采信并标注「低配：未经同源校验」+ `quality_hint` 强制推荐；whisper 平台给出安装引导；画面复检依赖（Pillow/PyAV）缺失时自动提前跳过。转写档位低于 medium 时产物带 `quality.tier_note` 常驻建议（实机验证 medium 效果最佳）。
 - **术语库反哺链（2026-10-17）**：每次转写按 `references/glossary.json` 的勘误别名自动筛验术语名（`content_info.glossary` 留痕；存疑项不替换、如实标注）；画面校正对命中术语库 → 自动沉淀别名；报告写作 R11 沉淀新术语；`glossary.py absorb <wiki>` 吸收知识库。初启可手动填塞术语；推荐配套 `bilibili-to-wiki`。
 
-<!-- ⛔ READ-GATE: ONBOARDING: 1 -->
+<!-- ⛔ READ-GATE: ONBOARDING: 0 -->
 
 > **标签位②（阅读门）**：上方 ONBOARDING = `0` → **到此为止，不要阅读下方章节**（已引导完成，直接正常使用）；
 > = `1` → **必须读完下方并执行**「初次调用逻辑」。
@@ -162,6 +165,7 @@ python scripts/el.py run <链接> --budget 1.5           # 本次运行复检金
 ### A. 自动环境检查
 
 先运行 `python scripts/el.py doctor`（或 `el.py onboard`），向用户汇总：依赖（faster-whisper / yt-dlp / playwright）、GPU、whisper 模型缓存、vision、cookie、out_dir。
+（doctor 的 cookie 为逐平台状态：B 站真实探针；知乎/微博/抖音按文件龄期标「未验证/过期风险」，不要当成已登录。）
 
 ### B. 四项确认点（必须逐项向用户输出并确认）
 

@@ -105,21 +105,35 @@ _NOISE_EXACT = {
     "预览时标签不可点", "阅读原文", "赞", "分享", "收藏", "在看", "微信扫一扫",
     "关注该公众号", "知道了", "取消", "允许", "分析", "使用完整服务",
     "轻点两下取消赞", "轻点两下取消在看", "网页由 mp.weixin.qq.com 提供",
+    "不喜欢", "使用小程序", "×", "投诉", "写留言", "复制链接", "保存图片",
+    "打开", "关闭", "更多", "发送", "返回", "搜索", "设置",
 }
 _NOISE_PREFIX = ("<", "微信扫一扫", "预览时标签不可点", "使用完整服务",
                  "轻点两下取消")
 
 
+def _is_noise_line(line: str) -> bool:
+    line = (line or "").strip()
+    return bool(line) and (line in _NOISE_EXACT or line.startswith(_NOISE_PREFIX))
+
+
 def strip_boilerplate(blocks):
-    """过滤公众号页面模板噪声（正文切片边界不稳时混入的 UI 文案/残片）"""
+    """过滤公众号页面模板噪声（正文切片边界不稳时混入的 UI 文案/残片）
+
+    噪声可能多条挤在同一块里 → 按行过滤，保留块内真实段落。"""
     out = []
     for b in blocks or []:
-        text = (b.get("text") or "").strip()
+        raw = (b.get("text") or "").strip()
+        if not raw:
+            continue
+        kept = [ln for ln in raw.split(chr(10)) if not _is_noise_line(ln)]
+        text = chr(10).join(kept).strip()
         if not text:
             continue
-        if text in _NOISE_EXACT or text.startswith(_NOISE_PREFIX):
-            continue
-        out.append(b)
+        if text == raw:
+            out.append(b)
+        else:
+            out.append({**b, "text": text})
     return out
 
 
