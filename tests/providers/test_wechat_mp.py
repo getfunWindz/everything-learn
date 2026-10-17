@@ -250,3 +250,10 @@ def test_strip_boilerplate_removes_ui_noise():
               {"heading": "", "text": "正文第二段"}]
     out = strip_boilerplate(blocks)
     assert [b["text"] for b in out] == ["正文第一段", "正文第二段"]
+
+
+def test_strip_boilerplate_multiline_block():
+    """实测：噪声多条挤在同一块里（预览/阅读原文/扫一扫…）"""
+    blocks = [{"heading": "", "text": "正文段\n预览时标签不可点\n阅读原文\n微信扫一扫\n<div\n分析"}]
+    out = strip_boilerplate(blocks)
+    assert out and out[0]["text"] == "正文段"
