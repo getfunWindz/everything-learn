@@ -2,6 +2,17 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本。
 
+## [0.4.6] - 2026-10-17
+
+### Fixed
+
+- **抖音无音轨误选（真 bug）**：`fetch_media_url(media="audio")` 选了最低码率的 DASH 纯视频流（`media-video-*`），faster-whisper 抛 `tuple index out of range`。现优先选 muxed（含音轨）流；实测 2:31 教程视频正常转写。
+- **21min 档 2 全程完成**：43/43 窗口、100% 覆盖、0 错误；31m12s、上界 0.732 USD / actual 0.325 USD；15 处画面校正、118 处补充。
+
+### 测试
+
+- **840 项离线测试**（新增 1 项：抖音 muxed 选择）。
+
 ## [0.4.5] - 2026-10-17
 
 **报告本体与文件名规范化**：修复「输出目录只有骨架、没有报告」；严格文件名净化。

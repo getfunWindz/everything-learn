@@ -399,6 +399,13 @@ class DouyinAdapter:
                 pool = api or fmts
             pool.sort(key=lambda f: ((f.get("height") or 0), (f.get("tbr") or 0)))
             if media == "audio":
-                return pool[0]["url"]          # 转写只需音频：最小文件省带宽
+                # 实测坑：最低码率常是 DASH 纯视频（media-video-*），无音轨 → Whisper 崩
+                # （tuple index out of range）。音频优先选 muxed（含音轨）流，最小省带宽。
+                muxed = [f for f in pool
+                         if "media-video" not in (f.get("url") or "")
+                         and "/dash/" not in (f.get("url") or "")]
+                cand = muxed or pool
+                cand.sort(key=lambda f: ((f.get("height") or 0), (f.get("tbr") or 0)))
+                return cand[0]["url"]
             return (pool[0] if lowest else pool[-1])["url"]
         return info.get("url") or None

@@ -504,3 +504,17 @@ def test_info_prefers_browser_then_ytdlp(monkeypatch):
         douyin.DouyinAdapter(session=object())._info(ref)
     assert "浏览器" in str(ei.value) and "yt-dlp" in str(ei.value)
 
+
+
+def test_audio_prefers_muxed_format_over_dash_video_only():
+    """实测：最低码率是 media-video（无音轨）→ Whisper tuple index；音频应选含音轨的 muxed 流"""
+    from providers.douyin import DouyinAdapter
+    a = DouyinAdapter()
+    info = {"formats": [
+        {"height": 0, "tbr": 137, "url": "https://v/media-video-hvc1/?x=1"},
+        {"height": 0, "tbr": 580, "url": "https://v/plain-video/?x=2"},
+        {"height": 0, "tbr": 300, "url": "https://v/media-video-avc1/?x=3"},
+    ]}
+    a._meta_cache["1"] = info
+    ref = ItemRef(platform="douyin", item_id="1", url="u", sub_id="1")
+    assert a.fetch_media_url(ref, media="audio") == "https://v/plain-video/?x=2"
