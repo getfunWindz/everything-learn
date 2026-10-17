@@ -354,3 +354,15 @@ def test_atexit_shutdown_on_interpreter_exit(tmp_path):
     repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     subprocess.run([sys.executable, "-c", code], cwd=repo, check=True, timeout=60)
     assert marker.read_text(encoding="utf-8") == "closed"
+
+
+def test_profile_lock_gets_readable_error():
+    """实测：并发抓取时原始 Playwright 错误直出；应提示串行执行"""
+    def locked(browser, interactive):
+        raise Exception("BrowserType.launch_persistent_context: "
+                        "Target page, context or browser has been closed")
+    bf._ctx.update(pw=None, context=None, page=None, interactive=None)
+    with pytest.raises(BrowserFetchError) as e:
+        bf.BrowserSession("medium", launcher=locked).page
+    msg = str(e.value)
+    assert "浏览器" in msg and "串行" in msg

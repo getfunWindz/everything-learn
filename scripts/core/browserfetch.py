@@ -83,6 +83,20 @@ def _ensure_visible(page):
         pass
 
 
+def _launch_error_message(exc: Exception) -> str:
+    """Playwright 启动失败的常见可读化（profile 占用 / 浏览器未安装 / 其他）"""
+    s = str(exc)
+    low = s.lower()
+    if ("target page, context or browser has been closed" in low
+            or "processsingleton" in low or "user data directory is already in use" in low
+            or "opening in existing browser session" in low):
+        return ("浏览器 profile 正被另一个任务占用：请串行执行浏览器型平台"
+                "（知乎/微博/Medium/X/小红书/抖音），或关闭残留的 Edge/Chrome 窗口后重试")
+    if "executable doesn't exist" in low or "channel" in low and "not found" in low:
+        return f"浏览器不可用（未安装 msedge/chrome？）：{s[:80]}"
+    return f"浏览器启动失败：{s[:120]}"
+
+
 def _launch(browser: str, interactive: bool) -> dict:
     """真实启动浏览器（测试可注入等价 launcher 替换）"""
     try:
@@ -97,7 +111,7 @@ def _launch(browser: str, interactive: bool) -> dict:
                                                     args=args)
     except Exception as e:
         pw.stop()
-        raise BrowserFetchError(f"浏览器启动失败：{str(e)[:120]}")
+        raise BrowserFetchError(_launch_error_message(e))
     page = ctx.pages[0] if ctx.pages else ctx.new_page()
     if interactive:
         _ensure_visible(page)
@@ -111,7 +125,12 @@ def _ensure_page(browser="msedge", interactive=False, launcher=None):
         shutdown()                                     # 离屏↔可见 模式切换 → 重启
         print("  · 浏览器启动模式切换（离屏↔可见），已重启", file=sys.stderr)
     launch = launcher or _launch
-    parts = launch(browser, interactive)
+    try:
+        parts = launch(browser, interactive)
+    except BrowserFetchError:
+        raise
+    except Exception as e:
+        raise BrowserFetchError(_launch_error_message(e))
     _ctx.update(parts)
     _ctx["interactive"] = interactive
     return _ctx["page"]
