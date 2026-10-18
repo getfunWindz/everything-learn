@@ -13,7 +13,10 @@ from core.adapter import SearchNeeded
 from core.pipeline import RunOptions, PipelineError, UnsupportedUrlError
 from providers.bilibili import ApiClient, BiliError, resolve_input
 
-VERSION = "0.1.0"
+try:
+    from version import VERSION
+except Exception:                     # 被作为包导入时的兜底
+    VERSION = "0.4.20"
 
 try:                                    # GBK 控制台不因 emoji/符号崩溃
     sys.stdout.reconfigure(errors="replace")
@@ -211,6 +214,19 @@ def _scan_adapter(input_str):
     from core import registry
     registry.load_providers()
     return registry.match_url(input_str) or registry.sniff_url(input_str)
+
+
+def cmd_split(args):
+    """长内容分块（多轮写报告用）"""
+    import split as split_mod
+    try:
+        m = split_mod.split_dir(args.target, args.chunk_chars, args.overlap)
+    except FileNotFoundError:
+        print(f"未找到 content.txt：{args.target}", file=sys.stderr)
+        sys.exit(2)
+    print(f"已切分 {len(m['parts'])} 块 → {args.target}/content.partNN.md（manifest: split_manifest.json）")
+    for it in m["parts"]:
+        print(f"  {it['file']}: {it['chars']} 字（{it['start']}–{it['end']}s）")
 
 
 def cmd_kb(args):
@@ -680,6 +696,7 @@ def main(argv=None):
     setup_logging()
     config.ensure_config()
     p = argparse.ArgumentParser(prog="el", description="everything-learn 学习内容获取（多平台）")
+    p.add_argument("--version", action="version", version=f"everything-learn {VERSION}")
     sub = p.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("resolve", help="解析输入为平台标识")
     r.add_argument("input"); r.set_defaults(func=cmd_resolve)
@@ -818,6 +835,12 @@ def main(argv=None):
                                            timeout=args.timeout)
             sys.exit(0 if ok else 1)
         sys.exit(cookie_export.export(args.platform, args.browser, args.timeout))
+    sp = sub.add_parser("split", help="长内容分块（多轮写报告）")
+    sp.add_argument("target", help="含 content.txt 的产物目录")
+    sp.add_argument("--chunk-chars", type=int, default=20000)
+    sp.add_argument("--overlap", type=int, default=1000)
+    sp.set_defaults(func=cmd_split)
+
     kb = sub.add_parser("kb", help="内建知识库（建库/搜索/统计）")
     kb_sub = kb.add_subparsers(dest="action", required=True)
     kb_b = kb_sub.add_parser("build", help="递归索引学习笔记目录")
