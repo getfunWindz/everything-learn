@@ -96,6 +96,16 @@
       "correct": "DeepSeek Harness",
       "type": "stt_error",
       "note": "2026-10-02 Hermes 视频批量勘误"
+    },
+    "因果言马": {
+      "correct": "因果掩码",
+      "type": "stt_error",
+      "note": ""
+    },
+    "操作参数": {
+      "correct": "超参数",
+      "type": "stt_error",
+      "note": ""
     }
   },
   "Agent Skills": "Agent Skills 是让 AI 按需加载能力的标准形态：一个文件夹内含使用说明（SKILL.",
