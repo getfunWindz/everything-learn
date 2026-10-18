@@ -2,6 +2,17 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本。
 
+## [0.4.14] - 2026-10-18
+
+### Fixed
+
+- **画面校正解析**：支持「原转写「X」（两处）→「Y」」与「原「X」→「Y」」；Prompt 要求 X 必须逐字复制本窗转写、找不到时改输出「不确定」（实测 43:50 课件 7 条 `correction_unmatched` 中 1 条由此可正确应用）。
+- **`recheck_report.json` 新增 `summary`**：supplements / corrections / low_confidence / unmatched / uncertain 计数，R13 交付可直接核对。
+
+### Tests
+
+- **870 项离线测试**（新增 2 项：带括注/省略「转写」的校正解析）。
+
 ## [0.4.13] - 2026-10-18
 
 ### Fixed

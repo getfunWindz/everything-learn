@@ -91,7 +91,7 @@ python scripts/el.py run <链接> --budget 1.5           # 本次运行复检金
   - **公众号细节**：单篇链接直连（无需 cookie；正文服务端渲染、图片 `data-src` 自动入 `assets/`）；正文 <20 字自动走浏览器兜底（首屏无 `#js_content` 会重载一次），浏览器结果同样过可用性闸门（≥20 字或 ≥1 图）后才采信；搜狗搜索为实验性路径（验证码/限流风险 + 签名链接会话绑定）；
   - **X（Twitter）细节**：单推文直连（无需 cookie，syndication 公开接口）；图片入 `assets/`；视频推文自动取 mp4 并 Whisper 转写为「视频口播内容」小节（多语自动检测）；缓速 10s（限流会升级，遇 429/连接异常时给可读提示，不要高频重试）；
   - **小红书细节**：单笔记直连（`xhslink` 短链自动展开；也可直接粘贴 App 分享文本，自动提取其中的链接）；正文/标签/图片入 `assets/`；视频笔记自动取 mp4 并 Whisper 转写「视频口播内容」；**依赖 `xsec_token`（短时效）**——分享链自带优先，无 token/失效时先复用 **token 缓存（6h）**，再走 explore 兜底（requests + 登录浏览器滚动虚拟列表，按 `note_id` 命中率仍低）；都没有则提示「App → 分享 → 复制链接」；缓速 12s；
-- 产物：三件套（`content_info.json`（元信息+来源标记+`recheck`/`quality`/`glossary` 摘要）/ `content.txt`（timeline 带时间戳，含【画面补充】【画面校正】标注）/ `report_template.md`（按形态的报告骨架））+ timeline 的 `recheck_report.json`（档位/评分/预算/同源校验/交叉比对/不确定项全量留痕）；
+- 产物：三件套（`content_info.json`（元信息+来源标记+`recheck`/`quality`/`glossary` 摘要）/ `content.txt`（timeline 带时间戳，含【画面补充】【画面校正】标注）/ `report_template.md`（按形态的报告骨架））+ timeline 的 `recheck_report.json`（档位/评分/预算/同源校验/交叉比对/`summary` 计数/不确定项全量留痕）；
 - 批量：失败不中断，汇总增量写入，`--resume` 断点续跑；
 - 抽帧供读图复检（agent 执行时）：`python scripts/el.py frames <视频> --range "起-止" --fps 1 --out <目录>`。
 
