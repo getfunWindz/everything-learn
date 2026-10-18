@@ -22,7 +22,8 @@ DEFAULT_CONFIG = {
         "xiaohongshu": {"min_interval": 12.0, "jitter": 2.0},
         "medium": {"min_interval": 10.0, "jitter": 2.0},
         "bilibili": {"min_interval": 1.5, "jitter": 0.5},
-        "youtube": {"min_interval": 1.5, "jitter": 0.5}
+        "youtube": {"min_interval": 1.5, "jitter": 0.5},
+        "v2ex": {"min_interval": 6.0, "jitter": 1.5}
     },
     "hf_endpoint": "",          # HF 镜像（如 https://hf-mirror.com），空则用官方
     "browser_proxy": "",       # 浏览器代理（如 http://127.0.0.1:7897；X 等平台必需）；也可用环境变量 EL_BROWSER_PROXY
