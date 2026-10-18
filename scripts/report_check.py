@@ -124,10 +124,10 @@ def main(argv=None):
     else:
         for c in result["checks"]:
             if c["level"] == "pass" and not c["detail"]:
-                print(f"  ✓ {c['name']}")
+                print(f"  [ok] {c['name']}")
             else:
                 print(f"  [{c['level']}] {c['name']}：{c['detail']}")
-        print("✅ 通过" if result["ok"] else "❌ 未通过")
+        print("PASS" if result["ok"] else "FAIL")
     return 0 if result["ok"] else 1
 
 
