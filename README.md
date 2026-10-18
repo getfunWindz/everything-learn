@@ -8,7 +8,7 @@
 <p align="center">
   <a href="https://github.com/getfunWindz/everything-learn/actions/workflows/tests.yml"><img src="https://github.com/getfunWindz/everything-learn/actions/workflows/tests.yml/badge.svg" alt="tests"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="license: MIT"></a>
-  <img src="https://img.shields.io/badge/tests-945%20offline-brightgreen.svg" alt="945 offline tests">
+  <img src="https://img.shields.io/badge/tests-950%20offline-brightgreen.svg" alt="950 offline tests">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python 3.10+">
 </p>
 
@@ -24,7 +24,7 @@
 
 ## 中文
 
-**一切知识皆力量**：12 个平台，一个命令——把视频、播客、图文与社媒内容整理成结构化的中文学习报告。
+**一切知识皆力量**：12 个平台，一个命令——搜索/抓取视频、播客、图文与社媒内容，按需生成中文学习报告或索引进本地知识库；报告、复检、入库都可以随时跳过。
 来源分级（AI 字幕 → Whisper 主选 / 人工·官方 → 同源校验）→ 档位评分 → 预算闸门 → 3 帧/秒窗口复检；账号级内容（收藏 / 关注 / 合集 / 主页）可枚举、筛选、批量出合集。
 
 ### 发布前自检与运维
@@ -44,6 +44,7 @@ python scripts/canary.py --only v2ex,zhihu,bilibili           # 真实平台探�
 
 ```bash
 python scripts/el.py setup --out "D:/学习笔记" --yes --kb   # 启用并完成引导
+python scripts/el.py onboard --kb on|off                     # 首次引导记录 KB 特征位（asked=true 后不再问）
 python scripts/el.py kb build "<学习笔记根目录>"             # 建库/更新（默认清理失效记录）
 python scripts/el.py kb index "<产物目录>"                   # 深度报告改写后重索引
 python scripts/el.py kb search "光刻" --platform bilibili --since 2026-10-01
@@ -53,6 +54,8 @@ python scripts/el.py kb prune|delete|rebuild ...             # 清理/删除单�
 - 本地 SQLite；FTS5（优先 trigram，中文子串）+ LIKE 回退，返回命中片段。
 - 去重键 `platform+item_id+sub_id`；合集汇总（`kind=batch`）默认跳过，只索引 P 条目。
 - 支持 `--platform/--author/--kind/--since` 过滤；不做语义向量检索/问答。
+- 首次引导会询问；选择 `off` 写特征位 `enabled=false`（`asked=true` 后不再问），`run` 不自动索引，但仍可手动 `kb build/search`。
+- 完整 llm-wiki（digest/实体/主题/图谱）仍交给 `bilibili-to-wiki`；内置 KB 是其轻量本地版。
 
 ## 平台能力
 
@@ -119,8 +122,9 @@ pip install playwright    # 可选：cookie 导出 / browserfetch（无需 playw
 
 # Whisper：出厂默认 fast=small；实机验证 medium 效果最佳（首次引导会建议升级）
 
-# 首次使用：完成引导（环境自检 + 五项确认：产出目录 / Whisper 档位 / 依赖清单 / 使用说明 / 术语库）
+# 首次使用：完成引导（环境自检 + 六项确认：产出目录 / Whisper 档位 / 依赖清单 / 使用说明 / 内建知识库 / 术语库）
 python scripts/el.py onboard             # 查看清单与环境摘要
+python scripts/el.py onboard --kb on|off # 确认是否启用内建知识库（写特征位）
 python scripts/el.py onboard --complete  # 确认完成后置位（标签位 1→0，此后不再触发）
 
 # 用一个根目录存放报告（未配置 out_dir 时 run 会拒绝运行，不设默认路径）
@@ -197,7 +201,7 @@ python scripts/el.py export "<报告目录>" --format html    # 或 docx
 ### 测试与工程
 
 ```bash
-python -m pytest tests/ -q     # 943 passed, 2 skipped（945 collected；全部 mock 网络，约 2 分钟）
+python -m pytest tests/ -q     # 948 passed, 2 skipped（950 collected；全部 mock 网络，约 2 分钟）
 ```
 
 - **CI**：GitHub Actions（Windows / macOS / Ubuntu × Python 3.10 / 3.11）。
@@ -213,13 +217,14 @@ python -m pytest tests/ -q     # 943 passed, 2 skipped（945 collected；全部 
 
 ## English
 
-**Knowledge is Power**: 12 platforms, one command — turn videos, podcasts, articles and social posts into structured Chinese study reports.
+**Knowledge is Power**: 12 platforms, one command — search/fetch videos, podcasts, articles and social posts, then optionally generate Chinese study reports or index them into the local knowledge base; report/recheck/KB steps are skippable.
 Provenance grading (AI subtitles → Whisper-first / human·official → same-source verification) → tier scoring → budget gate → 3-fps window recheck. Account-level content (favorites / follows / collections / profiles) can be enumerated, filtered, and digested in batches.
 
 ### Built-in knowledge base (optional)
 
 ```bash
 python scripts/el.py setup --out "D:/notes" --yes --kb   # enable during onboarding
+python scripts/el.py onboard --kb on|off                 # record KB feature bit (asked=true; never asked again)
 python scripts/el.py kb build "<notes root>"             # build/update (prunes stale rows)
 python scripts/el.py kb index "<item dir>"               # reindex after deepening the report
 python scripts/el.py kb search "光刻" --platform bilibili --since 2026-10-01
@@ -284,8 +289,9 @@ pip install playwright    # optional: cookie export / browserfetch (no `playwrig
 
 # Whisper: factory default is fast=small; real-world testing shows medium is best (onboarding recommends it)
 
-# First run: complete onboarding (env check + 5 confirmations: out dir / Whisper tier / deps / usage / glossary)
+# First run: complete onboarding (env check + 6 confirmations: out dir / Whisper tier / deps / usage / KB / glossary)
 python scripts/el.py onboard             # show checklist and env summary
+python scripts/el.py onboard --kb on|off # confirm built-in KB choice (feature bit)
 python scripts/el.py onboard --complete  # mark done (flag 1→0; never asked again)
 
 # Pick an output root for reports (run refuses to start without out_dir; no default path)
@@ -362,7 +368,7 @@ python scripts/el.py export "<report dir>" --format html  # or docx
 ### Testing & engineering
 
 ```bash
-python -m pytest tests/ -q     # 943 passed, 2 skipped (945 collected; all network mocked, ~2 min)
+python -m pytest tests/ -q     # 948 passed, 2 skipped (950 collected; all network mocked, ~2 min)
 ```
 
 - **CI**: GitHub Actions (Windows / macOS / Ubuntu × Python 3.10 / 3.11).

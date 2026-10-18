@@ -2,6 +2,23 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本。
 
+## [0.4.23] - 2026-10-18
+
+### Added
+
+- **首次引导六项确认**：out_dir / Whisper / 依赖 / 使用说明 / **内建知识库** / 术语库；`onboard --kb on|off` 写 `config.kb.enabled` + `config.kb.asked`，`asked=true` 后不再重复询问；`onboard --complete` 要求知识库已选择。
+- **意图优先工作流**：搜索 / 抓取中转 / 报告 / KB 检索 / KB 入库 / 完整 wiki / 混合模式；每步可停止/跳过；报告格式只在报告模式询问。
+- **KB 与术语反哺接入工作流**：`kb search` 检索、`kb index/build` 入库、`glossary clean/alias/add/absorb` 术语链；完整 llm-wiki digest/图谱路由 `bilibili-to-wiki`。
+
+### Changed
+
+- README/SKILL 同步六项确认、KB 特征位（enabled/asked）、意图路由与停止点；报告 R1–R13 明确仅报告模式生效。
+- `setup` 设置 `kb.asked=true`；`--yes` 未显式选 KB 时保留既有 enabled；`kb.asked` 默认 false。
+
+### Tests
+
+- **950 项离线测试**（948 passed / 2 skipped；新增 onboard KB 选择/完成门禁、setup = asked、CLI 引导等）。
+
 ## [0.4.22] - 2026-10-18
 
 ### Added

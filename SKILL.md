@@ -1,13 +1,13 @@
 ---
 name: everything-learn
-description: 将多平台学习内容（视频/音频/图文/帖子）总结为中文学习报告。触发词：「总结这个视频/文章/播客」「学习笔记」「把内容整理成学习报告」等，用户提供链接、名称或平台内容标识。当前支持 12 个平台：B 站、YouTube、播客、知乎、TED、Medium、微博、抖音、微信公众号、X（Twitter）、小红书、V2EX；遇到没有适配器的平台可按规范现场搭建适配器。
+description: 多平台内容搜索/抓取/报告/知识库技能。支持仅搜索候选、批量抓取中转、中文学习报告、内建知识库入库与关键词检索；报告/复检/入库均可按需跳过。触发词：「总结这个视频/文章/播客」「学习笔记」「找几个关于X的视频」「入库/查我的笔记」等，用户提供链接、名称或平台标识。当前支持 12 个平台：B 站、YouTube、播客、知乎、TED、Medium、微博、抖音、微信公众号、X（Twitter）、小红书、V2EX；遇到没有适配器的平台可按规范现场搭建适配器。
 ---
 
 # everything-learn：多平台学习内容总结
 
 ## 介绍
 
-定位用户指定的内容（链接 / 名称）→ 路由到平台适配器 → 提取内容（字幕来源分级 + 同源校验；AI 字幕以 Whisper 主选；档位窗口复检）→ 撰写**中文详解学习报告** → 保存到用户自选的学习笔记根目录。
+定位用户指定的内容（链接 / 名称）→ 判断意图（搜索 / 抓取 / 报告 / 知识库）→ 路由到平台适配器 → 按需提取内容（字幕来源分级 + 同源校验；AI 字幕以 Whisper 主选；档位窗口复检）→ 只在报告模式撰写**中文详解学习报告** → 保存到用户自选的学习笔记根目录。**报告不是必选项**；搜索/抓取/入库模式可在任一阶段停止。
 
 > 定位说明：`bilibili-learn` 是只做 B 站的轻量版；本技能是全量版（B 站是其参考适配器），配置与仓库独立。
 
@@ -33,7 +33,7 @@ description: 将多平台学习内容（视频/音频/图文/帖子）总结为�
 
 ```bash
 python scripts/el.py setup                    # 一键初始化（依赖/目录/知识库/登录；--yes 需配 --out）
-python scripts/el.py onboard                  # 首次引导门（状态/五项确认点；--complete/--reset/--json）
+python scripts/el.py onboard                  # 首次引导门（六项确认；--kb on|off / --complete/--reset/--json）
 python scripts/el.py doctor                   # 环境自检（依赖/GPU/模型/vision/cookie/out_dir）
 python scripts/el.py run <链接/名称> [--page N | --pages "1-10" | --all] [--model tiny|small|medium|large-v3] [--budget 1.5] [--max-seconds 600] [--report-format md|doc|docx|txt]
 python scripts/el.py search <关键词> --platform <平台> [--limit 5] [--json]   # 12 平台搜索（见 platforms 的 search= 列；V2EX 需链接）
@@ -51,28 +51,49 @@ python scripts/el.py export <目录> --format html
 
 <!-- ⛳ ONBOARDING: 1 -->
 
-> **标签位①（引导状态）**：`1` = 首次引导**未完成** → 必须先执行文末「初次调用逻辑」（五项确认 + `el.py onboard --complete` 置位）；
+> **标签位①（引导状态）**：`1` = 首次引导**未完成** → 必须先执行文末「初次调用逻辑」（六项确认 + `el.py onboard --complete` 置位）；
 > `0` = 已完成 → 跳过文末章节，直接按下方工作流正常使用（省 token）。由 `el.py onboard --complete` 自动 1→0。
 
-## 正常调用工作流（每次使用）
+## 应用逻辑链（意图优先，任何一步可停止/跳过）
+
+本 skill 不是“只能出报告”的流水线。先判断意图，再只执行必要环节；用户随时可以说「先这样 / 只要链接 / 先不总结」。
+
+| 模式 | 典型请求 | 入口 | 可停止点 |
+|---|---|---|---|
+| 搜索 / 模糊信息 | 找几个关于 X 的视频/文章 | `el.py search` / `scan` | 候选列表返回即结束 |
+| 抓取 / 中转 | 提取正文/字幕、批量获取 | `el.py run` / `scan` / `run --all` | 产物落盘即结束 |
+| 报告 | 总结成学习报告/笔记 | `el.py run` + R1–R13 | 基线后可停；深化后交付 |
+| KB 检索 | 我以前记过 X 吗 | `el.py kb search` | 结果返回即结束 |
+| KB 入库 | 入库 / 更新术语 | `kb index/build` + glossary | 入库/术语沉淀后结束 |
+| 完整 wiki | 消化进 llm-wiki / 图谱 | `bilibili-to-wiki` | 由该 skill 汇报 |
+| 混合 | 先搜再抓、抓完入库 | 组合 | 每阶段结束问是否继续 |
+
+**通用规则**：
+
+- 只读/低风险步骤（`resolve`/`search`/`scan`/`kb search`）可直接执行；抓取/转写/复检/入库前确认范围与成本；超阈值必出预算卡。
+- **报告格式（md/doc/docx/txt）只在进入报告模式时询问**；搜索/抓取/入库模式不询问、不默认生成报告。
+- 复检、报告深化、KB 入库、术语反哺均为可选步骤；跳过时在产物或汇报中如实标注。
+- 每一步结束都可以停；用户说「只搜/只抓/先基线/先入库」即停止，不强行推进。
+- 完整 wiki 的 digest/实体/主题/图谱不在本 skill 内实现：交给 `bilibili-to-wiki`（它调用本 skill 抓取 + glossary + llm-wiki）。
+
+## 正常调用工作流（按意图裁剪）
 
 ### 九步链路
 
-1. **交付格式确认（每次调用必问，必须早于抓取/转写/复检）**：先问用户要哪种报告格式：
-   - `md`：Markdown，便于阅读/编辑/入库；
-   - `doc`：Word 可直接打开的 `.doc`（Word 兼容 HTML）；
-   - `docx`：Word 标准格式；
-   - `txt`：纯文本。
-   用户回答后再开工；**不得跳过询问、不得默认 md 直接开始转写**（用户明确说「随便/默认」或自动化流水线除外）。
-   记录选择并在 `run` 时传 `--report-format <fmt>`；若用户改主意，交付前用 `el.py export <目录> --format <fmt>` 补导。
+1. **意图确认（先于抓取）**：判断模式；不明确只问一句「你要候选 / 抓取 / 报告 / 入库检索 / 完整 wiki？」。**只有报告模式才问交付格式**：`md`（便于阅读编辑）、`doc`（Word 兼容 HTML）、`docx`（标准 Word）、`txt`（纯文本）；其他模式跳过。格式选择记录并在 `run` 时传 `--report-format <fmt>`；改主意用 `el.py export <目录> --format <fmt>` 补导。
 2. **读标签位**：=1 → 先走文末「初次调用逻辑」；=0 → 继续。
 3. **识别平台**：链接/名称 → `el.py resolve` 确认平台与标识（未识别 URL → 自进化流程询问）。
-4. **切换适配器与参数**：按平台特性（cookie/代理/缓速）与需求（run/scan/`--all`/页码范围）选定。
-5. **引导用户**：内容与范围（多 P/合集/问题回答/页面范围）+ 复检档位与预算（超阈值必现预算卡）+ 凭据需求（cookie）。
-6. **获得授权**：用户确认后开工（首次/大额/高风控必须确认；小额自动档按 config）。
-7. **执行**：`run`/`scan` → 产物三件套 + `assets/` + `recheck_report.json`。
-8. **复检核查**：核对 `recheck_report.json`（档位/覆盖/同源/不确定项）与 `source`/`provenance`/`quality_hint`；必要时抽帧补漏。
-9. **撰写报告 + 收工总结与输出核验**：按「报告规则 R1-R13」成稿；按用户选择的格式交付（`run` 已自动导出非 md 格式）；交付前运行 `python scripts/report_check.py <报告> --content <content.txt>`（结构/编号/自测/乱码/术语一键自检）并核对产物（文件齐全/字段/命名/glossary 校验），向用户汇报摘要。若启用内建知识库，深度报告覆盖基线后执行 `python scripts/el.py kb index "<产物目录>"`（批量合集用 `kb build <根目录>`）。
+4. **切换适配器与参数**：按平台特性（cookie/代理/缓速）与需求（`search`/`scan`/`run`、`--pages`/`--all`）选定。
+5. **范围与成本确认（按需）**：抓取/报告模式才问内容范围、复检档位/预算、凭据；搜索/KB-only 可跳过。超阈值必现预算卡。
+6. **获得授权**：低成本只读可直接执行；抓取/转写/复检/大额/高风控前确认；用户可随时停止。
+7. **执行**：`search`/`scan`/`run` → 候选或产物；完成当前阶段即可停，不必进入报告。
+8. **复检（可选）**：报告或用户要求时才执行；核对 `recheck_report`（档位/覆盖/同源/不确定项）；跳过时标注未复检。
+9. **按需输出**：
+   - 搜索：返回候选，结束；
+   - 抓取：返回产物路径/来源/质量提示，结束；
+   - 报告：按 R1–R13 成稿 + `report_check` + 用户选择的格式；
+   - 知识库：入库/检索/术语反哺（见「知识库与术语反哺」）；
+   - 收尾：汇总产物/覆盖/预算/不确定项；可随时停止。
 
 ### 平台定位与内容获取
 
@@ -103,6 +124,17 @@ python scripts/el.py run <链接> --budget 1.5           # 本次运行复检金
 - 批量：失败不中断，汇总增量写入，`--resume` 断点续跑；
 - 抽帧供读图复检（agent 执行时）：`python scripts/el.py frames <视频> --range "起-止" --fps 1 --out <目录>`。
 
+### 知识库与术语反哺（可选）
+
+内置 KB 是 `bilibili-to-wiki` 入库链路的**轻量本地版**：SQLite 索引 + 关键词检索；完整 wiki（llm-wiki digest/实体/主题/图谱）仍交给 `bilibili-to-wiki`。
+
+- **首次选择**：`el.py onboard` ⑤ 询问是否启用；确认后 `el.py onboard --kb on|off` 写入 `config.kb.enabled` + `config.kb.asked`。`asked=true` 后不再重复询问；`enabled=false` 时 `run` 不自动索引，但仍可手动 `kb build/search`。
+- **入库**：`run` 自动索引基线；深度报告覆盖后 `el.py kb index "<产物目录>"`；批量/既有笔记 `el.py kb build "<学习笔记根目录>"`（默认 prune）；必要时 `kb rebuild`。
+- **检索**：`el.py kb search "<关键词>" [--platform ...] [--author ...] [--kind ...] [--since YYYY-MM-DD]`；返回 snippet/路径，不触发抓取。
+- **术语反哺**：入库前对 Whisper/长文执行 `glossary.py clean "<content.txt>" --out "<tmp>/corrected.txt"`（存疑清单交用户确认）；`glossary.py alias/add` 沉淀；完整 wiki 用 `glossary.py absorb "<llm-wiki/wiki>"`；报告 R11 继续沉淀术语。
+- **未启用时**：KB 检索/入库前先询问是否重新开启；不要静默抓取或假装有结果。
+- **停止点**：入库/检索/术语沉淀完成即可结束，不强制出报告。
+
 ### 自进化：无适配器平台
 
 当输入的 URL **没有被任何适配器匹配**时（路线表内的平台由项目按里程碑接入；名单外平台走本流程）：
@@ -114,7 +146,9 @@ python scripts/el.py run <链接> --budget 1.5           # 本次运行复检金
 
 > CLI 行为：`run`/`scan` 遇到**未识别 URL** 会直接给出本流程提示（不再兜底成 B 站名称搜索）；`python scripts/el.py platforms` 可查当前已注册名单。
 
-### 报告规则（R1-R13）
+### 报告规则（R1–R13，仅报告模式）
+
+> 仅在用户选择「报告」模式时执行；搜索/抓取/入库模式不需要 R1–R13，可在此前停止。
 
 读取产物目录中的三件套，补全 `report_template.md` → 另存为 `<标题>学习报告.md`。**以下为硬性规则**：
 
@@ -157,6 +191,8 @@ python scripts/el.py run <链接> --budget 1.5           # 本次运行复检金
 - 合集：`<out_dir>/<作者>/<标题> 合集/`（`P01…` 子目录 + 汇总 `content_info.json` + `<标题> 合集学习报告.md` 基线）；
 - 交付前完成 R11 的 glossary 校验；向用户汇报报告摘要（覆盖知识点数/来源/路径），有【画面补充】【画面校正】或未复检区间时一并说明（R13）；
 - timeline 产物含 `recheck_report.json`（档位/评分理由/预算/同源校验/交叉比对/复检明细与不确定项），交付前核对。
+- **非报告模式**：只搜索/抓取时交付候选或产物即可，不进入 R1–R13；不强制生成/深化报告。
+- **知识库模式**：启用 KB 时，报告深化后 `el.py kb index "<产物目录>"`（批量 `kb build "<根目录>"`）；`kb search` 验证入库；术语用 `glossary.py check/add`；完整 wiki 走 `bilibili-to-wiki`。
 
 ### 注意事项
 
@@ -192,7 +228,7 @@ python scripts/el.py run <链接> --budget 1.5           # 本次运行复检金
 
 ### A. 自动环境检查
 
-先运行 `python scripts/el.py doctor`（或 `el.py onboard`），向用户汇总：依赖（faster-whisper / yt-dlp / playwright）、GPU、whisper 模型缓存、vision、cookie、out_dir。
+先运行 `python scripts/el.py doctor`（或 `el.py onboard`），向用户汇总：依赖（faster-whisper / yt-dlp / playwright）、GPU、whisper 模型缓存、vision、cookie、out_dir，以及 `onboard --json` 的 `kb_enabled/kb_asked`（未询问时在 B⑤ 询问）。
 （doctor 的 cookie 为逐平台状态：B 站真实探针；知乎/微博/抖音按文件龄期标「未验证/过期风险」，不要当成已登录。）
 
 ### 安装（可选，任意 harness）
@@ -211,7 +247,7 @@ python scripts/el.py setup --out "D:/学习笔记" --yes --no-kb
 
 `setup` 会写配置并完成引导置位；无显示环境可用 `el.py cookie <p> --import cookies.txt` 导入登录态。
 
-### B. 五项确认点（必须逐项向用户输出并确认）
+### B. 六项确认点（必须逐项向用户输出并确认）
 
 1. **产出目录（硬性，必须由用户自选）**
    - 建议新建一个总文件夹（如「学习笔记」）；**未配置 `out_dir` 时 `el.py run` 会拒绝运行**——不要替用户决定路径，也不要有默认路径；
@@ -224,15 +260,20 @@ python scripts/el.py setup --out "D:/学习笔记" --yes --no-kb
      `faster-whisper`（Whisper 转写；时间线平台需要）｜ `yt-dlp`（YouTube/抖音）｜ `playwright`（cookie 一键导出 / browserfetch 平台）｜ `vision`（多模态画面复检，配置后启用）；
    - 推荐全部安装；装不了的按低配模式使用（见「注意事项 · 低配模式」）。
 4. **使用说明总结（用途 + 典型用法 + 产物）**
-   - 用途：多平台学习内容 → 中文详解学习报告（12 平台，见「介绍」表）；
-   - 典型用法：`el.py run <链接> [--all/--pages/--model/--budget]`、`el.py scan <列表链接>`、`el.py report/export`；
-   - 产物：三件套 + 基线 `<标题>学习报告.md` + `assets/`；timeline 另有 `recheck_report.json`；报告规则见「正常调用工作流 · 报告规则」。
-5. **术语库（可选填塞 + 自动反哺告知 + 配套推荐）**
-   - 询问用户是否愿意填入自己的常用术语（领域/项目名词）→ 逐条 `python scripts/glossary.py add "<术语>" "<解释>"`（可选）；
-   - **告知自动反哺机制**：每次转写按勘误库筛验术语名（画面校正自动沉淀别名）；报告写作沉淀新术语；知识库 `absorb` 吸收——术语库随使用逐渐丰富；
-   - 推荐配套 skill `bilibili-to-wiki`（个人知识库填充接口，已适配本技能产物：任意支持平台链接 → 知识库）。
+   - 用途：多平台内容搜索/抓取/报告/知识库（12 平台，见「介绍」表）；报告只是其中一种模式；
+   - 典型用法：`el.py search/scan`、`el.py run <链接> [--all/--pages/--model/--budget]`、`el.py report/export`、`el.py kb search`；
+   - 产物：三件套 + 基线 `<标题>学习报告.md` + `assets/`；timeline 另有 `recheck_report.json`；报告规则见「报告规则（仅报告模式）」。
+5. **内建知识库（可选；必须询问并解释）**
+   - 用途：把学习报告/正文索引进本地 SQLite；`kb search` 按关键词/平台/作者/形态/日期检索；`run` 自动索引基线；深度报告 `kb index`；`kb build` 建库并清理失效记录；`kb rebuild` 清空重建。
+   - 边界：这是 `bilibili-to-wiki` 入库链路的轻量本地版，不做 llm-wiki digest/实体/主题/图谱；完整 wiki 交给 `bilibili-to-wiki`。
+   - 询问用户是否启用；确认后执行 `python scripts/el.py onboard --kb on|off`（写 `config.kb.enabled` + `config.kb.asked`；`asked=true` 后不再问）。
+   - 若需要：开启并执行 `kb build "<学习笔记根目录>"` 建既有库；后续 `run` 自动索引；检索 `kb search "<关键词>" [--platform ...] [--since ...]`。
+   - 若不需要：`--kb off` 写特征位 `enabled=false`；`run` 不自动索引，但仍可手动 `kb build/search`；KB 检索请求先询问是否重新开启。
 
-> 知识库（可选）：由 `el.py setup` 询问，不属于 onboard 五项必答；`run` 自动索引基线，深度报告完成后执行 `kb index <目录>`；批量/清理用 `kb build <根目录>`（默认 prune）。
+6. **术语库（可选填塞 + 自动反哺告知 + 配套推荐）**
+   - 询问用户是否愿意填入自己的常用术语（领域/项目名词）→ 逐条 `python scripts/glossary.py add "<术语>" "<解释>"`（可选）；
+   - **告知自动反哺机制**：每次转写按勘误库筛验术语名（画面校正自动沉淀别名）；报告写作沉淀新术语；`glossary.py clean` 做入库前勘误；完整 wiki 用 `glossary.py absorb "<llm-wiki/wiki>"`；
+   - 推荐配套 skill `bilibili-to-wiki`（内容入库编排：本 skill 抓取 → glossary clean → llm-wiki digest → absorb → 图谱）。
 
 ### C. 配置要点（引导时解释；按用户选择写入 config）
 
@@ -242,6 +283,7 @@ python scripts/el.py setup --out "D:/学习笔记" --yes --no-kb
   - **预算闸门**：预估金额超过免打扰阈值（`recheck.auto_approve_amount`，默认 0.3）或超长视频（`confirm_over_sec`）时展示预算卡（完整档2 / 帽内尽力 / 降档1）；可用 `--budget <金额>` 设本次运行复检总上限、`--yes-recheck` 预授权；
   - 未配置 vision 或调用失败时：档位复检自动跳过/降级（异常窗口记录后继续；同源校验不受影响），不阻塞原流程。
 - **VAD 策略**：长视频（≥ `vad_long_sec`，默认 1800 秒）默认禁用 VAD；`--vad` 手动开启、`--no-vad` 强制关闭。
+- **内建知识库（可选）**：`config.kb.enabled` 是功能位，`config.kb.asked` 是已询问位；`onboard --kb on|off` 记录选择。开启后 `run` 自动索引基线，深度报告后 `kb index <目录>`，批量 `kb build <根目录>`（默认 prune）；`kb search` 检索；完整 wiki（llm-wiki digest/图谱）交给 `bilibili-to-wiki`。
 - **需要 cookie 的平台（知乎 / B 站 / 微博 / 抖音）**：优先用内置导出器
   `python scripts/el.py cookie zhihu|bilibili`（等价入口 `scripts/cookie_export.py`；Playwright + 系统 Edge/Chrome，首次在窗口内登录一次；需 `pip install playwright`）；
   也可手动把浏览器的 cookie 整行写入 `scripts/.zhihu_cookie` / `scripts/.bili_cookie`。cookie 失效时适配器会给出明确提示。
@@ -249,10 +291,11 @@ python scripts/el.py setup --out "D:/学习笔记" --yes --no-kb
 
 ### D. 置位（引导完成）
 
-五项确认全部完成后，运行：
+六项确认全部完成后，运行：
 
 ```bash
-python scripts/el.py onboard --complete
+python scripts/el.py onboard --kb on|off   # 先确认是否启用内建知识库
+python scripts/el.py onboard --complete    # 再置位
 ```
 
 → 标签位① 与标签位② 同步 `1 → 0`（SKILL.md）+ `config.onboarded = true`；此后不再触发引导，直接进入「正常调用工作流」。

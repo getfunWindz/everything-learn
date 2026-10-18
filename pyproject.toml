@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "everything-learn"
-version = "0.4.22"
+version = "0.4.23"
 description = "多平台学习内容 → 中文深度报告（CLI，本地优先）"
 readme = "README.md"
 requires-python = ">=3.10"
