@@ -213,6 +213,35 @@ def _scan_adapter(input_str):
     return registry.match_url(input_str) or registry.sniff_url(input_str)
 
 
+def cmd_kb(args):
+    """内建知识库：建库/搜索/统计"""
+    import kb
+    action = getattr(args, "action", "")
+    db = getattr(args, "db", None)
+    if action == "build":
+        n = kb.index_root(args.path, db_path=db)
+        print(f"已索引 {n} 条（{kb.stats(db_path=db)['db']}）")
+    elif action == "search":
+        rows = kb.search(args.query, limit=args.limit, db_path=db)
+        if not rows:
+            print("未找到（先 el.py kb build <学习笔记根目录>）", file=sys.stderr)
+            sys.exit(1)
+        for i, r in enumerate(rows, 1):
+            print(f"{i}. {r['title']} — {r['author']}（{r['chars']} 字）")
+            print(f"   {r['path']}")
+    else:
+        st = kb.stats(db_path=db)
+        print(f"知识库：{st['docs']} 条 / {st['chars']} 字 → {st['db']}")
+
+
+def cmd_setup(args, client: ApiClient = None):
+    """一键初始化（依赖/目录/知识库/登录）"""
+    import setup as setup_mod
+    kb = getattr(args, "kb", None)
+    sys.exit(setup_mod.run(out=args.out, install=args.install, login=args.login,
+                           kb=kb, yes=getattr(args, "yes", False)))
+
+
 def cmd_onboard(args, client: ApiClient = None):
     """首次引导门：状态/完成/重置（SKILL.md 标签位 + config.onboarded，2026-10-17）"""
     import onboard as ob
@@ -775,11 +804,45 @@ def main(argv=None):
         if not args.platform:
             print("用法：el.py cookie <platform>（--list 查看可用平台）", file=sys.stderr)
             sys.exit(2)
+        if getattr(args, "cookie_string", None) or getattr(args, "import_file", None):
+            if args.cookie_string:
+                text = args.cookie_string
+            elif args.import_file == "-":
+                text = sys.stdin.read()
+            else:
+                with open(args.import_file, encoding="utf-8") as f:
+                    text = f.read()
+            sys.exit(cookie_export.import_cookie(args.platform, text))
         if getattr(args, "auto", False):
             ok = cookie_export.auto_export(args.platform, args.browser, interactive=True,
                                            timeout=args.timeout)
             sys.exit(0 if ok else 1)
         sys.exit(cookie_export.export(args.platform, args.browser, args.timeout))
+    kb = sub.add_parser("kb", help="内建知识库（建库/搜索/统计）")
+    kb_sub = kb.add_subparsers(dest="action", required=True)
+    kb_b = kb_sub.add_parser("build", help="递归索引学习笔记目录")
+    kb_b.add_argument("path")
+    kb_b.add_argument("--db", default=None)
+    kb_s = kb_sub.add_parser("search", help="关键词搜索")
+    kb_s.add_argument("query")
+    kb_s.add_argument("--limit", type=int, default=10)
+    kb_s.add_argument("--db", default=None)
+    kb_st = kb_sub.add_parser("stats", help="统计")
+    kb_st.add_argument("--db", default=None)
+    kb.set_defaults(func=cmd_kb)
+
+    st = sub.add_parser("setup", help="一键初始化（依赖/报告目录/知识库/登录）")
+    st = sub.add_parser("setup", help="一键初始化（依赖/报告目录/知识库/登录）")
+    st.add_argument("--out", default=None, help="报告根目录（不传则交互询问）")
+    st.add_argument("--install", action="store_true", help="同意安装缺失的可选依赖")
+    st.add_argument("--login", action="store_true", help="尝试自动恢复各平台登录态")
+    st.add_argument("--yes", action="store_true", help="非交互：使用默认目录/不建知识库")
+    g = st.add_mutually_exclusive_group()
+    g.add_argument("--kb", dest="kb", action="store_true", help="启用内建知识库")
+    g.add_argument("--no-kb", dest="kb", action="store_false", help="不启用知识库")
+    st.set_defaults(kb=None)
+    st.set_defaults(func=cmd_setup)
+
     ck = sub.add_parser("cookie", help="一键导出平台 cookie（Playwright + 系统浏览器）")
     ck.add_argument("platform", nargs="?", help="平台标识（如 zhihu/bilibili）")
     ck.add_argument("--list", action="store_true", help="列出已声明导出的平台")
@@ -787,6 +850,9 @@ def main(argv=None):
     ck.add_argument("--timeout", type=int, default=300, help="等待登录秒数（默认 300）")
     ck.add_argument("--auto", action="store_true",
                     help="先 headless 复用已登录 profile；未登录才打开窗口")
+    ck.add_argument("--import", dest="import_file", metavar="FILE",
+                    help="从文件导入 cookie（k=v;… / Netscape / JSON；- 表示 stdin）")
+    ck.add_argument("--cookie-string", default=None, help="直接传入 cookie 字符串导入")
     ck.set_defaults(func=_cmd_cookie)
     args = p.parse_args(argv)
     args.func(args)

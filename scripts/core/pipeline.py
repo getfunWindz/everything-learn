@@ -492,6 +492,18 @@ def _with_auth_retry(platform: str, fn, adapter=None):
         raise
 
 
+def _kb_index(out_dir: str) -> None:
+    """成功后按配置索引到内建知识库；任何异常不影响主流程"""
+    try:
+        from core import config as _cfg
+        if not (_cfg.load_config().get("kb") or {}).get("enabled"):
+            return
+        import kb
+        kb.index_dir(out_dir)
+    except Exception:
+        pass
+
+
 # ---------------- 单 item 处理 ----------------
 
 
@@ -909,7 +921,9 @@ def run_batch(adapter, refs, root_meta, opts: RunOptions) -> dict:
         label = str(ref.sub_id or "1")
         print(f"[{i}/{len(refs)}] 处理 P{label}（{ref.title[:20]}）……")
         t0 = time.time()
-        status, src, n, _, err = process_item(adapter, ref, base, opts, single=False)
+        status, src, n, _out, err = process_item(adapter, ref, base, opts, single=False)
+        if status == "ok":
+            _kb_index(_out)
         elapsed = time.time() - t0
         if i < len(refs):
             time.sleep(opts.interval)  # 请求间隔限流
@@ -1007,7 +1021,10 @@ def run_input(input_str: str, opts: RunOptions, adapter=None, client=None):
     except Exception as e:
         raise PipelineError(f"获取元信息失败：{str(e)[:120]}")
     if len(refs) == 1 and not opts.pages and not opts.all_:
-        return process_item(a, refs[0], os.path.abspath(opts.out_root), opts, single=True)
+        res = process_item(a, refs[0], os.path.abspath(opts.out_root), opts, single=True)
+        if res and res[0] == "ok":
+            _kb_index(res[3])
+        return res
     return run_batch(a, refs, root_meta, opts)
 
 
