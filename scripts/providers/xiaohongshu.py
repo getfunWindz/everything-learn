@@ -5,7 +5,9 @@ note 页 SSR __INITIAL_STATE__.noteDetailMap；图/视频 CDN 直链可下。缓
 账号级能力（主页/收藏）未来里程碑，见 docs/plans/2026-10-13-m10-xiaohongshu.md。
 """
 import json
+import os
 import re
+import time
 from datetime import datetime
 from urllib.parse import parse_qs, urlparse
 
@@ -34,6 +36,47 @@ def extract_share_url(text: str) -> str:
     return m.group(0) if m else ""
 _TOKEN_IN_EXPLORE = r"/explore/{nid}\?xsec_token=([A-Za-z0-9_\-=]+)"
 _EXPLORE_URL = "https://www.xiaohongshu.com/explore"
+# token 缓存（成功取数后写入；无 token 链接优先复用，避免只能依赖随机 explore 流）
+_TOKEN_CACHE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            "cache", "xhs_tokens.json")
+_TOKEN_TTL = 6 * 3600          # 保守 6h；失效会自动回落兜底并给可读提示
+
+
+def _load_token_cache() -> dict:
+    try:
+        with open(_TOKEN_CACHE, encoding="utf-8") as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_token_cache(cache: dict) -> None:
+    try:
+        os.makedirs(os.path.dirname(_TOKEN_CACHE), exist_ok=True)
+        tmp = _TOKEN_CACHE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(cache, f, ensure_ascii=False)
+        os.replace(tmp, _TOKEN_CACHE)
+    except OSError:
+        pass
+
+
+def _cached_token(note_id: str) -> str:
+    ent = _load_token_cache().get(note_id) or {}
+    try:
+        fresh = (time.time() - float(ent.get("ts") or 0)) <= _TOKEN_TTL
+    except (TypeError, ValueError):
+        fresh = False
+    return ent.get("token") or "" if fresh else ""
+
+
+def _remember_token(note_id: str, token: str) -> None:
+    if not note_id or not token:
+        return
+    cache = _load_token_cache()
+    cache[note_id] = {"token": token, "ts": time.time()}
+    _save_token_cache(cache)
 
 
 class XhsError(ValueError):
@@ -266,7 +309,7 @@ class XiaohongshuAdapter:
         return r.text
 
     def _harvest_token(self, note_id: str):
-        """explore 兜底：加载访客页，找目标笔记的现取 token（实验性，命中率低）"""
+        """explore 兜底：先 requests 访客页，再登录态浏览器滚动收集卡片 token"""
         pat = _TOKEN_IN_EXPLORE.format(nid=re.escape(note_id))
         for _ in range(max(0, self.harvest_loads)):
             try:
@@ -276,6 +319,47 @@ class XiaohongshuAdapter:
             m = re.search(pat, (r.text or "").replace("&amp;", "&"))
             if m:
                 return m.group(1)
+        return self._harvest_token_browser(note_id)
+
+    # 浏览器 explore 流滚动次数（虚拟列表；实测 20s 可收集 ~95 个 token）
+    harvest_scrolls = 3
+
+    @staticmethod
+    def _token_from_links(hrefs, note_id: str):
+        pat = _TOKEN_IN_EXPLORE.format(nid=re.escape(note_id))
+        for h in hrefs or []:
+            m = re.search(pat, (h or "").replace("&amp;", "&"))
+            if m:
+                return m.group(1)
+        return None
+
+    def _harvest_token_browser(self, note_id: str):
+        """登录态浏览器 explore：滚动虚拟列表，按目标 note_id 命中 token
+
+        实测（2026-10-18）：无 token 的笔记页在登录浏览器仍 404；但 explore
+        流的卡片链接带现取 token（mouse.wheel 触发加载，window.scrollTo 无效）。
+        任何异常/未登录 → None（保留上层可读错误）。"""
+        try:
+            from core import browserfetch
+        except Exception:
+            return None
+        js = ("(() => [...document.querySelectorAll('a[href*=\"/explore/\"]')]"
+              ".map(a => a.getAttribute('href'))"
+              ".filter(h => h && h.includes('xsec_token')))()")
+        try:
+            with browserfetch.BrowserSession("xiaohongshu") as s:
+                s.goto(_EXPLORE_URL)
+                s.pause(3000)
+                for i in range(max(0, self.harvest_scrolls) + 1):
+                    token = self._token_from_links(s.evaluate(js), note_id)
+                    if token:
+                        return token
+                    if i < self.harvest_scrolls:
+                        s.page.mouse.move(600, 500)
+                        s.page.mouse.wheel(0, 1600)
+                        s.pause(2500)
+        except Exception:
+            return None
         return None
 
     def _fetch_and_parse(self, ref, note_id: str, token: str) -> dict:
@@ -286,6 +370,7 @@ class XiaohongshuAdapter:
             raise XhsError("笔记页面无内容（可能已删除）")
         data = parse_note(values[0]["note"])
         self._notes[ref.item_id] = data
+        _remember_token(note_id, token)
         return data
 
     def _data(self, ref) -> dict:
@@ -299,7 +384,14 @@ class XiaohongshuAdapter:
                 return self._fetch_and_parse(ref, nid, token)
             except XhsError as e:
                 last = e
-        # token 缺失或失效 → explore 兜底（懒触发：不浪费请求）
+        # 链接无 token 或已失效 → 先复用缓存 token（确定性路径）
+        cached = _cached_token(nid)
+        if cached and cached != token:
+            try:
+                return self._fetch_and_parse(ref, nid, cached)
+            except XhsError as e:
+                last = e
+        # 最后才走 explore 兜底（requests → 浏览器滚动，实验性）
         harvested = self._harvest_token(nid)
         if harvested:
             try:

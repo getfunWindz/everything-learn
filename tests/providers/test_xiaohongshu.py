@@ -7,6 +7,13 @@ from providers.xiaohongshu import XiaohongshuAdapter, parse_user_notes, parse_co
 from tests.contract.harness import run_contract
 
 
+@pytest.fixture(autouse=True)
+def _isolate_token_cache(tmp_path, monkeypatch):
+    """token 缓存为进程级文件：每个用例隔离到 tmp，避免污染真实缓存"""
+    import providers.xiaohongshu as x
+    monkeypatch.setattr(x, "_TOKEN_CACHE", str(tmp_path / "xhs_tokens.json"))
+
+
 def test_match_forms():
     a = XiaohongshuAdapter(session=object())
     assert a.match("https://www.xiaohongshu.com/explore/6acde40b000000001b02c980?xsec_token=ABC&xsec_source=pc_share")
@@ -156,8 +163,11 @@ def test_missing_token_harvests_from_explore():
     assert "xsec_token=FAKETOKENXHS=" in s.calls[-1]               # 用现取 token 重试
 
 
-def test_sec404_readable():
+def test_sec404_readable(monkeypatch):
     bad_url = "https://www.xiaohongshu.com/404?source=/404/sec_x"
+    # 离线隔离：requests 兜底失败后不要启动真实浏览器
+    monkeypatch.setattr(XiaohongshuAdapter, "_harvest_token_browser",
+                        lambda self, nid: None)
     a = XiaohongshuAdapter(session=_SeqSession([
         _Resp(text="<html></html>", url=bad_url),   # note 请求 → sec404
         _Resp(text="<html></html>", url=bad_url),   # explore 1
@@ -364,3 +374,131 @@ def test_match_and_resolve_share_text_with_direct_link():
     ref = a.resolve(text)
     assert ref.item_id == "xhs-6acde40b000000001b02c980"
     assert ref.extra["token"] == "ABC123="
+
+
+class _DeadSession:
+    """requests 路径全部失败（模拟未登录/网络异常）"""
+    headers = {}
+
+    def get(self, *a, **k):
+        import requests
+        raise requests.exceptions.ConnectionError("down")
+
+
+def test_harvest_token_requests_hit_skips_browser(monkeypatch):
+    """requests 访客页已含 token → 不启动浏览器"""
+    import providers.xiaohongshu as x
+    nid = "c" * 24
+    html = f'<a href="/explore/{nid}?xsec_token=REQTOK&amp;xsec_source=pc_feed">'
+    a = x.XiaohongshuAdapter(session=_SeqSession([_Resp(text=html)]))
+    monkeypatch.setattr(x.browserfetch, "BrowserSession",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("不应启动浏览器")))
+    assert a._harvest_token(nid) == "REQTOK"
+
+
+def test_harvest_token_browser_scroll_hit(monkeypatch):
+    """requests 未命中 → 登录态浏览器滚动 explore 流，按 note_id 命中 token"""
+    import types
+    import providers.xiaohongshu as x
+    nid = "a" * 24
+    other = "/explore/" + "b" * 24 + "?xsec_token=OTHER&xsec_source=pc_feed"
+    target = f"/explore/{nid}?xsec_token=TOK123&xsec_source=pc_feed"
+
+    class Page:
+        mouse = types.SimpleNamespace(move=lambda *a: None, wheel=lambda *a: None)
+
+    class BS:
+        evals = 0
+        def __init__(self, *a, **k): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def goto(self, url, **k): pass
+        def pause(self, ms): pass
+        def evaluate(self, js):
+            BS.evals += 1
+            return [other] if BS.evals == 1 else [other, target]
+        page = Page()
+
+    monkeypatch.setattr(x.browserfetch, "BrowserSession", BS)
+    a = x.XiaohongshuAdapter(session=_DeadSession())
+    assert a._harvest_token(nid) == "TOK123"
+    assert BS.evals == 2                       # 首屏 + 滚动一次
+
+
+def test_harvest_token_browser_gives_up_after_scrolls(monkeypatch):
+    """滚动上限内未命中 → None（evaluate 次数受控，不无限加载）"""
+    import types
+    import providers.xiaohongshu as x
+
+    class Page:
+        mouse = types.SimpleNamespace(move=lambda *a: None, wheel=lambda *a: None)
+
+    class BS:
+        evals = 0
+        def __init__(self, *a, **k): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def goto(self, url, **k): pass
+        def pause(self, ms): pass
+        def evaluate(self, js):
+            BS.evals += 1
+            return ["/explore/" + "b" * 24 + "?xsec_token=OTHER"]
+        page = Page()
+
+    monkeypatch.setattr(x.browserfetch, "BrowserSession", BS)
+    a = x.XiaohongshuAdapter(session=_DeadSession())
+    assert a._harvest_token("d" * 24) is None
+    assert BS.evals == a.harvest_scrolls + 1
+
+
+def _write_token_cache(path, nid, token, age_sec=0):
+    import time
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({nid: {"token": token, "ts": time.time() - age_sec}}, f)
+
+
+def test_token_cache_saved_after_success(tmp_path, monkeypatch):
+    """成功取数后写 token 缓存（供后续无 token 链接复用）"""
+    import providers.xiaohongshu as x
+    cache = str(tmp_path / "tok.json")
+    monkeypatch.setattr(x, "_TOKEN_CACHE", cache)
+    nid = "a" * 24
+    a = x.XiaohongshuAdapter(session=_SeqSession([
+        _Resp(text=_note_html(_state()), url=f"https://www.xiaohongshu.com/explore/{nid}")]))
+    ref = a.resolve(f"https://www.xiaohongshu.com/explore/{nid}?xsec_token=T1")
+    assert a.fetch_content(ref).status == "ok"
+    saved = json.load(open(cache, encoding="utf-8"))
+    assert saved[nid]["token"] == "T1"
+
+
+def test_cached_token_used_when_link_missing_token(tmp_path, monkeypatch):
+    """无 token 链接：优先复用缓存 token（确定性路径，不依赖 explore 流）"""
+    import providers.xiaohongshu as x
+    cache = str(tmp_path / "tok.json")
+    monkeypatch.setattr(x, "_TOKEN_CACHE", cache)
+    nid = "b" * 24
+    _write_token_cache(cache, nid, "CACHED")
+    monkeypatch.setattr(x.XiaohongshuAdapter, "_harvest_token_browser",
+                        lambda self, n: (_ for _ in ()).throw(AssertionError("不应兜底")))
+    s = _SeqSession([_Resp(text=_note_html(_state()),
+                           url=f"https://www.xiaohongshu.com/explore/{nid}")])
+    a = x.XiaohongshuAdapter(session=s)
+    ref = a.resolve(f"https://www.xiaohongshu.com/explore/{nid}")   # 无 token
+    assert a.fetch_content(ref).status == "ok"
+    assert "xsec_token=CACHED" in s.calls[0]
+
+
+def test_expired_token_cache_ignored(tmp_path, monkeypatch):
+    """过期缓存不采信 → 走兜底；兜底失败给可读错误"""
+    import providers.xiaohongshu as x
+    cache = str(tmp_path / "tok.json")
+    monkeypatch.setattr(x, "_TOKEN_CACHE", cache)
+    nid = "c" * 24
+    _write_token_cache(cache, nid, "OLD", age_sec=x._TOKEN_TTL + 60)
+    monkeypatch.setattr(x.XiaohongshuAdapter, "_harvest_token_browser", lambda self, n: None)
+    a = x.XiaohongshuAdapter(session=_SeqSession([
+        _Resp(text="<html></html>"), _Resp(text="<html></html>")]))
+    ref = a.resolve(f"https://www.xiaohongshu.com/explore/{nid}")
+    res = a.fetch_content(ref)
+    assert res.status == "empty" and "xsec_token" in res.reason
