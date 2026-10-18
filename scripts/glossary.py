@@ -188,11 +188,24 @@ def merge_terms(glossary: dict, new_terms: dict) -> dict:
     return merged
 
 
+_LATIN_TERM = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._+\-/]*$")
+
+
+def _term_pattern(term: str):
+    """术语匹配器：英文/数字术语按词边界（允许复数 s/es），中文按子串
+
+    修复（2026-10-18）：纯子串匹配会让 pi 命中 pipeline、KDA 命中 backdata，
+    导致「已提及/未注释」误报；英文术语必须独立成词。"""
+    t = (term or "").strip()
+    esc = re.escape(t)
+    if _LATIN_TERM.match(t):
+        return re.compile(rf"(?<![A-Za-z0-9]){esc}(?:s|es)?(?![A-Za-z0-9])", re.IGNORECASE)
+    return re.compile(esc, re.IGNORECASE)
+
+
 def _term_in_subtitle(term: str, subtitle_text: str) -> bool:
-    """术语是否出现在字幕中（大小写不敏感，容错空格）"""
-    t = term.strip().lower()
-    s = subtitle_text.lower()
-    return t in s
+    """术语是否出现在字幕中（英文按词边界，大小写不敏感）"""
+    return bool(_term_pattern(term).search(subtitle_text or ""))
 
 
 def check_coverage(report_text: str, subtitle_text: str, glossary: dict = None) -> list:
@@ -202,14 +215,14 @@ def check_coverage(report_text: str, subtitle_text: str, glossary: dict = None) 
     for term in glossary:
         if not _term_in_subtitle(term, subtitle_text):
             continue
-        if not re.search(re.escape(term), report_text, re.IGNORECASE):
+        if not _term_pattern(term).search(report_text):
             missing.append(term)
     return missing
 
 
 def _annotation_sections(report_text: str) -> str:
     """提取报告中所有「名词注释」小节的内容（拼接为一个文本）"""
-    parts = re.split(r"(?m)^\*\*名词注释\*\*", report_text)
+    parts = re.split(r"(?m)^[-*]?\s*\*\*名词注释\*\*", report_text)
     if len(parts) < 2:
         return ""
     chunks = []

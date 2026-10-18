@@ -101,3 +101,29 @@ def test_absorb_corrections_keeps_existing_alias(monkeypatch):
     g = dict(SEED)
     g["_aliases"] = {"KV Catch": {"correct": "KV Cache", "type": "stt_error"}}
     assert glossary.absorb_corrections([("KV Catch", "KV Cache")], g) == {}
+
+
+def test_term_match_latin_boundaries():
+    """英文术语按词边界匹配：pi 不得命中 pipeline，KDA 不得命中 backdata"""
+    from glossary import _term_in_subtitle
+    assert not _term_in_subtitle("pi", "the machine-learning pipeline is long")
+    assert not _term_in_subtitle("KDA", "backdata is not a term")
+    assert _term_in_subtitle("pi", "策略记为 pi(a|s)")
+    assert _term_in_subtitle("embedding", "word embeddings are dense")
+    assert _term_in_subtitle("softmax", "SOFTMAX 输出概率")
+    assert _term_in_subtitle("超参数", "我们选择超参数")           # 中文仍按子串
+
+
+def test_check_coverage_ignores_latin_substrings():
+    """覆盖校验同一规则：正文只有 pipeline 时，不应把 pi 视为已提及"""
+    seed = {"pi": "策略符号", "KDA": "线性注意力"}
+    report = "这里只讨论 pipeline 与 backdata。"
+    subtitle = "策略记为 pi，KDA 是线性注意力。"
+    assert check_coverage(report, subtitle, seed) == ["pi", "KDA"]
+
+
+def test_annotation_sections_accept_bullet_marker():
+    """名词注释允许列表写法（- **名词注释**：），不应因前缀漏检"""
+    report = "- 正文提到 pi。\n- **名词注释**：\n  - **pi**：策略符号 π(a|s)。\n"
+    subtitle = "策略记为 pi。"
+    assert check_annotation(report, subtitle, {"pi": "策略符号"}) == []
