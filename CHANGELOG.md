@@ -2,6 +2,16 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本。
 
+## [0.4.15] - 2026-10-18
+
+### Added
+
+- **`scripts/report_check.py`：R1–R13 交付前结构自检**——sections / garble / placeholder / numbering / point_structure / map / selftest / quotes / glossary 九项检查，fail 非零退出；支持 `--json`。实测 43:50 课件（50 知识点）与 29min 播客（23 知识点）均通过。
+
+### Tests
+
+- **878 项离线测试**（新增 8 项：结构/编号/自测密度/乱码/占位符/术语/CLI）。
+
 ## [0.4.14] - 2026-10-18
 
 ### Fixed

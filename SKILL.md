@@ -64,7 +64,7 @@ python scripts/el.py export <目录> --format html
 6. **获得授权**：用户确认后开工（首次/大额/高风控必须确认；小额自动档按 config）。
 7. **执行**：`run`/`scan` → 产物三件套 + `assets/` + `recheck_report.json`。
 8. **复检核查**：核对 `recheck_report.json`（档位/覆盖/同源/不确定项）与 `source`/`provenance`/`quality_hint`；必要时抽帧补漏。
-9. **撰写报告 + 收工总结与输出核验**：按「报告规则 R1-R13」成稿；按用户选择的格式交付（`run` 已自动导出非 md 格式）；交付前核对产物（文件齐全/字段/命名/glossary 校验），向用户汇报摘要。
+9. **撰写报告 + 收工总结与输出核验**：按「报告规则 R1-R13」成稿；按用户选择的格式交付（`run` 已自动导出非 md 格式）；交付前运行 `python scripts/report_check.py <报告> --content <content.txt>`（结构/编号/自测/乱码/术语一键自检）并核对产物（文件齐全/字段/命名/glossary 校验），向用户汇报摘要。
 
 ### 平台定位与内容获取
 
@@ -145,6 +145,7 @@ python scripts/el.py run <链接> --budget 1.5           # 本次运行复检金
 ### 交付
 
 - 单条：`<out_dir>/<作者>/<标题>[ P##]/<标题>学习报告.md`（`run` 自动生成基线；按用户选择的格式同时导出 `.doc/.docx/.txt`；agent 可覆盖深化；目录不带日期前缀，标题只保留文字/数字/空格）；
+- 交付前自检：`python scripts/report_check.py "<报告.md>" --content "<content.txt>"`（非零退出=有 fail，需修正后再交付）；
 - 合集：`<out_dir>/<作者>/<标题> 合集/`（`P01…` 子目录 + 汇总 `content_info.json` + `<标题> 合集学习报告.md` 基线）；
 - 交付前完成 R11 的 glossary 校验；向用户汇报报告摘要（覆盖知识点数/来源/路径），有【画面补充】【画面校正】或未复检区间时一并说明（R13）；
 - timeline 产物含 `recheck_report.json`（档位/评分理由/预算/同源校验/交叉比对/复检明细与不确定项），交付前核对。
