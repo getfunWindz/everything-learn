@@ -242,7 +242,7 @@ def test_process_item_document_flow_ok(tmp_path):
                                                 RunOptions(out_root=out), single=True)
     assert (status, src, n, err) == ("ok", "document", 1, "")
     tpl = open(os.path.join(out_dir, "report_template.md"), encoding="utf-8").read()
-    assert "知识地图" in tpl
+    assert "学习地图" in tpl
     cached = cache_mod.get_cached("fake", "X1", "1")
     assert cached["kind"] == "document"
 

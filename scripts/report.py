@@ -4,7 +4,7 @@
 try:
     from version import VERSION
 except Exception:
-    VERSION = "0.4.20"
+    VERSION = "0.4.21"
 
 # 已实现报告骨架的内容形态（M0 timeline；M3 增补 document）
 SUPPORTED_KINDS = {"timeline", "document"}
@@ -31,9 +31,30 @@ def _fmt_uncovered(raw) -> str:
     return "、".join(parts) if parts else "无"
 
 
+def _quality_hint_line(info: dict) -> str:
+    """质量提示行（内容过短/图片为主/低配转写等）；无则空串"""
+    qh = info.get("quality_hint") or {}
+    if isinstance(qh, str) and qh.strip():
+        return "- ⚠️ 内容完整性：" + qh.strip() + chr(10)
+    if isinstance(qh, dict) and qh:
+        reasons_txt = "；".join(qh.get("reasons") or []) or "质量信号偏弱"
+        return ("- ⚠️ 转写质量提示（低配模式）：" + reasons_txt + "；"
+                "建议升级 medium 并补全依赖（详见 content_info.json 的 quality_hint）"
+                + chr(10))
+    tier_note = (info.get("quality") or {}).get("tier_note")
+    if tier_note:
+        return f"- ℹ️ 转写档位提示：{tier_note}\n"
+    return ""
+
+
 def _recheck_section(info: dict) -> str:
     """复检说明小节（T16）：recheck 缺省时也渲染，注明「未记录」"""
     rc = info.get("recheck") or {}
+    if (info.get("kind") or "timeline") == "document" and not rc:
+        # 图文/帖子没有画面/音频层：如实写 n/a，避免引用不存在的 recheck_report.json
+        return ("## 复检说明\n\n"
+                "- 图文内容：无画面/音频复检（n/a）。\n"
+                + _quality_hint_line(info))
     tier = rc.get("effective_tier") or rc.get("tier") or "未记录"
     score = rc.get("score")
     score = "-" if score is None else score
@@ -44,17 +65,7 @@ def _recheck_section(info: dict) -> str:
     same_source = (rc.get("same_source") or {}).get("avg")
     if same_source is None:
         same_source = "未执行"
-    qh = info.get("quality_hint") or {}
-    quality_line = ""
-    if isinstance(qh, str) and qh.strip():
-        quality_line = "- ⚠️ 内容完整性：" + qh.strip() + chr(10)
-    elif isinstance(qh, dict) and qh:
-        reasons_txt = "；".join(qh.get("reasons") or []) or "质量信号偏弱"
-        quality_line = ("- ⚠️ 转写质量提示（低配模式）：" + reasons_txt + "；"
-                        "建议升级 medium 并补全依赖（详见 content_info.json 的 quality_hint）"
-                        + chr(10))
-    elif (info.get("quality") or {}).get("tier_note"):
-        quality_line = (f"- ℹ️ 转写档位提示：{(info.get('quality') or {}).get('tier_note')}\n")
+    quality_line = _quality_hint_line(info)
     return ("## 复检说明\n\n"
             f"- 档位：{tier}（评分 {score}）\n"
             f"- 理由：{reasons}\n"
@@ -92,7 +103,7 @@ def render_template(info: dict) -> str:
 
 <!-- 用 1-3 句话概括视频核心内容 -->
 
-## 知识点全览
+## 学习地图（知识点全览）
 
 <!-- 学习地图：按出现顺序列出本视频全部知识点（编号），如：
 1. PyCharm 安装与 Python 环境配置
@@ -143,7 +154,7 @@ def render_template(info: dict) -> str:
 - [12:34] “原话内容”
 -->
 
-## 学习路径与自测
+## 自测（每 3~5 个知识点一题）
 
 <!-- 学习收获（按知识点维度）+ 自测问题清单（每 3~5 个知识点出一道自测题，检验是否真的学会） -->
 
@@ -171,12 +182,12 @@ def render_document_template(info: dict) -> str:
 
 > 简介：{info['desc'] or '（无）'}
 
-{_recheck_section(info) if info.get('recheck') else ''}
+{_recheck_section(info)}
 ## 一句话总结
 
 <!-- 用 1-3 句话概括文章核心内容 -->
 
-## 知识地图（章节树）
+## 学习地图（知识点全览）
 
 <!-- 按原文章节列出全部知识点（编号），如：
 1. 引言：问题背景
@@ -215,7 +226,7 @@ def render_document_template(info: dict) -> str:
 - （见「小节标题」）“原文内容”
 -->
 
-## 学习路径与自测
+## 自测（每 3~5 个知识点一题）
 
 <!-- 学习收获（按知识点维度）+ 自测问题清单（每 3~5 个知识点出一道自测题，附参考答案位置提示） -->
 
@@ -236,7 +247,8 @@ def render_template_for(kind: str, info: dict) -> str:
         return render_template(info)
     if kind == "document":
         return render_document_template(info)
-    raise NotImplementedError(f"内容形态 {kind} 的报告骨架尚未实现（见 docs/specs 里程碑）")
+    raise NotImplementedError(
+        f"内容形态 {kind} 的报告骨架尚未实现；合集请用 run --all，单条请按 SKILL 报告规则撰写")
 
 
 def render_batch_template(summary: dict) -> str:
@@ -309,7 +321,7 @@ def _segments(items, span_sec=300):
 
 
 def _summary(items) -> str:
-    texts = [i["text"] for i in items if i["text"]][:4]
+    texts = [i["text"] for i in items if i["text"] and not i["text"].startswith("#")][:4]
     s = " ".join(texts)
     s = re.sub(r"\s+", " ", s).strip()
     return (s[:300] + "…") if len(s) > 300 else (s or "（无正文）")
@@ -342,15 +354,16 @@ def render_baseline_report(info: dict, content_text: str) -> str:
            f"| 内容来源 | {info.get('source') or ''} |", "",
            _recheck_section(info), "",
            "## 一句话总结", "", _summary(items), "",
-           "## 知识点全览", ""]
+           "## 学习地图（知识点全览）", ""]
     if is_timeline:
         for n, seg in enumerate(segs, 1):
             first = next((i["text"] for i in seg["items"] if i["text"]), "（无内容）")
             out.append(f"{n}. [{_fmt_hms(seg['start'])}–{_fmt_hms(seg['end'])}] {first[:50]}")
     else:
-        for n, line in enumerate([l for l in (content_text or "").splitlines() if l.strip()][:80], 1):
-            if line.startswith("#"):
-                out.append(f"{n}. {line.lstrip('# ').strip()[:50]}")
+        headings = [l.strip() for l in (content_text or "").splitlines()
+                    if l.strip().startswith("#")]
+        for n, line in enumerate(headings[:80], 1):
+            out.append(f"{n}. {line.lstrip('# ').strip()[:50]}")
     out += ["", "## 知识详解", ""]
     if is_timeline:
         for n, seg in enumerate(segs, 1):
@@ -372,7 +385,8 @@ def render_baseline_report(info: dict, content_text: str) -> str:
             else:
                 out.append(f"- {line}")
         out.append("")
-    quotes = [i for i in items if i["text"] and len(i["text"]) >= 20]
+    quotes = [i for i in items
+              if i["text"] and not i["text"].startswith("#") and len(i["text"]) >= 20]
     quotes = sorted(quotes, key=lambda x: -len(x["text"]))[:5]
     quotes.sort(key=lambda x: (x["start"] is None, x["start"] or 0))
     out += ["## 关键概念 / 术语解释表", "",
@@ -386,7 +400,7 @@ def render_baseline_report(info: dict, content_text: str) -> str:
             out.append(f"- {q['text']}")
     out += ["", "## 原话摘录", ""]
     out += [f"- {q['text']}" for q in quotes[:3]] or ["（无）"]
-    out += ["", "## 学习路径与自测", "",
+    out += ["", "## 自测（每 3~5 个知识点一题）", "",
             "1. 按「知识详解」的分段顺序复述每段主题。",
             "2. 选 3 个你最有兴趣的知识点，各写一句自己的解释。",
             "3. 对照「金句与重要观点」，检查是否有遗漏的结论。", "",

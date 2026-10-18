@@ -54,6 +54,15 @@ def test_good_report_passes():
     assert {c["name"] for c in r["checks"]} >= {"sections", "point_structure", "map", "selftest"}
 
 
+def test_alias_section_names_accepted():
+    """R5/R6 旧称（知识点全览 / 学习路径与自测）也应被识别，
+    避免按 SKILL 字面写标题却被门禁误杀"""
+    alias = (GOOD.replace("## 学习地图（知识点全览）", "## 知识点全览")
+                 .replace("## 自测", "## 学习路径与自测"))
+    r = report_check.check_report(alias)
+    assert r["ok"] is True, [c for c in r["checks"] if c["level"] == "fail"]
+
+
 def test_missing_point_structure_fails():
     bad = GOOD.replace("- **通俗**：B 的通俗解释。\n", "")
     r = report_check.check_report(bad)

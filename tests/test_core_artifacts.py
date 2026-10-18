@@ -38,7 +38,7 @@ def test_write_item_artifacts_document(tmp_path):
     info = build_info(meta, ref, kind="document", source="正文")
     write_item_artifacts(str(tmp_path), info, DocumentContent(blocks=[{"heading": "引言", "text": "正文"}]))
     tpl = (tmp_path / "report_template.md").read_text(encoding="utf-8")
-    assert "知识地图" in tpl and "延伸阅读" in tpl and "原文摘录" in tpl
+    assert "学习地图" in tpl and "延伸阅读" in tpl and "原文摘录" in tpl
     assert "[00:00" not in tpl and "时间轴" not in tpl
 
 
@@ -109,7 +109,7 @@ def test_render_document_template_sections():
     meta = ItemMeta(title="文章", author="答主", published="2024-01-01")
     info = build_info(meta, ref, kind="document", source="正文")
     tpl = render_template_for("document", info)
-    for kw in ("一句话总结", "知识地图", "知识详解", "关键概念", "金句", "学习路径", "延伸阅读", "元信息"):
+    for kw in ("一句话总结", "学习地图", "知识详解", "关键概念", "金句", "自测", "延伸阅读", "元信息"):
         assert kw in tpl
 
 
@@ -126,13 +126,28 @@ def test_render_document_template_recheck_section_when_present():
     assert "档位：1" in tpl
 
 
-def test_render_document_template_no_recheck_no_section():
-    """B2：无复检 meta 的 document 不渲染「复检说明」"""
+def test_render_document_template_no_recheck_has_na_section():
+    """B2 修正：无复检 meta 的 document 也渲染「复检说明（n/a）」，
+    与 report_check 的四节契约一致；不得引用不存在的 recheck_report.json"""
     from report import render_template_for
     ref = ItemRef(platform="zhihu", item_id="a1", url="u")
     meta = ItemMeta(title="文章", author="答主")
     info = build_info(meta, ref, kind="document", source="正文")
-    assert "## 复检说明" not in render_template_for("document", info)
+    tpl = render_template_for("document", info)
+    assert "## 复检说明" in tpl
+    assert "n/a" in tpl
+    assert "recheck_report.json" not in tpl
+
+
+def test_render_timeline_template_canonical_sections():
+    """模板必须使用 report_check 识别的规范节名，避免照模板写却过不了自检"""
+    from report import render_template_for
+    ref = ItemRef(platform="bilibili", item_id="BV1t", url="u")
+    meta = ItemMeta(title="视频", author="UP", duration=60)
+    info = build_info(meta, ref, kind="timeline", source="whisper")
+    tpl = render_template_for("timeline", info)
+    assert "## 学习地图（知识点全览）" in tpl
+    assert "## 自测（每 3~5 个知识点一题）" in tpl
 
 
 def test_render_timeline_template_recheck_section():
@@ -287,6 +302,28 @@ def test_write_baseline_report_document_and_no_overwrite(tmp_path):
     from core.models import DocumentContent
     artifacts.write_item_artifacts(out, info, DocumentContent(blocks=[{"heading": "一、背景", "text": "正文内容"}]))
     assert open(p, encoding="utf-8").read() == "人工报告"
+
+
+def test_write_baseline_report_document_numbering_and_no_fake_recheck(tmp_path):
+    """文档基线：知识点编号连续（不能按正文行号跳号）；无复检时写 n/a，不引用不存在的报告"""
+    import os
+    from core import artifacts
+    info = {"kind": "document", "title": "测试文章", "author": "a", "item_id": "p1",
+            "url": "u", "duration_seconds": 0, "published": "", "source": "正文",
+            "fetched_at": "now", "tool": "t", "stats": {}, "desc": "", "page": "1",
+            "page_count": 1}
+    out = str(tmp_path / "out")
+    artifacts.write_item_artifacts(
+        out, info, DocumentContent(blocks=[{"heading": "回复 1｜A", "text": "正文一"},
+                                           {"heading": "回复 2｜B", "text": "正文二"}]))
+    name = [f for f in os.listdir(out) if f.endswith("学习报告.md")][0]
+    text = open(os.path.join(out, name), encoding="utf-8").read()
+    assert "1. 回复 1｜A" in text and "2. 回复 2｜B" in text
+    assert "3. 回复 2｜B" not in text
+    assert "## 复检说明" in text and "n/a" in text
+    assert "recheck_report.json" not in text
+    summary = text.split("## 一句话总结", 1)[1].split("##", 1)[0]
+    assert "回复 1" not in summary
 
 
 def test_write_batch_baseline_concatenates_pages(tmp_path):

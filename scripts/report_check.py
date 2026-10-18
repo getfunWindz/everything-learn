@@ -26,6 +26,11 @@ try:                                    # GBK 控制台不因 emoji/符号崩溃
 except Exception:
     pass
 POINT_RE = re.compile(r"(?m)^####\s*知识点\s*(\d+)\s*[：:]")
+# 节名兼容：SKILL R5/R6 的旧称与当前规范名都接受（2026-10-18 收尾）
+SECTION_ALIASES = {
+    "学习地图": ("学习地图", "知识点全览", "知识地图"),
+    "自测": ("自测", "学习路径与自测"),
+}
 # 带单位的数字（防幻觉回溯；纯序号/日期不查）
 NUM_UNIT_RE = re.compile(
     r"([$￥]?\s*\d[\d,]*(?:\.\d+)?)\s*(%|％|亿|万|美元|元|nm|mm|cm|kg|吨|台|片|层|倍|分钟|秒|小时|天|年|°C|℃|W|kW|MW|GB|TB|MB|Gbps|fps)")
@@ -125,6 +130,15 @@ def _section(text: str, title: str) -> str:
     return rest[:nxt.start()] if nxt else rest
 
 
+def _section_first(text: str, titles) -> str:
+    """按别名顺序取第一个存在的节"""
+    for t in titles:
+        s = _section(text, t)
+        if s:
+            return s
+    return ""
+
+
 def _points(text: str):
     """→ [(编号, 该知识点正文)]（正文在下一个知识点/章节标题处截断）"""
     ms = list(POINT_RE.finditer(text or ""))
@@ -147,7 +161,9 @@ def check_report(text: str, content_text: str = "", glossary: dict = None,
         checks.append({"name": name, "level": level, "detail": detail})
 
     required = ["学习地图", "知识详解", "自测", "复检说明"]
-    missing = [s for s in required if not re.search(rf"(?m)^##\s+{s}", text or "")]
+    missing = [s for s in required
+               if not any(re.search(rf"(?m)^##\s+{re.escape(a)}", text or "")
+                          for a in SECTION_ALIASES.get(s, (s,)))]
     add("sections", "fail" if missing else "pass",
         "缺少：" + "、".join(missing) if missing else "")
 
@@ -176,12 +192,13 @@ def check_report(text: str, content_text: str = "", glossary: dict = None,
                 bad_pts.append(f"{n}(缺{'/'.join(miss)})")
         add("point_structure", "fail" if bad_pts else "pass", "；".join(bad_pts))
 
-        map_numbers = [int(x) for x in re.findall(r"(?m)^\s*(\d+)\.\s", _section(text, "学习地图"))]
+        map_text = _section_first(text, SECTION_ALIASES["学习地图"])
+        map_numbers = [int(x) for x in re.findall(r"(?m)^\s*(\d+)\.\s", map_text)]
         miss_map = [n for n in nums if n not in map_numbers]
         add("map", "fail" if miss_map else "pass",
             f"学习地图缺少：{miss_map}" if miss_map else "")
 
-        selftest = _section(text, "自测")
+        selftest = _section_first(text, SECTION_ALIASES["自测"])
         q = len(re.findall(r"(?m)^\s*\d+\.\s", selftest))
         need = (len(nums) + 4) // 5
         add("selftest", "fail" if q < need else "pass", f"{q} 题（至少需 {need} 题）")
