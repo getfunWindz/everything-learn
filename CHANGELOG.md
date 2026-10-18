@@ -2,6 +2,31 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本。
 
+## [0.4.22] - 2026-10-18
+
+### Added
+
+- **KB v2 检索**：FTS5（优先 trigram，中文子串）+ LIKE 回退；snippet 命中上下文；bm25/命中次数排序；`--platform/--author/--kind/--since` 过滤。
+- **KB 运维命令**：`el.py kb index <目录>`（深度报告改写后重索引）、`prune`、`delete`、`rebuild`；`build` 默认清理失效记录。
+- **KB 去重**：`doc_key = platform:item_id:sub_id`（缺失回退 path）；同一条目多路径保留内容更大的副本；合集 `kind=batch` 默认跳过（`--include-collections` 可包含）。
+- **KB schema v2**：新增 `item_id/sub_id/published/mtime/doc_key` 与 FTS 表；旧库自动重建（源报告不受影响）。
+
+### Fixed
+
+- 删除/移走笔记后知识库仍返回旧记录（`kb build` 现在会 prune）。
+- 深度报告覆盖基线后 KB 仍是旧内容（交付流程增加 `kb index`）。
+- LIKE 查询的 `%`/`_` 未转义导致匹配全部；短中文查询（<3 字）FTS 不命中。
+- 合集汇总与 P 条目重复索引；同一条目多路径重复。
+
+### Changed
+
+- `kb build` 输出改为「已扫描 N 个目录；知识库 M 条；清理 P 条」；`kb stats` 显示 FTS 状态。
+- README/SKILL 增加知识库运维与过滤示例；final-status 更新 KB 能力/限制说明。
+
+### Tests
+
+- **945 项离线测试**（KB 新增 12 项：去重、合集跳过、prune、深度重索引、FTS/LIKE、过滤、转义、delete/rebuild、schema v1 重建、CLI、FTS 回退、直接 prune）；Windows 下 2 项 POSIX chmod 用例跳过。
+
 ## [0.4.21] - 2026-10-18
 
 ### Added

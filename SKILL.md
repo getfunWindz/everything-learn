@@ -39,8 +39,10 @@ python scripts/el.py run <链接/名称> [--page N | --pages "1-10" | --all] [--
 python scripts/el.py search <关键词> --platform <平台> [--limit 5] [--json]   # 12 平台搜索（见 platforms 的 search= 列；V2EX 需链接）
 python scripts/el.py scan <列表链接> [--filter "关键,词"] [--priority] [--limit N] [--snapshot]
 python scripts/glossary.py add "<术语>" "<解释>"   # 术语库填塞/沉淀（可重复；支持 add/alias/clean/absorb）
-python scripts/el.py kb build "<学习笔记根目录>"    # 内建知识库建库（setup --kb 开启后 run 自动索引）
-python scripts/el.py kb search "<关键词>"          # 知识库检索
+python scripts/el.py kb build "<学习笔记根目录>"    # 内建知识库建库（默认 prune；setup --kb 后 run 自动索引基线）
+python scripts/el.py kb index "<产物目录>"          # 深度报告改写后立即重索引
+python scripts/el.py kb search "<关键词>" [--platform bilibili] [--author 作者] [--kind timeline] [--since 2026-10-01]
+python scripts/el.py kb prune|delete|rebuild ...    # 清理失效/删除单条/清空重建
 python scripts/el.py split "<产物目录>"             # 长内容分块（content.partNN.md + manifest）
 python scripts/canary.py                            # 真实平台可用性探测（本地定时；--full 含内容）
 python scripts/el.py report <目录> [--force]   # 重建骨架 + 基线报告（默认不覆盖已有报告）
@@ -70,7 +72,7 @@ python scripts/el.py export <目录> --format html
 6. **获得授权**：用户确认后开工（首次/大额/高风控必须确认；小额自动档按 config）。
 7. **执行**：`run`/`scan` → 产物三件套 + `assets/` + `recheck_report.json`。
 8. **复检核查**：核对 `recheck_report.json`（档位/覆盖/同源/不确定项）与 `source`/`provenance`/`quality_hint`；必要时抽帧补漏。
-9. **撰写报告 + 收工总结与输出核验**：按「报告规则 R1-R13」成稿；按用户选择的格式交付（`run` 已自动导出非 md 格式）；交付前运行 `python scripts/report_check.py <报告> --content <content.txt>`（结构/编号/自测/乱码/术语一键自检）并核对产物（文件齐全/字段/命名/glossary 校验），向用户汇报摘要。
+9. **撰写报告 + 收工总结与输出核验**：按「报告规则 R1-R13」成稿；按用户选择的格式交付（`run` 已自动导出非 md 格式）；交付前运行 `python scripts/report_check.py <报告> --content <content.txt>`（结构/编号/自测/乱码/术语一键自检）并核对产物（文件齐全/字段/命名/glossary 校验），向用户汇报摘要。若启用内建知识库，深度报告覆盖基线后执行 `python scripts/el.py kb index "<产物目录>"`（批量合集用 `kb build <根目录>`）。
 
 ### 平台定位与内容获取
 
@@ -230,7 +232,7 @@ python scripts/el.py setup --out "D:/学习笔记" --yes --no-kb
    - **告知自动反哺机制**：每次转写按勘误库筛验术语名（画面校正自动沉淀别名）；报告写作沉淀新术语；知识库 `absorb` 吸收——术语库随使用逐渐丰富；
    - 推荐配套 skill `bilibili-to-wiki`（个人知识库填充接口，已适配本技能产物：任意支持平台链接 → 知识库）。
 
-> 知识库（可选）：由 `el.py setup` 询问，不属于 onboard 五项必答；开启后每次 `run` 自动索引。
+> 知识库（可选）：由 `el.py setup` 询问，不属于 onboard 五项必答；`run` 自动索引基线，深度报告完成后执行 `kb index <目录>`；批量/清理用 `kb build <根目录>`（默认 prune）。
 
 ### C. 配置要点（引导时解释；按用户选择写入 config）
 

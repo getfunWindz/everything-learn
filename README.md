@@ -8,7 +8,7 @@
 <p align="center">
   <a href="https://github.com/getfunWindz/everything-learn/actions/workflows/tests.yml"><img src="https://github.com/getfunWindz/everything-learn/actions/workflows/tests.yml/badge.svg" alt="tests"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="license: MIT"></a>
-  <img src="https://img.shields.io/badge/tests-933%20offline-brightgreen.svg" alt="933 offline tests">
+  <img src="https://img.shields.io/badge/tests-945%20offline-brightgreen.svg" alt="945 offline tests">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python 3.10+">
 </p>
 
@@ -39,6 +39,20 @@ python scripts/canary.py --only v2ex,zhihu,bilibili           # 真实平台探�
   - 注：`run` 自动生成的 `<标题>学习报告.md` 是**机械基线**（不含 `#### 知识点`），`report_check` 通常需按 R1–R13 深化后才会 PASS；不要把基线直接当成交付。
 - `canary`：12 平台 meta 探测（`--full` 含内容），JSON 结果；网络/风控原因**不放进 GitHub CI**。
 - 密钥/cookie 文件在 POSIX 下自动 `chmod 600`。
+
+### 内建知识库（可选）
+
+```bash
+python scripts/el.py setup --out "D:/学习笔记" --yes --kb   # 启用并完成引导
+python scripts/el.py kb build "<学习笔记根目录>"             # 建库/更新（默认清理失效记录）
+python scripts/el.py kb index "<产物目录>"                   # 深度报告改写后重索引
+python scripts/el.py kb search "光刻" --platform bilibili --since 2026-10-01
+python scripts/el.py kb prune|delete|rebuild ...             # 清理/删除单条/清空重建
+```
+
+- 本地 SQLite；FTS5（优先 trigram，中文子串）+ LIKE 回退，返回命中片段。
+- 去重键 `platform+item_id+sub_id`；合集汇总（`kind=batch`）默认跳过，只索引 P 条目。
+- 支持 `--platform/--author/--kind/--since` 过滤；不做语义向量检索/问答。
 
 ## 平台能力
 
@@ -183,7 +197,7 @@ python scripts/el.py export "<报告目录>" --format html    # 或 docx
 ### 测试与工程
 
 ```bash
-python -m pytest tests/ -q     # 931 passed, 2 skipped（933 collected；全部 mock 网络，约 2 分钟）
+python -m pytest tests/ -q     # 943 passed, 2 skipped（945 collected；全部 mock 网络，约 2 分钟）
 ```
 
 - **CI**：GitHub Actions（Windows / macOS / Ubuntu × Python 3.10 / 3.11）。
@@ -201,6 +215,20 @@ python -m pytest tests/ -q     # 931 passed, 2 skipped（933 collected；全部 
 
 **Knowledge is Power**: 12 platforms, one command — turn videos, podcasts, articles and social posts into structured Chinese study reports.
 Provenance grading (AI subtitles → Whisper-first / human·official → same-source verification) → tier scoring → budget gate → 3-fps window recheck. Account-level content (favorites / follows / collections / profiles) can be enumerated, filtered, and digested in batches.
+
+### Built-in knowledge base (optional)
+
+```bash
+python scripts/el.py setup --out "D:/notes" --yes --kb   # enable during onboarding
+python scripts/el.py kb build "<notes root>"             # build/update (prunes stale rows)
+python scripts/el.py kb index "<item dir>"               # reindex after deepening the report
+python scripts/el.py kb search "光刻" --platform bilibili --since 2026-10-01
+python scripts/el.py kb prune|delete|rebuild ...
+```
+
+- Local SQLite; FTS5 (trigram first, substring for Chinese) with LIKE fallback; returns snippets.
+- Dedup by `platform+item_id+sub_id`; collection summaries (`kind=batch`) are skipped by default.
+- Filters: `--platform/--author/--kind/--since`; no vector/semantic Q&A.
 
 ### Platform support
 
@@ -334,7 +362,7 @@ python scripts/el.py export "<report dir>" --format html  # or docx
 ### Testing & engineering
 
 ```bash
-python -m pytest tests/ -q     # 931 passed, 2 skipped (933 collected; all network mocked, ~2 min)
+python -m pytest tests/ -q     # 943 passed, 2 skipped (945 collected; all network mocked, ~2 min)
 ```
 
 - **CI**: GitHub Actions (Windows / macOS / Ubuntu × Python 3.10 / 3.11).

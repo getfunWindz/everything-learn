@@ -4,7 +4,7 @@
 try:
     from version import VERSION
 except Exception:
-    VERSION = "0.4.21"
+    VERSION = "0.4.22"
 
 # 已实现报告骨架的内容形态（M0 timeline；M3 增补 document）
 SUPPORTED_KINDS = {"timeline", "document"}
