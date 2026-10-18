@@ -2,6 +2,22 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本。
 
+## [0.4.17] - 2026-10-18
+
+### Added
+
+- **登录态全自动恢复**：`cookie_export.auto_export` 用 headless 持久 profile 读取已登录 cookie（实测删文件后 1s 自动写回，无窗口）；未登录且非交互时快速失败并给一次性登录指引。`core.auth.ensure` 进程内去重；pipeline 对 `fetch_meta/fetch_content/list_items` 的认证错误自动恢复并重试（provider `reload_auth`）。B 站原生搜索 -101 同样自动重试。新增 `el.py cookie <p> --auto`。
+- **浏览器自动选择**：cookie 导出与 browserfetch 均按 `msedge → chrome → chromium` 回退，profile 按实际 channel 隔离。
+
+### Fixed
+
+- **控制台编码**：`el.py`/`cookie_export`/`glossary`/`export`/`report_check` 统一 `errors="replace"`，GBK 终端不再因 ✅/⚠ 崩溃。
+- **root meta 认证重试**：`run_input` 取根元信息时也走自动恢复。
+
+### Tests
+
+- **888 项离线测试**（新增 10 项：auto_export 命中/非交互/交互回退、浏览器回退、auth 判定/去重/缓存失败、pipeline 重试与 reload、cookie --auto CLI）。
+
 ## [0.4.16] - 2026-10-18
 
 ### Fixed

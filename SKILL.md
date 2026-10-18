@@ -170,6 +170,7 @@ python scripts/el.py run <链接> --budget 1.5           # 本次运行复检金
 - **X（Twitter）**：单推文无需 cookie；限流会跨宿主升级（429 → SSL EOF，含图片/视频 CDN）；缓速默认 10s，被拒时退避一次即给可读提示，不要循环重试；主页时间线 scan 与搜索为实验性（依赖已登录浏览器 + 代理），失败时改用链接。
 - **小红书**：依赖短时效 `xsec_token`（旧 token 失效 → sec-404）；连发 note 请求会 sec-404，缓速 12s；**搜索结果为 token 化链接，可直接 run**；成功取数会写入 token 缓存（6h），无 token 链接会先复用（实测重复运行 1s 成功）；首见无 token 链接仍需 App 分享文本 / 重新搜索（explore 滚动兜底按 id 命中率低，41s 后可读失败）；账号级能力（主页/收藏）列为后续方向（M11）。
 - **公众号**：单篇链接无需 cookie；搜狗搜索为实验性（验证码/antispider 风险，结果链接会话绑定、不可跨进程复用）；**requests 被拦时自动走浏览器兜底**（搜狗搜索 + 文章渲染，`#js_content`/`#js_image_desc`）；浏览器首屏无正文容器会重载一次，结果过「≥20 字或 ≥1 图」闸门才采信（否则不采信并给出可读原因）；页面「参数错误/系统出错」等异常会给可读提示。
+- **运行环境与 harness 无关（2026-10-18）**：纯 CLI（`python scripts/el.py`），不依赖任何特定 agent/MCP；任意 harness（Claude Code / Codex / pi / 终端）均可按 SKILL 流程使用。首次登录一次后，cookie 由 headless 持久 profile 自动复用/刷新（无窗口），浏览器自动在 Edge→Chrome→Chromium 中选择；控制台编码异常自动降级（`errors=replace`）。
 - **低配模式（2026-10-17）**：仅必要依赖（无 faster-whisper / yt-dlp / playwright 等）时——字幕平台自动降级采信并标注「低配：未经同源校验」+ `quality_hint` 强制推荐；whisper 平台给出安装引导；画面复检依赖（Pillow/PyAV）缺失时自动提前跳过。转写档位低于 medium 时产物带 `quality.tier_note` 常驻建议（实机验证 medium 效果最佳）。
 - **术语库反哺链（2026-10-17）**：每次转写按 `references/glossary.json` 的勘误别名自动筛验术语名（`content_info.glossary` 留痕；存疑项不替换、如实标注）；画面校正对命中术语库 → 自动沉淀别名；报告写作 R11 沉淀新术语；`glossary.py absorb <wiki>` 吸收知识库。初启可手动填塞术语；推荐配套 `bilibili-to-wiki`。
 
