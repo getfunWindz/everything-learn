@@ -417,3 +417,20 @@ def test_parse_window_result_reads_confidence():
     assert items[0]["confidence"] == "高"
     assert items[1]["confidence"] == "低"
     assert items[2]["confidence"] == "中"   # 旧格式默认中（仍然应用）
+
+
+def test_parse_window_result_correction_with_parenthetical():
+    """实测（43:50 课件）：模型输出「原转写「结局」（两处）→「截距」」→ 必须解析出原文/替换"""
+    text = "[690s] 校正(置信度:高)：原转写「结局」（两处）→「截距」"
+    items = vision.parse_window_result(text)
+    assert len(items) == 1
+    assert items[0]["kind"] == "correction"
+    assert items[0]["original"] == "结局"
+    assert items[0]["text"] == "截距"
+
+
+def test_parse_window_result_correction_without_zhuanxie():
+    """允许省略「转写」：原「技术学习」→「机器学习」"""
+    text = "[3s] 校正(置信度:中)：原「技术学习」→「机器学习」"
+    items = vision.parse_window_result(text)
+    assert items[0]["original"] == "技术学习" and items[0]["text"] == "机器学习"

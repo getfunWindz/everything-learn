@@ -339,15 +339,20 @@ def _run_window_recheck(adapter, ref, lines, cfg, decision, opts, disputed=None)
                            for e in (prior.get("windows") or [])}
             ckpt_entries = []
 
+            stats = {"supplements": 0, "corrections": 0,
+                     "low_confidence": 0, "unmatched": 0, "uncertain": 0}
+
             def _apply_items(items, cursor, seg_end):
                 for it in items or []:
                     kind = it.get("kind")
                     if kind == "supplement":
                         added.append({"start": float(it["ts"]), "end": float(it["ts"]) + 1,
                                       "text": it.get("text", ""), "source": "vision补充"})
+                        stats["supplements"] += 1
                     elif kind == "correction":
                         if it.get("confidence") == "低":
                             # 置信度分级（B11）：低置信只留痕，不改正文
+                            stats["low_confidence"] += 1
                             reports.append({"range": [cursor, seg_end],
                                             "kind": "low_confidence",
                                             "text": it.get("text", ""),
@@ -361,11 +366,14 @@ def _run_window_recheck(adapter, ref, lines, cfg, decision, opts, disputed=None)
                             target["source"] = "vision校正"
                             target["corrected_from"] = orig
                             target["corrected_to"] = it.get("text", "")
+                            stats["corrections"] += 1
                         else:
+                            stats["unmatched"] += 1
                             reports.append({"range": [cursor, seg_end],
                                             "kind": "correction_unmatched",
                                             "text": it.get("text", ""), "original": orig})
                     else:
+                        stats["uncertain"] += 1
                         reports.append({"range": [cursor, seg_end], "kind": "uncertain",
                                         "text": it.get("text", "")})
 
@@ -460,7 +468,8 @@ def _run_window_recheck(adapter, ref, lines, cfg, decision, opts, disputed=None)
                 "uncovered": [[float(s), float(e)] for (s, e) in uncovered],  # T16：骨架未覆盖区间
                 "budget": budget_meta,
                 "effective_tier": effective_tier, "capped": bool(uncovered),
-                "checked_windows": checked, "frames_used": used_frames}
+                "checked_windows": checked, "frames_used": used_frames,
+                "summary": stats}
     except Exception as e:
         lines[:] = original_lines  # Q3：外层异常 → 回滚，不留半应用修改
         return {"skipped": str(e)[:100]}

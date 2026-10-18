@@ -1051,6 +1051,7 @@ def test_window_recheck_tier1_supplement_merged_sorted(monkeypatch):
     assert seen["sample"] == [(0.0, 30.0, 3, True)]
     assert seen["check"] == [("", [(0.0, b"jpg")])]
     assert out["coverage_pct"] == 50.0
+    assert out["summary"]["supplements"] == 1 and out["summary"]["corrections"] == 0
     assert out["budget"]["user_choice"] == "A" and out["capped"] is False
     assert lines == [
         {"start": 10.0, "end": 11.0, "text": "画面公式", "source": "vision补充"},
@@ -1074,6 +1075,7 @@ def test_window_recheck_correction_replaces_line(monkeypatch):
     assert lines[0]["corrected_from"] == "注意利机制"
     assert lines[0]["corrected_to"] == "注意力机制"   # 2026-10-17：供术语库自动反哺
     assert out["windows"] == []
+    assert out["summary"]["corrections"] == 1 and out["summary"]["supplements"] == 0
 
 
 def test_window_recheck_uncertain_records_report_and_sorts(monkeypatch):
@@ -1683,6 +1685,7 @@ def test_window_recheck_correction_unmatched_to_reports(monkeypatch):
         {"ts": 1.0, "kind": "correction", "text": "改后", "original": "不存在的句子"}])
     out = pipeline._run_window_recheck(_VideoAdapter(), ref, lines, cfg,
                                        {"tier": 1}, pipeline.RunOptions())
+    assert out["summary"]["unmatched"] == 1
     assert out["windows"] == [{"range": [0.0, 30.0], "kind": "correction_unmatched",
                                "text": "改后", "original": "不存在的句子"}]
     assert lines == [{"start": 0, "end": 5, "text": "原文"}]
