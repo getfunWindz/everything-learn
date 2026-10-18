@@ -15,7 +15,7 @@
 ### Tests
 
 - **908 项离线测试**（新增 5 项：V2EX 契约/解析/内容）。
-- **跨平台验证**：WSL Ubuntu + Python 3.11 全量 903 passed；GitHub Actions 3.11 回归修复。
+- **跨平台验证**：WSL Ubuntu + Python 3.11 全量 **908 passed**；GitHub Actions 6 个矩阵任务（Windows/macOS/Ubuntu × 3.10/3.11）全部通过。
 
 ## [0.4.18] - 2026-10-18
 
