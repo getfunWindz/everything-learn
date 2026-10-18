@@ -2,6 +2,17 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本。
 
+## [0.4.10] - 2026-10-18
+
+### Fixed
+
+- **YouTube 慢链路空耗 3 分钟（归因纠正）**：实测 yt-dlp info 1.4–3.7s、字幕 0.2–10s；231s 的 run 里 225s 是「同源校验整段音频 180s + Whisper 45s」预算被慢链路耗尽。新增媒体测速闸门（首轮 512KB / 15s 窗口平均 <64KB/s → 立即判不可用）+ 同域冷却（同一 run 内后续同域候选/Whisper 重下立即跳过）；实测 TED 人工字幕视频 **231s → 17s**，Karpathy 自动字幕 12s。
+- **storyboard 污染音频候选（真 bug）**：YouTube `formats` 里的 `sb0`–`sb3`（ytimg mhtml，`vcodec=none`）被当成音频候选下载 → Whisper 报 `tuple index out of range`；现按 `acodec/ext/protocol` 过滤（`pick_audio_url` 与 `fetch_media_urls` 同步修复）。
+
+### Tests
+
+- **859 项离线测试**（新增 6 项：慢流快失败、15s 探测窗口、健康速率不误杀、同域冷却、storyboard 过滤 ×2）。
+
 ## [0.4.9] - 2026-10-18
 
 ### Fixed
