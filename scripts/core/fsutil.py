@@ -9,6 +9,15 @@ import time
 import unicodedata
 
 
+def restrict_file(path: str) -> None:
+    """敏感文件权限收紧（POSIX chmod 600；Windows 无 emulation 时忽略）"""
+    try:
+        if os.name == "posix":
+            os.chmod(path, 0o600)
+    except OSError:
+        pass
+
+
 def atomic_write_text(path: str, text: str, retries: int = 4) -> None:
     """原子写文本：临时文件 + os.replace；PermissionError 短暂重试后仍失败才抛出"""
     tmp = path + ".tmp"

@@ -1,7 +1,10 @@
 """报告骨架渲染（按内容形态分发；M0 仅 timeline）
 """
 
-VERSION = "0.1.0"
+try:
+    from version import VERSION
+except Exception:
+    VERSION = "0.4.20"
 
 # 已实现报告骨架的内容形态（M0 timeline；M3 增补 document）
 SUPPORTED_KINDS = {"timeline", "document"}

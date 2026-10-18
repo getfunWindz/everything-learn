@@ -29,6 +29,12 @@ jobs:
           python -m pip install "pytest>=7.0" "requests>=2.28" yt-dlp faster-whisper \
             python-docx av numpy pillow
 
+      - name: editable 安装 smoke
+        shell: bash
+        run: |
+          python -m pip install -e .
+          everything-learn --version
+
       - name: 初始化配置（CI 无本地 config.json）
         shell: bash
         run: |

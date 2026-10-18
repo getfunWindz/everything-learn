@@ -174,6 +174,11 @@ def _write_cookie_file(out: str, cfg: dict, cookies: dict) -> int:
         pairs = [(n, cookies[n]) for n in wanted if cookies.get(n)]
     with open(out, "w", encoding="utf-8") as f:
         f.write(build_cookie_string(pairs) + "\n")
+    try:
+        from core.fsutil import restrict_file
+        restrict_file(out)
+    except Exception:
+        pass
     print(f"已写入 {len(pairs)} 个 cookie → {out}（{', '.join(n for n, _ in pairs)}）")
     return 0
 

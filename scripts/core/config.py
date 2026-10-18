@@ -97,6 +97,8 @@ def ensure_config() -> str:
     if not os.path.exists(CONFIG_PATH):
         with open(CONFIG_PATH, "w", encoding="utf-8") as f:
             json.dump(DEFAULT_CONFIG, f, ensure_ascii=False, indent=2)
+        from core import fsutil
+        fsutil.restrict_file(CONFIG_PATH)
     return CONFIG_PATH
 
 
@@ -114,6 +116,7 @@ def write_user_config(updates: dict) -> str:
     raw.update(updates or {})
     from core import fsutil
     fsutil.atomic_write_text(CONFIG_PATH, json.dumps(raw, ensure_ascii=False, indent=2))
+    fsutil.restrict_file(CONFIG_PATH)
     return CONFIG_PATH
 
 

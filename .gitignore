@@ -20,3 +20,8 @@ docs/
 # 内建知识库（本地数据）
 kb.sqlite3
 *.sqlite3
+
+# 打包产物
+*.egg-info/
+build/
+dist/

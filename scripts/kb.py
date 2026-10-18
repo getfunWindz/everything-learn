@@ -45,6 +45,11 @@ def _connect(path: str = None):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     conn = sqlite3.connect(path)
     conn.executescript(_SCHEMA)
+    try:
+        from core.fsutil import restrict_file
+        restrict_file(path)
+    except Exception:
+        pass
     return conn
 
 
