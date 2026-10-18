@@ -95,3 +95,52 @@ def test_wait_for_verify_success_and_timeout():
     ok2, err2 = _wait_for_verify(FakePage(['{"login":false}']),
                                  {"url": "https://x/api", "expect": '"login":true'}, 0)
     assert ok2 is False and "登录校验" in err2
+
+
+def test_auto_export_headless_hit(tmp_path, monkeypatch):
+    """已登录 profile → headless 读取并写文件（不弹窗）"""
+    import cookie_export as ce
+    monkeypatch.setattr(ce, "_read_profile_cookies", lambda *a, **k: {"SESSDATA": "x"})
+    out = tmp_path / "c.txt"
+    monkeypatch.setattr(ce, "cookie_file_for", lambda p: str(out))
+    assert ce.auto_export("bilibili", interactive=False) is True
+    assert "SESSDATA=x" in out.read_text(encoding="utf-8")
+
+
+def test_auto_export_headless_miss_noninteractive(monkeypatch):
+    """未登录且非交互 → 返回 False，不启动有头浏览器"""
+    import cookie_export as ce
+    monkeypatch.setattr(ce, "_read_profile_cookies", lambda *a, **k: {"guest": "1"})
+    called = []
+    monkeypatch.setattr(ce, "export", lambda *a, **k: called.append(1) or 0)
+    assert ce.auto_export("bilibili", interactive=False) is False
+    assert called == []
+
+
+def test_auto_export_interactive_fallback(monkeypatch):
+    """未登录但允许交互 → 走原登录流程"""
+    import cookie_export as ce
+    monkeypatch.setattr(ce, "_read_profile_cookies", lambda *a, **k: {})
+    monkeypatch.setattr(ce, "export", lambda *a, **k: 0)
+    assert ce.auto_export("bilibili", interactive=True) is True
+
+
+def test_launch_ctx_falls_back_to_chrome(monkeypatch):
+    """默认 auto：msedge 不可用 → 自动尝试 chrome"""
+    import cookie_export as ce
+
+    class Chromium:
+        def __init__(self):
+            self.calls = []
+        def launch_persistent_context(self, profile, channel, headless, args):
+            self.calls.append(channel)
+            if channel == "msedge":
+                raise RuntimeError("no edge")
+            return {"ok": True}
+
+    class P:
+        chromium = Chromium()
+
+    ch, ctx = ce._launch_ctx(P(), "auto", headless=True)
+    assert ch == "chrome" and ctx == {"ok": True}
+    assert P.chromium.calls[:2] == ["msedge", "chrome"]

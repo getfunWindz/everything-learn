@@ -165,22 +165,30 @@ def _launch(browser: str, interactive: bool) -> dict:
         from playwright.sync_api import sync_playwright
     except ImportError:
         raise BrowserFetchError("未安装 playwright：pip install playwright（无需 playwright install）")
-    profile = os.path.join(_HERE, f".browser_profile_{browser}")
     args = _launch_args(interactive, _resolve_proxy())
     pw = sync_playwright().start()
-    try:
-        ctx = pw.chromium.launch_persistent_context(profile, channel=browser, headless=False,
-                                                    args=args)
-    except Exception as e:
+    channels = ([browser] if browser not in ("auto", "chromium")
+                else ["msedge", "chrome", "chromium"])
+    last = None
+    ctx = None
+    for ch in channels:
+        profile = os.path.join(_HERE, f".browser_profile_{ch}")
+        try:
+            ctx = pw.chromium.launch_persistent_context(profile, channel=ch, headless=False,
+                                                        args=args)
+            break
+        except Exception as e:
+            last = e
+    if ctx is None:
         pw.stop()
-        raise BrowserFetchError(_launch_error_message(e))
+        raise BrowserFetchError(_launch_error_message(last or RuntimeError("无可用浏览器")))
     page = ctx.pages[0] if ctx.pages else ctx.new_page()
     if interactive:
         _ensure_visible(page)
     return {"pw": pw, "context": ctx, "page": page}
 
 
-def _ensure_page(browser="msedge", interactive=False, launcher=None):
+def _ensure_page(browser="auto", interactive=False, launcher=None):
     if _ctx["page"] is not None:
         if _ctx.get("interactive") == interactive:
             return _ctx["page"]
@@ -205,7 +213,7 @@ def _ensure_page(browser="msedge", interactive=False, launcher=None):
 class BrowserSession:
     """浏览器取数会话：进程级单例复用；platform 决定缓速；interactive=True 窗口可见。"""
 
-    def __init__(self, platform="default", browser="msedge", interactive=False, launcher=None):
+    def __init__(self, platform="default", browser="auto", interactive=False, launcher=None):
         self.platform = platform
         self.browser = browser
         self.interactive = interactive

@@ -158,6 +158,10 @@ class ZhihuAdapter:
 
     # ---------------- 取数 ----------------
 
+    def reload_auth(self) -> None:
+        """登录态自动恢复后重新注入 cookie（供 pipeline 重试）"""
+        load_cookie(self._session)
+
     def _get(self, url: str) -> str:
         def do():
             r = self.session.get(url, timeout=30, headers={"Referer": "https://www.zhihu.com/"})

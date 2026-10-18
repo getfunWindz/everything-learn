@@ -447,6 +447,10 @@ class BilibiliAdapter:
             self._client = ApiClient()
         return self._client
 
+    def reload_auth(self) -> None:
+        """登录态自动恢复后重新注入 cookie（供 pipeline 重试）"""
+        load_cookie(self.client)
+
     def match(self, url: str) -> bool:
         if not url:
             return False

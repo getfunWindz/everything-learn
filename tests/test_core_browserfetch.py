@@ -82,7 +82,7 @@ def test_session_singleton_and_mode_switch():
         s2 = bf.BrowserSession("douyin", interactive=True, launcher=launcher)
         assert s2.page is not None                     # 模式不同 → 重启
         launches = [r for r in record if r[0] == "launch"]
-        assert launches == [("launch", "msedge", False), ("launch", "msedge", True)]
+        assert launches == [("launch", "auto", False), ("launch", "auto", True)]
     finally:
         bf.shutdown()
 

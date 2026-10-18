@@ -17,6 +17,12 @@ import pkgutil
 import sys
 import time
 
+try:                                    # GBK 控制台不因 emoji/符号崩溃
+    sys.stdout.reconfigure(errors="replace")
+    sys.stderr.reconfigure(errors="replace")
+except Exception:
+    pass
+
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REQUIRED_FIELDS = ("url", "read_url", "required", "ready", "wanted", "file")
 _PLATFORMS = None
@@ -115,7 +121,70 @@ def _write_cookie_file(out: str, cfg: dict, cookies: dict) -> int:
     return 0
 
 
-def export(platform: str, browser: str = "msedge", timeout: int = 300) -> int:
+def _profile_dir(browser: str) -> str:
+    return os.path.join(_HERE, f".browser_profile_{browser}")
+
+
+def _launch_ctx(p, browser: str, headless: bool):
+    """按 msedge → chrome → chromium 尝试；返回 (实际 channel, context)"""
+    browser = browser or "auto"
+    channels = [browser] if browser not in ("auto", "chromium") else ["msedge", "chrome", "chromium"]
+    if browser == "chromium":
+        channels = ["chromium"]
+    last = None
+    for ch in channels:
+        try:
+            ctx = p.chromium.launch_persistent_context(
+                _profile_dir(ch), channel=ch, headless=headless,
+                args=["--disable-blink-features=AutomationControlled"])
+            return ch, ctx
+        except Exception as e:
+            last = e
+    raise last or RuntimeError("没有可用的浏览器")
+
+
+def _read_profile_cookies(platform: str, browser: str = "auto"):
+    """headless 读取持久 profile 的 cookie（不弹窗）；不可用/未安装 → {}"""
+    cfg = load_platforms().get(platform)
+    if not cfg:
+        return {}
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        return {}
+    try:
+        with sync_playwright() as p:
+            ch, ctx = _launch_ctx(p, browser, headless=True)
+            try:
+                return _read_cookies(ctx, cfg["read_url"]) or {}
+            finally:
+                try:
+                    ctx.close()
+                except Exception:
+                    pass
+    except Exception:
+        return {}
+
+
+def auto_export(platform: str, browser: str = "auto", interactive: bool = True,
+                timeout: int = 90) -> bool:
+    """自动恢复登录态：headless 命中 → 写文件；未登录 → 仅交互模式弹窗一次"""
+    cfg = load_platforms().get(platform)
+    if not cfg:
+        return False
+    cookies = _read_profile_cookies(platform, browser)
+    if cookies and required_present(cookies, cfg["required"]):
+        return _write_cookie_file(cookie_file_for(platform), cfg, cookies) == 0
+    if not interactive:
+        print(f"自动登录态未就绪：{platform}（持久 profile 未登录）。"
+              f"请在终端运行一次 `el.py cookie {platform}` 完成登录；此后可全自动复用。",
+              file=sys.stderr)
+        return False
+    print(f"未检测到 {platform} 登录态 → 打开浏览器（首次需登录一次）...", file=sys.stderr)
+    return export(platform, browser, timeout) == 0
+
+
+def export(platform: str, browser: str = "auto", timeout: int = 300) -> int:
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
@@ -126,14 +195,11 @@ def export(platform: str, browser: str = "msedge", timeout: int = 300) -> int:
     if cfg is None:
         cookie_file_for(platform)   # 复用统一报错（不支持的平台 → SystemExit 2）
         return 2
-    profile = os.path.join(_HERE, f".browser_profile_{browser}")
     out = cookie_file_for(platform)
-    print(f"打开 {browser}（首次需在窗口内登录 {platform}；已登录则自动导出）...")
+    print(f"打开浏览器（{browser}；首次需在窗口内登录 {platform}；已登录则自动导出）...")
     try:
         with sync_playwright() as p:
-            ctx = p.chromium.launch_persistent_context(
-                profile, channel=browser, headless=False,
-                args=["--disable-blink-features=AutomationControlled"])
+            _ch, ctx = _launch_ctx(p, browser, headless=False)
             deadline = time.time() + timeout
             try:
                 page = ctx.pages[0] if ctx.pages else ctx.new_page()
@@ -208,8 +274,10 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description="cookie 一键导出（Playwright + 系统浏览器）")
     ap.add_argument("platform", nargs="?", help="平台标识（如 zhihu/bilibili）")
     ap.add_argument("--list", action="store_true", help="列出已声明 cookie 导出的平台")
-    ap.add_argument("--browser", default="msedge", choices=["msedge", "chrome"])
+    ap.add_argument("--browser", default="auto", choices=["auto", "msedge", "chrome", "chromium"])
     ap.add_argument("--timeout", type=int, default=300, help="等待登录秒数（默认 300）")
+    ap.add_argument("--auto", action="store_true",
+                    help="先尝试 headless 复用已登录 profile（无窗口）；未登录才打开窗口")
     args = ap.parse_args(argv)
     if args.list:
         for name, spec in sorted(load_platforms().items()):
@@ -217,6 +285,9 @@ def main(argv=None):
         return 0
     if not args.platform:
         ap.error("需要平台标识（或用 --list 查看可用平台）")
+    if args.auto:
+        return 0 if auto_export(args.platform, args.browser, interactive=True,
+                                timeout=args.timeout) else 1
     return export(args.platform, args.browser, args.timeout)
 
 

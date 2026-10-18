@@ -14,6 +14,12 @@ from core.pipeline import RunOptions, PipelineError, UnsupportedUrlError
 from providers.bilibili import ApiClient, BiliError, resolve_input
 
 VERSION = "0.1.0"
+
+try:                                    # GBK 控制台不因 emoji/符号崩溃
+    sys.stdout.reconfigure(errors="replace")
+    sys.stderr.reconfigure(errors="replace")
+except Exception:
+    pass
 _LOGGER = logging.getLogger("el")
 
 
@@ -117,7 +123,12 @@ def cmd_search(args):
     try:
         results = client.search(args.keyword, limit=args.limit)
     except BiliError as e:
-        print(f"搜索失败：{e}", file=sys.stderr)
+        from core import auth
+        if getattr(e, "code", None) == -101 and auth.ensure("bilibili"):
+            client = ApiClient()
+            results = client.search(args.keyword, limit=args.limit)
+        else:
+            print(f"搜索失败：{e}", file=sys.stderr)
         print("提示：未登录的 bilibili 搜索会被风控。可选：", file=sys.stderr)
         print("  1. 直接提供视频链接或 BV 号（推荐）", file=sys.stderr)
         print("  2. 配置登录 cookie：把 SESSDATA=xxx 写入 scripts/.bili_cookie 或设置环境变量 BILI_COOKIE", file=sys.stderr)
@@ -764,12 +775,18 @@ def main(argv=None):
         if not args.platform:
             print("用法：el.py cookie <platform>（--list 查看可用平台）", file=sys.stderr)
             sys.exit(2)
+        if getattr(args, "auto", False):
+            ok = cookie_export.auto_export(args.platform, args.browser, interactive=True,
+                                           timeout=args.timeout)
+            sys.exit(0 if ok else 1)
         sys.exit(cookie_export.export(args.platform, args.browser, args.timeout))
     ck = sub.add_parser("cookie", help="一键导出平台 cookie（Playwright + 系统浏览器）")
     ck.add_argument("platform", nargs="?", help="平台标识（如 zhihu/bilibili）")
     ck.add_argument("--list", action="store_true", help="列出已声明导出的平台")
-    ck.add_argument("--browser", default="msedge", choices=["msedge", "chrome"])
+    ck.add_argument("--browser", default="auto", choices=["auto", "msedge", "chrome", "chromium"])
     ck.add_argument("--timeout", type=int, default=300, help="等待登录秒数（默认 300）")
+    ck.add_argument("--auto", action="store_true",
+                    help="先 headless 复用已登录 profile；未登录才打开窗口")
     ck.set_defaults(func=_cmd_cookie)
     args = p.parse_args(argv)
     args.func(args)

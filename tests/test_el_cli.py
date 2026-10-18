@@ -645,6 +645,24 @@ def test_whisper_default_model_small(tmp_path, monkeypatch):
     assert seen["vad"] is None  # config 默认 auto → 由 transcriber 按视频时长决策
 
 
+def test_cookie_command_auto_delegates(tmp_path, monkeypatch):
+    """el.py cookie <p> --auto → 先 headless 复用 profile"""
+    import cookie_export
+    from core import config as cfg
+    monkeypatch.setattr(cfg, "CONFIG_PATH", str(tmp_path / "config.json"))
+    calls = {}
+    monkeypatch.setattr(cookie_export, "auto_export",
+                        lambda platform, browser, interactive, timeout: calls.update(
+                            platform=platform, browser=browser, interactive=interactive,
+                            timeout=timeout) or True)
+    try:
+        el.main(["cookie", "zhihu", "--auto", "--timeout", "12"])
+        assert False
+    except SystemExit as e:
+        assert e.code == 0
+    assert calls == {"platform": "zhihu", "browser": "auto", "interactive": True, "timeout": 12}
+
+
 def test_cookie_command_delegates(tmp_path, monkeypatch):
     """el.py cookie <platform> → 委托 cookie_export.export（--browser/--timeout 透传）"""
     import cookie_export
@@ -659,7 +677,7 @@ def test_cookie_command_delegates(tmp_path, monkeypatch):
         assert False
     except SystemExit as e:
         assert e.code == 0
-    assert calls == {"platform": "zhihu", "browser": "msedge", "timeout": 12}
+    assert calls == {"platform": "zhihu", "browser": "auto", "timeout": 12}
 
 
 def test_cookie_command_list(capsys):

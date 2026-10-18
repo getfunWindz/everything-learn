@@ -475,6 +475,23 @@ def _run_window_recheck(adapter, ref, lines, cfg, decision, opts, disputed=None)
         return {"skipped": str(e)[:100]}
 
 
+def _with_auth_retry(platform: str, fn, adapter=None):
+    """认证类错误 → 自动恢复登录态后重试一次；其他异常原样抛出"""
+    try:
+        return fn()
+    except Exception as e:
+        from core import auth
+        if auth.looks_like_auth_error(e) and auth.ensure(platform):
+            reload_auth = getattr(adapter, "reload_auth", None)
+            if callable(reload_auth):
+                try:
+                    reload_auth()
+                except Exception:
+                    pass
+            return fn()
+        raise
+
+
 # ---------------- 单 item 处理 ----------------
 
 
@@ -514,7 +531,7 @@ def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False)
         if cached:
             payload = cached if isinstance(cached, dict) else {"kind": "timeline", "items": cached}
             try:
-                meta = adapter.fetch_meta(ref)
+                meta = _with_auth_retry(ref.platform, lambda: adapter.fetch_meta(ref), adapter)
             except Exception as e:
                 return "failed", "", 0, "", str(e)[:100]
             out_dir = _item_out_dir(meta, ref, out_root, single, opts)
@@ -542,8 +559,8 @@ def process_item(adapter, ref, out_root, opts: RunOptions, single: bool = False)
             return "ok", "cache", len(payload.get("items") or []), out_dir, ""
     # 2) 取内容（字幕/正文）
     try:
-        res = adapter.fetch_content(ref)
-        meta = adapter.fetch_meta(ref)
+        res = _with_auth_retry(ref.platform, lambda: adapter.fetch_content(ref), adapter)
+        meta = _with_auth_retry(ref.platform, lambda: adapter.fetch_meta(ref), adapter)
     except Exception as e:
         err = str(e)[:100]
         print(f"  P{label} 内容获取失败：{err}", file=sys.stderr)
@@ -961,7 +978,7 @@ def run_input(input_str: str, opts: RunOptions, adapter=None, client=None):
         a.lang = opts.lang
     ref = a.resolve(input_str)            # SearchNeeded 向外抛
     try:
-        refs = a.list_items(ref)
+        refs = _with_auth_retry(ref.platform, lambda: a.list_items(ref), a)
     except PipelineError:
         raise
     except Exception as e:
@@ -981,7 +998,10 @@ def run_input(input_str: str, opts: RunOptions, adapter=None, client=None):
                 return {"kind": "skip", "pages": []}
     try:
         hook = getattr(a, "fetch_root_meta", None)
-        root_meta = hook(ref, refs) if callable(hook) else a.fetch_meta(refs[0])
+        if callable(hook):
+            root_meta = _with_auth_retry(ref.platform, lambda: hook(ref, refs), a)
+        else:
+            root_meta = _with_auth_retry(ref.platform, lambda: a.fetch_meta(refs[0]), a)
     except PipelineError:
         raise
     except Exception as e:

@@ -193,6 +193,10 @@ class WeiboAdapter:
             load_cookie(self._session)
         return self._session
 
+    def reload_auth(self) -> None:
+        """登录态自动恢复后重新注入 cookie（供 pipeline 重试）"""
+        load_cookie(self.session)
+
     # ---------------- 路由 ----------------
 
     def match(self, url: str) -> bool:
