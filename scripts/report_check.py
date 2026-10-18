@@ -26,6 +26,36 @@ try:                                    # GBK 控制台不因 emoji/符号崩溃
 except Exception:
     pass
 POINT_RE = re.compile(r"(?m)^####\s*知识点\s*(\d+)\s*[：:]")
+# 带单位的数字（防幻觉回溯；纯序号/日期不查）
+NUM_UNIT_RE = re.compile(
+    r"([$￥]?\s*\d[\d,]*(?:\.\d+)?)\s*(%|％|亿|万|美元|元|nm|mm|cm|kg|吨|台|片|层|倍|分钟|秒|小时|天|年|°C|℃|W|kW|MW|GB|TB|MB|Gbps|fps)")
+RAW_NUM_RE = re.compile(r"\d[\d,]*(?:\.\d+)?")
+
+
+def _digit_key(num: str) -> str:
+    return re.sub(r"\D", "", num or "")
+
+
+def _numbers_with_units(text: str):
+    return {(_digit_key(m.group(1)), m.group(2)) for m in NUM_UNIT_RE.finditer(text or "")}
+
+
+def check_citations(report_text: str, content_text: str):
+    """带单位数字是否能在原文找到（数字去分隔符/小数点后比对）；返回 (missing, total)
+
+    原文侧用「全部数字」做集合（表格里的 53,536 与报告 535.36 亿可对齐）；
+    年份（1900–2100 + 年）不计入，避免把“1980 年”误报。"""
+    content_keys = {_digit_key(m.group(0)) for m in RAW_NUM_RE.finditer(content_text or "")}
+    if not content_keys:
+        return [], 0
+    report_nums = _numbers_with_units(report_text)
+    missing = []
+    for k, u in report_nums:
+        if u == "年" and len(k) == 4 and k.isdigit() and 1900 <= int(k) <= 2100:
+            continue
+        if k not in content_keys:
+            missing.append((k, u))
+    return missing, len(report_nums)
 
 
 def _section(text: str, title: str) -> str:
@@ -52,7 +82,8 @@ def _points(text: str):
     return out
 
 
-def check_report(text: str, content_text: str = "", glossary: dict = None) -> dict:
+def check_report(text: str, content_text: str = "", glossary: dict = None,
+                 strict_citations: bool = False) -> dict:
     checks = []
 
     def add(name, level, detail=""):
@@ -104,6 +135,14 @@ def check_report(text: str, content_text: str = "", glossary: dict = None) -> di
             f"{qn} 条金句（建议 5–10）" if qn < 5 else "")
 
     if content_text:
+        missing_nums, total_nums = check_citations(text, content_text)
+        if missing_nums:
+            level = "fail" if strict_citations else "warn"
+            sample = "、".join(f"{n}{u}" for n, u in missing_nums[:5])
+            add("citations", level,
+                f"{len(missing_nums)}/{total_nums} 个带单位数字未在原文找到（如 {sample}）")
+        else:
+            add("citations", "pass", f"{total_nums} 个带单位数字均可回溯" if total_nums else "")
         try:
             import glossary as g
             miss = g.check_coverage(text, content_text, glossary)
@@ -121,10 +160,12 @@ def main(argv=None):
     ap.add_argument("report", help="报告 .md 路径")
     ap.add_argument("--content", help="对应 content.txt（启用术语覆盖/注释校验）")
     ap.add_argument("--json", action="store_true", help="机读输出")
+    ap.add_argument("--strict", action="store_true",
+                    help="严格模式：带单位数字无法回溯即 fail（默认仅 warn）")
     args = ap.parse_args(argv)
     text = open(args.report, encoding="utf-8").read()
     content = open(args.content, encoding="utf-8").read() if args.content else ""
-    result = check_report(text, content)
+    result = check_report(text, content, strict_citations=args.strict)
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2))
     else:

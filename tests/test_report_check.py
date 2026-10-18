@@ -107,3 +107,16 @@ def test_cli_exit_code(tmp_path, capsys):
     assert report_check.main([str(p)]) == 0
     p.write_text(GOOD.replace("## 自测", "## 自测（缺失）").replace("## 自测（缺失）\n\n1. A 和 B 的区别？（知识点 1/2）", ""), encoding="utf-8")
     assert report_check.main([str(p)]) == 1
+
+
+def test_citations_trace_numbers():
+    content = "波长 13.5 nm，营收 816.15 亿美元，毛利率 74.9%。"
+    good = GOOD.replace("A 的定义。", "A 的定义：波长 13.5 nm，营收 816.15 亿美元。")
+    r = report_check.check_report(good, content_text=content)
+    assert not any(c["name"] == "citations" and c["level"] == "fail" for c in r["checks"])
+
+    bad = GOOD.replace("A 的定义。", "A 的定义：毛利率 99.9%。")
+    r2 = report_check.check_report(bad, content_text=content)
+    assert any(c["name"] == "citations" and c["level"] == "warn" for c in r2["checks"])
+    r3 = report_check.check_report(bad, content_text=content, strict_citations=True)
+    assert any(c["name"] == "citations" and c["level"] == "fail" for c in r3["checks"])
