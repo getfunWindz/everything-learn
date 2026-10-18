@@ -31,12 +31,15 @@ description: 将多平台学习内容（视频/音频/图文/帖子）总结为�
 ### 核心命令
 
 ```bash
+python scripts/el.py setup                    # 一键初始化（依赖/目录/知识库/登录；--yes 非交互）
 python scripts/el.py onboard                  # 首次引导门（状态/四项确认点；--complete/--reset/--json）
 python scripts/el.py doctor                   # 环境自检（依赖/GPU/模型/vision/cookie/out_dir）
 python scripts/el.py run <链接/名称> [--page N | --pages "1-10" | --all] [--model tiny|small|medium|large-v3] [--budget 1.5] [--max-seconds 600] [--report-format md|doc|docx|txt]
 python scripts/el.py search <关键词> --platform <平台> [--limit 5] [--json]   # 11 平台搜索（见 platforms 的 search= 列）
 python scripts/el.py scan <列表链接> [--filter "关键,词"] [--priority] [--limit N] [--snapshot]
 python scripts/glossary.py add "<术语>" "<解释>"   # 术语库填塞/沉淀（可重复；支持 add/alias/clean/absorb）
+python scripts/el.py kb build "<学习笔记根目录>"    # 内建知识库建库（setup --kb 开启后 run 自动索引）
+python scripts/el.py kb search "<关键词>"          # 知识库检索
 python scripts/el.py report <目录> [--force]   # 重建骨架 + 基线报告（默认不覆盖已有报告）
 python scripts/el.py export <目录> --format html
 ```
@@ -101,7 +104,7 @@ python scripts/el.py run <链接> --budget 1.5           # 本次运行复检金
 
 1. **不要直接拒绝**，先询问用户：「这个平台还没有适配器，是否按规范现场搭建一个？」
 2. 用户确认后，按 `docs/ADAPTER_SPEC.md` 完成**可行性尽调**（内容形态/获取方式/鉴权/风控/可得性/结论），把结论表展示给用户；
-3. 用户确认「可自动化」后，按 `docs/ADAPTER_TEMPLATE.md` + `scripts/providers/_template.py` 现场实现，并完成测试三件套（fixture 单测 + 契约测试 + 真实链接冒烟）；其中**多模态复检通道为必接项**（实现 `fetch_media_url(media="video", lowest=True)`，复检逻辑复用 core，禁止适配器内自建；契约测试会校验签名）。
+3. 用户确认「可自动化」后，按 `docs/ADAPTER_TEMPLATE.md` + `scripts/providers/_template.py` 现场实现；先 `python scripts/gen_contract_test.py <name>` 生成契约测试，再完成测试三件套（fixture 单测 + 契约测试 + 真实链接冒烟）；其中**多模态复检通道为必接项**（实现 `fetch_media_url(media="video", lowest=True)`，复检逻辑复用 core，禁止适配器内自建；契约测试会校验签名）。
 4. 冒烟不通过不合入；尽调判定不可达则停止并说明原因与替代方案。
 
 > CLI 行为：`run`/`scan` 遇到**未识别 URL** 会直接给出本流程提示（不再兜底成 B 站名称搜索）；`python scripts/el.py platforms` 可查当前已注册名单。
@@ -160,6 +163,7 @@ python scripts/el.py run <链接> --budget 1.5           # 本次运行复检金
 - **转写语言**：默认自动检测（B 站/抖音不再硬编码 zh）；英文/多语视频会按实际语言转写，`content_info.language` 回填检测结果；需要强制时用 `--lang`。
 - **视觉复检可观测**：逐窗打印 `复检窗口 i/N`；`recheck_report.checked_windows` 区分「已检查」与「未覆盖」；推理型 vision 模型（如 deepseek-flash）把 max_tokens 吃满时会自动加倍重试（默认 8192，最多 3 次）。
 - **校正置信度分级**：每条校正带「高/中/低」；低置信只留痕（`windows.kind=low_confidence`）不改正文，避免图表多行数字串行误改。
+- **报告引用回溯（可选严格）**：`report_check.py --strict` 会把「带单位数字无法在 content.txt 找到」判为 fail（默认仅 warn，因为报告可能有换算/派生数字）。
 - **预算口径**：`budget.estimate` 是闸门上界（3fps 计划帧），`budget.actual` 按去重后实发帧重算（实测为上界的 8%–44%，去重 2.5×–66×）；`spent_total` 按上界保守累计。复检计划行已标注「上界」。
 - **断点续跑**：`--resume` 会复用 `.recheck_ckpt/` 中已完成窗口（区间+转写哈希匹配），中断后只补未完成窗口。
 - **浏览器串行**：知乎/微博/Medium/X/小红书/抖音共用一个 profile，工具用文件锁串行化；另一任务占用时会等待/提示，不要并发跑浏览器型平台。
@@ -186,6 +190,15 @@ python scripts/el.py run <链接> --budget 1.5           # 本次运行复检金
 先运行 `python scripts/el.py doctor`（或 `el.py onboard`），向用户汇总：依赖（faster-whisper / yt-dlp / playwright）、GPU、whisper 模型缓存、vision、cookie、out_dir。
 （doctor 的 cookie 为逐平台状态：B 站真实探针；知乎/微博/抖音按文件龄期标「未验证/过期风险」，不要当成已登录。）
 
+### 快速路径（推荐）
+
+```bash
+python scripts/el.py setup            # 交互：报告目录 / 是否内建知识库 / 是否安装依赖 / 是否登录
+python scripts/el.py setup --out "D:/学习笔记" --yes --no-kb
+```
+
+`setup` 会写配置并完成引导置位；无显示环境可用 `el.py cookie <p> --import cookies.txt` 导入登录态。
+
 ### B. 四项确认点（必须逐项向用户输出并确认）
 
 1. **产出目录（硬性，必须由用户自选）**
@@ -202,7 +215,9 @@ python scripts/el.py run <链接> --budget 1.5           # 本次运行复检金
    - 用途：多平台学习内容 → 中文详解学习报告（11 平台，见「介绍」表）；
    - 典型用法：`el.py run <链接> [--all/--pages/--model/--budget]`、`el.py scan <列表链接>`、`el.py report/export`；
    - 产物：三件套 + `assets/` + `recheck_report.json`；报告规则见「正常调用工作流 · 报告规则」。
-5. **术语库（可选填塞 + 自动反哺告知 + 配套推荐）**
+5. **知识库（可选，setup 会询问）**：是否把报告索引进本地 SQLite（`el.py kb search` 可检索）；开启后每次 `run` 自动索引，关闭不影响主流程。
+
+6. **术语库（可选填塞 + 自动反哺告知 + 配套推荐）**
    - 询问用户是否愿意填入自己的常用术语（领域/项目名词）→ 逐条 `python scripts/glossary.py add "<术语>" "<解释>"`（可选）；
    - **告知自动反哺机制**：每次转写按勘误库筛验术语名（画面校正自动沉淀别名）；报告写作沉淀新术语；知识库 `absorb` 吸收——术语库随使用逐渐丰富；
    - 推荐配套 skill `bilibili-to-wiki`（个人知识库填充接口，已适配本技能产物：任意支持平台链接 → 知识库）。

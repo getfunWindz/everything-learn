@@ -7,11 +7,14 @@ on:
 
 jobs:
   pytest:
-    runs-on: windows-latest
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
         python-version: ["3.10", "3.11"]
+    runs-on: ${{ matrix.os }}
+    env:
+      PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@v4
 
@@ -20,22 +23,19 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: 安装依赖（核心 + 可选：yt-dlp/whisper/docx/av）
-        run: pip install "pytest>=7.0" "requests>=2.28" yt-dlp faster-whisper python-docx av numpy pillow
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "pytest>=7.0" "requests>=2.28" yt-dlp faster-whisper \
+            python-docx av numpy pillow
 
       - name: 初始化配置（CI 无本地 config.json）
+        shell: bash
         run: |
-          python -X utf8 -c "import sys; sys.path.insert(0, 'scripts'); from core import config; config.ensure_config(); print('config ok')"
+          python -c "import sys; sys.path.insert(0, 'scripts'); from core import config; config.ensure_config(); print('config ok')"
 
       - name: 运行测试
+        shell: bash
         run: |
           python -V
-          python -X utf8 -m pytest tests/ -q --tb=line > pytest.log 2>&1
-          $code = $LASTEXITCODE
-          Get-Content pytest.log -Tail 30
-          if ($code -ne 0) {
-            Write-Host "::error::python=$(python -V 2>&1) exit=$code"
-            Get-Content pytest.log | Select-String -Pattern '^(FAILED|ERROR) ' | Select-Object -First 10 | ForEach-Object {
-              Write-Host "::error::$($_.Line)"
-            }
-            exit $code
-          }
+          python -m pytest tests/ -q --tb=line

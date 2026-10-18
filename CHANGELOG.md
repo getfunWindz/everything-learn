@@ -2,6 +2,21 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本。
 
+## [0.4.18] - 2026-10-18
+
+### Added
+
+- **微博/抖音登录态自动化**：headless 复用 profile（实测删除文件后各 1s 写回；抖音 59 项含 `odin_tt`）；微博补 `reload_auth`；无显示环境支持 `el.py cookie <p> --import <file>` / `--cookie-string`（Netscape / `k=v;…` / JSON）。
+- **`el.py setup` 一键初始化**：依赖检查（`--install` 显式同意安装）、报告目录、知识库开关、可选登录；写入配置并完成引导置位。
+- **内建知识库（SQLite）**：`el.py kb build/search/stats`；`setup` 询问是否启用，开启后 `run` 自动索引（失败不影响主流程）。
+- **报告引用回溯**：`report_check.py --strict` 将「带单位数字无法在 content.txt 找到」判 fail（默认 warn；换算/派生数字不误杀）。
+- **自进化**：模板补齐 `reload_auth`/`fetch_media_urls`/平台字段/cookie 导入说明；新增 `scripts/gen_contract_test.py` 生成契约测试。
+- **跨平台 CI**：GitHub Actions 矩阵扩为 Windows/macOS/Linux × Python 3.10/3.11（shell: bash，PYTHONUTF8=1）。
+
+### Tests
+
+- **903 项离线测试**（新增 15 项：cookie 解析/导入、setup、kb、引用回溯、契约生成器）。
+
 ## [0.4.17] - 2026-10-18
 
 ### Added
