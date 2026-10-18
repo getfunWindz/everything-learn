@@ -16,3 +16,7 @@ cache/
 HANDOFF.md
 HANDOFF-*.md
 docs/
+
+# 内建知识库（本地数据）
+kb.sqlite3
+*.sqlite3
