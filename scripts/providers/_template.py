@@ -2,6 +2,7 @@
 
 - 文件名不要以 _ 开头，否则不会被 core.registry.load_providers() 自动发现。
 - 实现前先完成 docs/ADAPTER_SPEC.md §6 可行性尽调。
+- 生成契约测试：python scripts/gen_contract_test.py <name>
 """
 # from core.adapter import SearchNeeded
 # from core.models import ContentResult, ItemMeta, ItemRef
@@ -55,6 +56,14 @@
 #         """match 全未命中时的网络探测兜底（仅 http(s)；仅看 content-type/首段字节，别做重活）"""
 #         return False
 #
+#     def reload_auth(self):
+#         """登录态自动恢复后重新注入 cookie（pipeline 自动重试用；如 load_cookie(self.session)）"""
+#         ...
+#
+#     def fetch_media_urls(self, ref, media="audio", lowest=False):
+#         """多候选媒体直链（跨主机容灾；默认回退 fetch_media_url 单条）"""
+#         return [self.fetch_media_url(ref, media=media, lowest=lowest)]
+#
 #     def media_headers(self):
 #         """媒体下载（Whisper/抽帧）请求头；平台 CDN 校验 UA/Referer 时必须"""
 #         return None
@@ -62,6 +71,9 @@
 #     def fetch_root_meta(self, ref, refs):
 #         """合集根 meta（收藏夹/列表/频道等账号级列表用列表自身 meta；默认取 refs[0]）"""
 #         return self.fetch_meta(refs[0])
+#
+# # 平台声明（可选）：language_hint="zh"、has_video=True、accept_auto_subtitle=False、
+# # media_budget_sec=45；ContentResult 可带 quality_hint（会员墙/截断等，报告优先展示）
 #
 # # 需 cookie 的平台声明导出规格（见 docs/ADAPTER_SPEC.md §4）：
 # # COOKIE_EXPORT = {"url": "...", "read_url": "...", "required": [...], "ready": [...],
