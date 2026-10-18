@@ -15,7 +15,13 @@ cache/
 # 开发过程文件（不公开；仅本地保留——公开仓库只含源代码与产品文件）
 HANDOFF.md
 HANDOFF-*.md
-docs/
+docs/*
+# 公开的产品文档（自进化流程需要；仍随仓库分发）
+!docs/ADAPTER_SPEC.md
+!docs/ADAPTER_TEMPLATE.md
+
+# 断点续跑缓存（可能落在仓库根目录）
+.recheck_ckpt/
 
 # 内建知识库（本地数据）
 kb.sqlite3

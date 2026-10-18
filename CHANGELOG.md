@@ -2,6 +2,34 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本。
 
+## [0.4.21] - 2026-10-18
+
+### Added
+
+- **公开仓库随包分发适配器规范**：`docs/ADAPTER_SPEC.md` / `docs/ADAPTER_TEMPLATE.md` 不再被 `.gitignore` 排除，自进化流程在公开克隆中可直接执行。
+- **`report_check` 节名别名**：兼容 R5/R6 旧称（知识点全览 / 学习路径与自测），避免按 SKILL 字面写标题被误杀。
+
+### Fixed
+
+- **报告模板/基线契约统一**：模板与自动基线使用 `## 学习地图（知识点全览）`、`## 自测（每 3~5 个知识点一题）`，与 `report_check` 一致；文档平台无复检时写 `n/a`，不再引用不存在的 `recheck_report.json`。
+- **基线报告**：文档平台知识点编号连续（不再按正文行号跳号）；一句话总结/金句排除标题行。
+- **`setup`**：`--yes` 必须显式 `--out`，不再默认写 `~/学习笔记`；`write_user_config` 深合并，保留既有 `kb.path`。
+- **`doctor`**：faster-whisper/yt-dlp 的 `find_spec` 成功但 import 失败时给可读提示，不再 traceback。
+- **导出**：缺 `python-docx` 时抛 `RuntimeError`（CLI 可读退出），`export.py` 补 `import sys`（GBK 控制台保护真正生效）。
+- **`glossary.py`**：`--help` 可用；补模块级 `import sys`。
+- **`split`**：无时间轴内容不再打印 `None–Nones`。
+- **未知平台 URL**：不再先弹 B 站 cookie 警告，直接给自进化提示。
+- 清理未使用导入/变量（`ruff check scripts --select F` 全绿）。
+
+### Changed
+
+- **`requirements.txt`**：`faster-whisper` 归入可选依赖；README 明确视频/播客再安装，图文平台只装核心依赖。
+- **文档对齐**：README/SKILL/HANDOFF 更新为 12 平台、931 passed / 2 skipped（933 collected）、跨平台 CI、无日期目录名、基线报告需深化的说明。
+
+### Tests
+
+- **933 项离线测试**（新增 14 项：配置深合并、setup 硬性 out_dir（含交互）、导出缺依赖、doctor 导入失败、模板/基线契约、report_check 别名、基线编号、split 文档输出、onboard 计数、glossary --help、未知 URL 警告）。Windows 下 2 项 POSIX chmod 用例跳过。
+
 ## [0.4.20] - 2026-10-18
 
 ### Added

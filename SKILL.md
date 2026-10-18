@@ -1,6 +1,6 @@
 ---
 name: everything-learn
-description: 将多平台学习内容（视频/音频/图文/帖子）总结为中文学习报告。触发词：「总结这个视频/文章/播客」「学习笔记」「把内容整理成学习报告」等，用户提供链接、名称或平台内容标识。当前支持 B 站、YouTube、播客、知乎、TED、Medium、微博、抖音、微信公众号、X（Twitter）、小红书；遇到没有适配器的平台可按规范现场搭建适配器。
+description: 将多平台学习内容（视频/音频/图文/帖子）总结为中文学习报告。触发词：「总结这个视频/文章/播客」「学习笔记」「把内容整理成学习报告」等，用户提供链接、名称或平台内容标识。当前支持 12 个平台：B 站、YouTube、播客、知乎、TED、Medium、微博、抖音、微信公众号、X（Twitter）、小红书、V2EX；遇到没有适配器的平台可按规范现场搭建适配器。
 ---
 
 # everything-learn：多平台学习内容总结
@@ -32,8 +32,8 @@ description: 将多平台学习内容（视频/音频/图文/帖子）总结为�
 ### 核心命令
 
 ```bash
-python scripts/el.py setup                    # 一键初始化（依赖/目录/知识库/登录；--yes 非交互）
-python scripts/el.py onboard                  # 首次引导门（状态/四项确认点；--complete/--reset/--json）
+python scripts/el.py setup                    # 一键初始化（依赖/目录/知识库/登录；--yes 需配 --out）
+python scripts/el.py onboard                  # 首次引导门（状态/五项确认点；--complete/--reset/--json）
 python scripts/el.py doctor                   # 环境自检（依赖/GPU/模型/vision/cookie/out_dir）
 python scripts/el.py run <链接/名称> [--page N | --pages "1-10" | --all] [--model tiny|small|medium|large-v3] [--budget 1.5] [--max-seconds 600] [--report-format md|doc|docx|txt]
 python scripts/el.py search <关键词> --platform <平台> [--limit 5] [--json]   # 12 平台搜索（见 platforms 的 search= 列；V2EX 需链接）
@@ -49,7 +49,7 @@ python scripts/el.py export <目录> --format html
 
 <!-- ⛳ ONBOARDING: 1 -->
 
-> **标签位①（引导状态）**：`1` = 首次引导**未完成** → 必须先执行文末「初次调用逻辑」（四项确认 + `el.py onboard --complete` 置位）；
+> **标签位①（引导状态）**：`1` = 首次引导**未完成** → 必须先执行文末「初次调用逻辑」（五项确认 + `el.py onboard --complete` 置位）；
 > `0` = 已完成 → 跳过文末章节，直接按下方工作流正常使用（省 token）。由 `el.py onboard --complete` 自动 1→0。
 
 ## 正常调用工作流（每次使用）
@@ -121,8 +121,8 @@ python scripts/el.py run <链接> --budget 1.5           # 本次运行复检金
   撰写前通读全部内容（长内容分段读完，**不得跳读**），边读边提取知识点清单；撰写后对照 `content.txt` 逐段核对；
   **不设篇幅上限**，禁止以「控制上下文/成本」为由省略、概括或跳过；长内容宁可分多轮、多会话完成。
 - **R4 浓缩去水**：删除寒暄、过渡语、重复解释、与知识无关的闲聊，只保留知识本身。
-- **R5 学习地图**：报告的「知识点全览」= 按出现顺序编号的全部知识点清单（学习前预览覆盖范围），不遗漏。
-- **R6 自测**：学习路径与自测 = 按知识点维度的收获总结 + 每 3~5 个知识点一道自测题（附参考答案位置提示）。
+- **R5 学习地图**：报告的「学习地图（知识点全览）」= 按出现顺序编号的全部知识点清单（学习前预览覆盖范围），不遗漏。
+- **R6 自测**：报告的「自测（每 3~5 个知识点一题）」= 按知识点维度的收获总结 + 每 3~5 个知识点一道自测题（附参考答案位置提示）。
 - **R7 趣味彩蛋（默认关闭）**：仅当用户明确要求（幽默点/彩蛋/有趣的点）时才从内容中摘录趣味素材；未提及一律省略。
 - **R8 官方+通俗双版本**：每个知识点先给「定义」（标准表述）再给「通俗」（一句话新手视角）。
 - **R9 延伸标注（含 R9.1 深度）**：讲解中出现的新概念用「延伸」字段标注解释；主流/高级知识点深入 2~4 条（概念+使用场景），简单知识点 1 条或省略；宁少而深，不浅而泛。
@@ -144,9 +144,9 @@ python scripts/el.py run <链接> --budget 1.5           # 本次运行复检金
 - **多模态复检（配置 vision 后固定路径）**：按档位窗口抽帧（3 帧/秒、静帧去重）核对画面遗漏（白板公式/PPT/代码/图表）与口误/同音字，补充/校正以【画面补充】【画面校正】写入转写；
   经验证据：Whisper 转写 + 未复检 = 报告可能缺失关键公式与结论（M13 冒烟：美食视频 5 处画面校正、教育类视频复检覆盖不足已记录）；复检执行者选择见 R12。
 
-#### document / collection（规划中）
-- `document`：按原文章节切段（`### 段N｜章节名`），引用用「小节标题」定位；报告骨架已实现（一句话总结 → 知识地图 → 知识详解 → 概念表 → 金句 → 原文摘录 → 自测 → 延伸阅读）；正文图片在 `assets/`，agent 按需多模态读图并入知识点；
-- `collection`（社媒聚合）：跨条目主题聚类 + 观点对比 + 来源标注——M6 起实现。
+#### document / collection
+- `document`：按原文章节切段（`### 段N｜章节名`），引用用「小节标题」定位；报告骨架已实现（一句话总结 → 学习地图（知识点全览）→ 知识详解 → 概念表 → 金句 → 原文摘录 → 自测 → 延伸阅读）；正文图片在 `assets/`，agent 按需多模态读图并入知识点；
+- `collection`（社媒聚合）：`run --all` / 合集链接 → 跨条目主题聚类 + 观点对比 + 来源标注（已实现）；
 
 ### 交付
 
@@ -175,7 +175,7 @@ python scripts/el.py run <链接> --budget 1.5           # 本次运行复检金
 - **抖音**：detail 接口已对非浏览器调用硬拦（直连 403 Argus/Uifid）→ 取数走真实浏览器上下文（本机需 Playwright + 持久化 profile：`el.py cookie douyin` 打开窗口一次）；风控严格勿高频；scan 已内置 SPA 水合等待。
 - 搜索接口偶发风控：失败时提示用户改用链接。
 - **X（Twitter）**：单推文无需 cookie；限流会跨宿主升级（429 → SSL EOF，含图片/视频 CDN）；缓速默认 10s，被拒时退避一次即给可读提示，不要循环重试；主页时间线 scan 与搜索为实验性（依赖已登录浏览器 + 代理），失败时改用链接。
-- **小红书**：依赖短时效 `xsec_token`（旧 token 失效 → sec-404）；连发 note 请求会 sec-404，缓速 12s；**搜索结果为 token 化链接，可直接 run**；成功取数会写入 token 缓存（6h），无 token 链接会先复用（实测重复运行 1s 成功）；首见无 token 链接仍需 App 分享文本 / 重新搜索（explore 滚动兜底按 id 命中率低，41s 后可读失败）；账号级能力（主页/收藏）列为后续方向（M11）。
+- **小红书**：依赖短时效 `xsec_token`（旧 token 失效 → sec-404）；连发 note 请求会 sec-404，缓速 12s；**搜索结果为 token 化链接，可直接 run**；成功取数会写入 token 缓存（6h），无 token 链接会先复用（实测重复运行 1s 成功）；首见无 token 链接仍需 App 分享文本 / 重新搜索（explore 滚动兜底按 id 命中率低，41s 后可读失败）；账号级能力（主页/收藏）已支持 `scan`（需登录）。
 - **公众号**：单篇链接无需 cookie；搜狗搜索为实验性（验证码/antispider 风险，结果链接会话绑定、不可跨进程复用）；**requests 被拦时自动走浏览器兜底**（搜狗搜索 + 文章渲染，`#js_content`/`#js_image_desc`）；浏览器首屏无正文容器会重载一次，结果过「≥20 字或 ≥1 图」闸门才采信（否则不采信并给出可读原因）；页面「参数错误/系统出错」等异常会给可读提示。
 - **运行环境与 harness 无关（2026-10-18）**：纯 CLI（`python scripts/el.py`），不依赖任何特定 agent/MCP；任意 harness（Claude Code / Codex / pi / 终端）均可按 SKILL 流程使用。首次登录一次后，cookie 由 headless 持久 profile 自动复用/刷新（无窗口），浏览器自动在 Edge→Chrome→Chromium 中选择；控制台编码异常自动降级（`errors=replace`）。
 - **低配模式（2026-10-17）**：仅必要依赖（无 faster-whisper / yt-dlp / playwright 等）时——字幕平台自动降级采信并标注「低配：未经同源校验」+ `quality_hint` 强制推荐；whisper 平台给出安装引导；画面复检依赖（Pillow/PyAV）缺失时自动提前跳过。转写档位低于 medium 时产物带 `quality.tier_note` 常驻建议（实机验证 medium 效果最佳）。
@@ -209,7 +209,7 @@ python scripts/el.py setup --out "D:/学习笔记" --yes --no-kb
 
 `setup` 会写配置并完成引导置位；无显示环境可用 `el.py cookie <p> --import cookies.txt` 导入登录态。
 
-### B. 四项确认点（必须逐项向用户输出并确认）
+### B. 五项确认点（必须逐项向用户输出并确认）
 
 1. **产出目录（硬性，必须由用户自选）**
    - 建议新建一个总文件夹（如「学习笔记」）；**未配置 `out_dir` 时 `el.py run` 会拒绝运行**——不要替用户决定路径，也不要有默认路径；
@@ -224,13 +224,13 @@ python scripts/el.py setup --out "D:/学习笔记" --yes --no-kb
 4. **使用说明总结（用途 + 典型用法 + 产物）**
    - 用途：多平台学习内容 → 中文详解学习报告（12 平台，见「介绍」表）；
    - 典型用法：`el.py run <链接> [--all/--pages/--model/--budget]`、`el.py scan <列表链接>`、`el.py report/export`；
-   - 产物：三件套 + `assets/` + `recheck_report.json`；报告规则见「正常调用工作流 · 报告规则」。
-5. **知识库（可选，setup 会询问）**：是否把报告索引进本地 SQLite（`el.py kb search` 可检索）；开启后每次 `run` 自动索引，关闭不影响主流程。
-
-6. **术语库（可选填塞 + 自动反哺告知 + 配套推荐）**
+   - 产物：三件套 + 基线 `<标题>学习报告.md` + `assets/`；timeline 另有 `recheck_report.json`；报告规则见「正常调用工作流 · 报告规则」。
+5. **术语库（可选填塞 + 自动反哺告知 + 配套推荐）**
    - 询问用户是否愿意填入自己的常用术语（领域/项目名词）→ 逐条 `python scripts/glossary.py add "<术语>" "<解释>"`（可选）；
    - **告知自动反哺机制**：每次转写按勘误库筛验术语名（画面校正自动沉淀别名）；报告写作沉淀新术语；知识库 `absorb` 吸收——术语库随使用逐渐丰富；
    - 推荐配套 skill `bilibili-to-wiki`（个人知识库填充接口，已适配本技能产物：任意支持平台链接 → 知识库）。
+
+> 知识库（可选）：由 `el.py setup` 询问，不属于 onboard 五项必答；开启后每次 `run` 自动索引。
 
 ### C. 配置要点（引导时解释；按用户选择写入 config）
 
@@ -247,7 +247,7 @@ python scripts/el.py setup --out "D:/学习笔记" --yes --no-kb
 
 ### D. 置位（引导完成）
 
-四项确认全部完成后，运行：
+五项确认全部完成后，运行：
 
 ```bash
 python scripts/el.py onboard --complete
