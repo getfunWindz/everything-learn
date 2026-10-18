@@ -2082,7 +2082,8 @@ def test_max_seconds_marks_remaining_windows_uncovered(monkeypatch, tmp_path, ca
     assert meta["checked_windows"] == 0
     assert len(meta["uncovered"]) == 2
     assert any("时长上限" in w.get("text", "") for w in meta["windows"])
-    assert "复检计划" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "复检计划" in err and "上界" in err
 
 
 def test_recheck_resume_reuses_completed_windows(monkeypatch, tmp_path):

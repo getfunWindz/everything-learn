@@ -330,8 +330,9 @@ def _run_window_recheck(adapter, ref, lines, cfg, decision, opts, disputed=None)
             uncovered_text = ("超出复检金额预算（--budget）"
                               if budget_reason == "budget_cap"
                               else "超出复检帧预算（max_check_frames）")
-            print(f"  · 复检计划：{total_windows} 窗 / 预计 {est_used['amount']:.3f} "
-                  f"{est_used.get('currency', 'USD')} / 帧帽 {runtime_cap}", file=sys.stderr)
+            print(f"  · 复检计划：{total_windows} 窗 / 预估 {est_used['amount']:.3f} "
+                  f"{est_used.get('currency', 'USD')}（上界，按帧去重后通常更低） / 帧帽 {runtime_cap}",
+                  file=sys.stderr)
             ckpt_path = _recheck_ckpt_path(opts, ref)
             prior = _load_recheck_ckpt(ckpt_path) if getattr(opts, "resume", False) else {}
             ckpt_by_key = {tuple(e.get("range") or []): e
