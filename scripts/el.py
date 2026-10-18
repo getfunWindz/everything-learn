@@ -832,7 +832,6 @@ def main(argv=None):
     kb.set_defaults(func=cmd_kb)
 
     st = sub.add_parser("setup", help="一键初始化（依赖/报告目录/知识库/登录）")
-    st = sub.add_parser("setup", help="一键初始化（依赖/报告目录/知识库/登录）")
     st.add_argument("--out", default=None, help="报告根目录（不传则交互询问）")
     st.add_argument("--install", action="store_true", help="同意安装缺失的可选依赖")
     st.add_argument("--login", action="store_true", help="尝试自动恢复各平台登录态")
