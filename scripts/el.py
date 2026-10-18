@@ -15,7 +15,7 @@ from providers.bilibili import ApiClient, BiliError, resolve_input
 try:
     from version import VERSION
 except Exception:                     # 被作为包导入时的兜底
-    VERSION = "0.4.21"
+    VERSION = "0.4.22"
 
 try:                                    # GBK 控制台不因 emoji/符号崩溃
     sys.stdout.reconfigure(errors="replace")
@@ -231,24 +231,54 @@ def cmd_split(args):
 
 
 def cmd_kb(args):
-    """内建知识库：建库/搜索/统计"""
+    """内建知识库：build/index/prune/delete/rebuild/search/stats"""
     import kb
     action = getattr(args, "action", "")
     db = getattr(args, "db", None)
+    include_collections = getattr(args, "include_collections", False)
     if action == "build":
-        n = kb.index_root(args.path, db_path=db)
-        print(f"已索引 {n} 条（{kb.stats(db_path=db)['db']}）")
+        r = kb.index_root(args.path, db_path=db,
+                          prune=not getattr(args, "no_prune", False),
+                          include_collections=include_collections)
+        print(f"已扫描 {r['scanned']} 个目录；知识库 {r['docs']} 条；"
+              f"清理 {r['pruned']} 条 → {r['db']}")
+    elif action == "index":
+        key = kb.index_dir(args.path, db_path=db,
+                           include_collections=include_collections)
+        if not key:
+            print(f"未索引（无 content_info.json / 空内容 / 合集汇总已跳过）：{args.path}",
+                  file=sys.stderr)
+            sys.exit(1)
+        print(f"已索引/更新：{key}")
+    elif action == "prune":
+        n = kb.prune_stale(args.path, db_path=db)
+        print(f"已清理 {n} 条")
+    elif action == "delete":
+        n = kb.delete_doc(args.path, db_path=db)
+        print(f"已删除 {n} 条")
+        if not n:
+            sys.exit(1)
+    elif action == "rebuild":
+        r = kb.rebuild(args.path, db_path=db, include_collections=include_collections)
+        print(f"已重建：{r['docs']} 条 / {r['chars']} 字 → {r['db']}")
     elif action == "search":
-        rows = kb.search(args.query, limit=args.limit, db_path=db)
+        rows = kb.search(args.query, limit=args.limit, db_path=db,
+                         platform=getattr(args, "platform", None),
+                         author=getattr(args, "author", None),
+                         kind=getattr(args, "kind", None),
+                         since=getattr(args, "since", None))
         if not rows:
             print("未找到（先 el.py kb build <学习笔记根目录>）", file=sys.stderr)
             sys.exit(1)
         for i, r in enumerate(rows, 1):
             print(f"{i}. {r['title']} — {r['author']}（{r['chars']} 字）")
+            if r.get("snippet"):
+                print(f"   {r['snippet']}")
             print(f"   {r['path']}")
     else:
         st = kb.stats(db_path=db)
-        print(f"知识库：{st['docs']} 条 / {st['chars']} 字 → {st['db']}")
+        print(f"知识库：{st['docs']} 条 / {st['chars']} 字；"
+              f"FTS={'on' if st.get('fts') else 'off'} → {st['db']}")
 
 
 def cmd_setup(args, client: ApiClient = None):
@@ -845,15 +875,36 @@ def main(argv=None):
     sp.add_argument("--overlap", type=int, default=1000)
     sp.set_defaults(func=cmd_split)
 
-    kb = sub.add_parser("kb", help="内建知识库（建库/搜索/统计）")
+    kb = sub.add_parser("kb", help="内建知识库（build/index/prune/delete/rebuild/search/stats）")
     kb_sub = kb.add_subparsers(dest="action", required=True)
-    kb_b = kb_sub.add_parser("build", help="递归索引学习笔记目录")
+    kb_b = kb_sub.add_parser("build", help="递归索引学习笔记目录（默认清理失效记录）")
     kb_b.add_argument("path")
     kb_b.add_argument("--db", default=None)
-    kb_s = kb_sub.add_parser("search", help="关键词搜索")
+    kb_b.add_argument("--no-prune", action="store_true", help="不清理已删除/失效记录")
+    kb_b.add_argument("--include-collections", action="store_true",
+                      help="同时索引 kind=batch 的合集汇总（默认跳过）")
+    kb_i = kb_sub.add_parser("index", help="索引单个产物目录（深度报告改写后立即重索引）")
+    kb_i.add_argument("path")
+    kb_i.add_argument("--db", default=None)
+    kb_i.add_argument("--include-collections", action="store_true")
+    kb_p = kb_sub.add_parser("prune", help="清理已删除/失效记录")
+    kb_p.add_argument("path")
+    kb_p.add_argument("--db", default=None)
+    kb_d = kb_sub.add_parser("delete", help="按产物目录删除单条记录")
+    kb_d.add_argument("path")
+    kb_d.add_argument("--db", default=None)
+    kb_r = kb_sub.add_parser("rebuild", help="清空知识库后重建")
+    kb_r.add_argument("path")
+    kb_r.add_argument("--db", default=None)
+    kb_r.add_argument("--include-collections", action="store_true")
+    kb_s = kb_sub.add_parser("search", help="关键词搜索（FTS5 + snippet + 过滤）")
     kb_s.add_argument("query")
     kb_s.add_argument("--limit", type=int, default=10)
     kb_s.add_argument("--db", default=None)
+    kb_s.add_argument("--platform", default=None, help="平台过滤（bilibili/zhihu/...）")
+    kb_s.add_argument("--author", default=None, help="作者/UP 主子串过滤")
+    kb_s.add_argument("--kind", default=None, help="形态过滤（timeline/document）")
+    kb_s.add_argument("--since", default=None, help="发布日期下限 YYYY-MM-DD")
     kb_st = kb_sub.add_parser("stats", help="统计")
     kb_st.add_argument("--db", default=None)
     kb.set_defaults(func=cmd_kb)
