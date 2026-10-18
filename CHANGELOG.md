@@ -2,6 +2,17 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本。
 
+## [0.4.12] - 2026-10-18
+
+### Added
+
+- **小红书 token 缓存（6h）**：成功取数后写入 `scripts/cache/xhs_tokens.json`；无 token / token 失效链接先复用缓存（实测第二次运行 1s 成功）。
+- **explore 兜底升级**：requests 之外增加登录态浏览器滚动收集（虚拟列表，20s 约 95 个 `note_id→token`）；按 id 命中率仍低（实测跨会话 0/1，41s 失败），首见无 token 链接仍建议 App 分享。
+
+### Tests
+
+- **865 项离线测试**（新增 6 项：浏览器滚动命中/上限、requests 命中不启浏览器、缓存写入/复用/过期）。
+
 ## [0.4.11] - 2026-10-18
 
 ### Changed
