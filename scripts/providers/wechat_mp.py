@@ -36,6 +36,19 @@ _SOGOU_SEARCH = "https://weixin.sogou.com/weixin?type=2&query={q}"
 _SEARCH_FP_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "cache")
 _SEARCH_FP_TTL = 3600
 
+MIN_DOC_TEXT = 20      # 正文最小可用字数；有正文图时放行（图片为主文章）
+_BROWSER_ATTEMPTS = 2  # 浏览器兜底次数（首屏没有正文容器 → 重载一次）
+
+
+def doc_text_len(blocks) -> int:
+    """正文块字数合计"""
+    return sum(len((b or {}).get("text") or "") for b in (blocks or []))
+
+
+def usable_document(blocks, images=()) -> bool:
+    """文档可用性闸门：正文 ≥ MIN_DOC_TEXT 字，或至少 1 张正文图"""
+    return doc_text_len(blocks) >= MIN_DOC_TEXT or bool(images)
+
 
 def search_fingerprint(hits) -> str:
     """搜索结果指纹（标题+账号，顺序敏感）：用于检测搜狗结果漂移"""
@@ -385,20 +398,24 @@ class WeChatMpAdapter:
             blocks, imgs = extract_article(self._get_html(ref.url, ref.extra.get("referer")))
         except WeChatError as e:
             err = e
-        text_len = sum(len(b.get("text") or "") for b in blocks)
-        if not blocks or text_len < 20:
+        if doc_text_len(blocks) < MIN_DOC_TEXT:          # 闸门①：请求侧正文偏短 → 浏览器兜底
+            req_len = doc_text_len(blocks)
             try:
                 b2, i2, _ = self._fetch_browser(ref)
-                if b2:
+                # 闸门②：浏览器结果也要过可用性检查，且不能比请求侧更短
+                if usable_document(b2, i2) and doc_text_len(b2) >= req_len:
                     blocks, imgs = b2, i2
-            except Exception:
-                pass
-        if not blocks and not imgs:
+                elif not usable_document(blocks, imgs):
+                    err = WeChatError(f"浏览器兜底正文过短（{doc_text_len(b2)} 字 / {len(i2)} 图）")
+            except Exception as e:
+                if not usable_document(blocks, imgs) and err is None:
+                    err = e
+        text_len = doc_text_len(blocks)
+        if not usable_document(blocks, imgs):
             return ContentResult(kind="document", status="empty",
-                                 reason=str(err)[:120] if err else "正文为空", label="正文")
-        text_len = sum(len(b.get("text") or "") for b in blocks)
-        status = "ok" if (text_len >= 20 or imgs) else "suspect"
-        reason = "" if status == "ok" else f"正文过短（{text_len} 字）"
+                                 reason=str(err or "正文为空")[:120], label="正文")
+        status = "ok" if text_len >= MIN_DOC_TEXT else "suspect"
+        reason = "" if status == "ok" else f"正文过短（{text_len} 字，含 {len(imgs)} 图）"
         return ContentResult(kind="document", status=status, blocks=blocks, images=imgs,
                              reason=reason, label="正文")
 
@@ -433,25 +450,46 @@ class WeChatMpAdapter:
               account: q('#js_name'), published: q('#publish_time')};
     })()"""
 
+    @staticmethod
+    def _browser_page_reason(html: str) -> str:
+        """把浏览器拿到的拦截页翻译成可读原因"""
+        html = html or ""
+        if "环境异常" in html:
+            return "浏览器打开被拦截（环境异常）：稍后重试或改用文章原链接"
+        if "请在微信客户端打开" in html:
+            return "该链接要求在微信客户端打开（浏览器不可读）"
+        return "浏览器也未找到正文容器（#js_content）"
+
     def _fetch_browser(self, ref):
-        """浏览器渲染文章 → (blocks, images, meta)"""
-        with browserfetch.BrowserSession("wechat_mp") as s:
-            s.goto(ref.url)
-            s.pause(2500)
-            data = s.evaluate(self._BROWSER_JS) or {}
-        if not data.get("ok"):
-            raise WeChatError("浏览器也未找到正文容器（#js_content）")
-        blocks = [b for b in (data.get("blocks") or []) if (b.get("text") or b.get("heading"))]
-        images = []
-        for u in data.get("images") or []:
-            if u.startswith("//"):
-                u = "https:" + u
-            if u.startswith("http"):
-                images.append(u)
-        meta = {"title": data.get("title") or "", "account": data.get("account") or "",
-                "author": data.get("account") or "", "published": data.get("published") or ""}
-        self._browser_meta[ref.url] = meta
-        return blocks, images, meta
+        """浏览器渲染文章 → (blocks, images, meta)；首屏不可用则重载一次（质量闸门）"""
+        last = None
+        for attempt in range(_BROWSER_ATTEMPTS):
+            with browserfetch.BrowserSession("wechat_mp") as s:
+                s.goto(ref.url)
+                s.pause(2500 + attempt * 1500)     # 第二遍多等 1.5s（渲染/反爬校验）
+                data = s.evaluate(self._BROWSER_JS) or {}
+                if not data.get("ok"):
+                    last = WeChatError(self._browser_page_reason(s.html()))
+                    continue
+                blocks = [b for b in (data.get("blocks") or [])
+                          if (b.get("text") or b.get("heading"))]
+                images = []
+                for u in data.get("images") or []:
+                    if u.startswith("//"):
+                        u = "https:" + u
+                    if u.startswith("http"):
+                        images.append(u)
+                if not usable_document(blocks, images):
+                    last = WeChatError(
+                        f"浏览器正文过短（{doc_text_len(blocks)} 字 / {len(images)} 图）")
+                    continue
+                meta = {"title": data.get("title") or "",
+                        "account": data.get("account") or "",
+                        "author": data.get("account") or "",
+                        "published": data.get("published") or ""}
+                self._browser_meta[ref.url] = meta
+                return blocks, images, meta
+        raise last
 
     def _search_browser(self, query: str, limit: int) -> list:
         """搜狗搜索浏览器兜底：解析结果 → 逐个解析为 mp.weixin 直链（会话内）"""

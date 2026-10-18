@@ -150,9 +150,12 @@ def test_fetch_meta_from_fixture():
     assert meta.published == "2021-09-06"
 
 
-def test_error_page_readable():
+def test_error_page_readable(monkeypatch):
     a = WeChatMpAdapter(session=_FakeSession(_fx("error_param.html")))
     ref = a.resolve("https://mp.weixin.qq.com/s/aaaaaaaaaaaaaaaaaaaaaa")
+    # 离线隔离：错误页不应启动真实浏览器
+    monkeypatch.setattr(a, "_fetch_browser",
+                        lambda r: (_ for _ in ()).throw(WeChatError("浏览器不可用")))
     res = a.fetch_content(ref)
     assert res.status == "empty" and "参数错误" in res.reason
 
@@ -294,6 +297,90 @@ def test_fetch_content_browser_fallback(monkeypatch):
                                    {"title": "T", "account": "A", "published": ""}))
     res = a.fetch_content(ref)
     assert res.status == "ok" and res.blocks[0]["text"] == body
+
+
+def test_usable_document_gate():
+    """可用性闸门：正文 ≥20 字，或至少 1 张正文图（图片为主文章）"""
+    from providers.wechat_mp import usable_document
+    assert usable_document([{"heading": "", "text": "x" * 20}], [])
+    assert not usable_document([{"heading": "", "text": "x" * 19}], [])
+    assert usable_document([], ["https://mmbiz.qpic.cn/1"])
+    assert not usable_document([], [])
+
+
+class _FakeBS:
+    """脚本化浏览器会话：按队列返回 evaluate 结果，记录 goto 次数"""
+    scripted = []
+    gotos = []
+
+    def __init__(self, platform="default", **kw):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def goto(self, url, wait_until="domcontentloaded"):
+        _FakeBS.gotos.append(url)
+
+    def pause(self, ms):
+        pass
+
+    def evaluate(self, js):
+        return _FakeBS.scripted.pop(0)
+
+    def html(self):
+        return "<html>环境异常</html>"
+
+
+def test_fetch_browser_retries_once(monkeypatch):
+    """首屏无正文容器（验证页）→ 重载一次后取到正文"""
+    import providers.wechat_mp as w
+    _FakeBS.scripted = [
+        {"ok": False},
+        {"ok": True, "blocks": [{"heading": "", "text": "正文" * 10}],
+         "images": [], "title": "T", "account": "A", "published": ""},
+    ]
+    _FakeBS.gotos = []
+    monkeypatch.setattr(w.browserfetch, "BrowserSession", _FakeBS)
+    a = w.WeChatMpAdapter(session=object())
+    ref = ItemRef(platform="wechat_mp", item_id="wx-1",
+                  url="https://mp.weixin.qq.com/s/x")
+    blocks, images, meta = a._fetch_browser(ref)
+    assert len(_FakeBS.gotos) == 2
+    assert blocks[0]["text"].startswith("正文") and meta["title"] == "T"
+
+
+def test_fetch_browser_gives_up_readable(monkeypatch):
+    """两次都拿不到正文 → 可读错误（含页面拦截原因）"""
+    import providers.wechat_mp as w
+    _FakeBS.scripted = [{"ok": False}, {"ok": False}]
+    _FakeBS.gotos = []
+    monkeypatch.setattr(w.browserfetch, "BrowserSession", _FakeBS)
+    a = w.WeChatMpAdapter(session=object())
+    ref = ItemRef(platform="wechat_mp", item_id="wx-1",
+                  url="https://mp.weixin.qq.com/s/x")
+    with pytest.raises(WeChatError) as e:
+        a._fetch_browser(ref)
+    assert len(_FakeBS.gotos) == 2 and "环境异常" in str(e.value)
+
+
+def test_browser_fallback_thin_content_rejected(monkeypatch):
+    """浏览器兜底只拿到极短正文 → 不采信，状态 empty 且原因可读"""
+    a = WeChatMpAdapter(session=object())
+    ref = ItemRef(platform="wechat_mp", item_id="wx-1",
+                  url="https://mp.weixin.qq.com/s/x")
+
+    def boom(*args, **kwargs):
+        raise WeChatError("公众号页面不可读：环境异常")
+
+    monkeypatch.setattr(a, "_get_html", boom)
+    monkeypatch.setattr(a, "_fetch_browser",
+                        lambda r: ([{"heading": "", "text": "短"}], [], {}))
+    res = a.fetch_content(ref)
+    assert res.status == "empty" and "过短" in res.reason
 
 
 def test_search_articles_browser_fallback(monkeypatch):
