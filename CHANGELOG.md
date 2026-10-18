@@ -2,6 +2,16 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本。
 
+## [0.4.16] - 2026-10-18
+
+### Fixed
+
+- **`report_check.py` 兼容 GBK 控制台**：Windows 默认编码下 `✓/❌` 会触发 `UnicodeEncodeError`；输出改为 ASCII `[ok]/[pass]/PASS/FAIL`，任意终端可用。
+
+### Tests
+
+- 878 项离线测试（CLI 用例兼容，无新增）。
+
 ## [0.4.15] - 2026-10-18
 
 ### Added
