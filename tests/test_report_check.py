@@ -120,3 +120,45 @@ def test_citations_trace_numbers():
     assert any(c["name"] == "citations" and c["level"] == "warn" for c in r2["checks"])
     r3 = report_check.check_report(bad, content_text=content, strict_citations=True)
     assert any(c["name"] == "citations" and c["level"] == "fail" for c in r3["checks"])
+
+
+def test_quotes_trace():
+    content = "视频里说：“Raw data are not automatically features.”"
+    good = GOOD.replace("A 的定义。", "A 的定义：“Raw data are not automatically features.”")
+    r = report_check.check_report(good, content_text=content)
+    assert not any(c["name"] == "quotes" and c["level"] == "fail" for c in r["checks"])
+    bad = GOOD.replace("A 的定义。", "A 的定义：“这是视频里没有的一句话。”")
+    r2 = report_check.check_report(bad, content_text=content)
+    assert any(c["name"] == "quotes" and c["level"] == "warn" for c in r2["checks"])
+    r3 = report_check.check_report(bad, content_text=content, strict_citations=True)
+    assert any(c["name"] == "quotes" and c["level"] == "fail" for c in r3["checks"])
+
+
+def test_timestamps_range():
+    content = "[0.0-3.0] a\n[3.0-60.0] b\n"
+    good = GOOD.replace("#### 知识点 1：概念 A（[0:00–2:00]）",
+                        "#### 知识点 1：概念 A（[0:30]）")
+    r = report_check.check_report(good, content_text=content)
+    assert not any(c["name"] == "timestamps" and c["level"] == "fail" for c in r["checks"])
+    bad = GOOD.replace("#### 知识点 1：概念 A（[0:00–2:00]）",
+                       "#### 知识点 1：概念 A（[9:00]）")
+    r2 = report_check.check_report(bad, content_text=content, strict_citations=True)
+    assert any(c["name"] == "timestamps" and c["level"] == "fail" for c in r2["checks"])
+
+
+def test_version_matches_pyproject():
+    import version
+    import os
+    root = os.path.join(os.path.dirname(__file__), "..")
+    text = open(os.path.join(root, "pyproject.toml"), encoding="utf-8").read()
+    assert f'version = "{version.VERSION}"' in text
+
+
+def test_quotes_allow_ellipsis_but_check_segments():
+    content = "第一句话在这里。中间还有别的。第二句话在这里。"
+    good = GOOD.replace("A 的定义。", "A 的定义：“第一句话在这里……第二句话在这里。”")
+    r = report_check.check_report(good, content_text=content)
+    assert not any(c["name"] == "quotes" and c["level"] == "fail" for c in r["checks"])
+    bad = GOOD.replace("A 的定义。", "A 的定义：“第一句话在这里……不存在的一句话。”")
+    r2 = report_check.check_report(bad, content_text=content, strict_citations=True)
+    assert any(c["name"] == "quotes" and c["level"] == "fail" for c in r2["checks"])

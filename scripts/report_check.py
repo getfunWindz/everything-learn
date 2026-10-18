@@ -30,6 +30,10 @@ POINT_RE = re.compile(r"(?m)^####\s*知识点\s*(\d+)\s*[：:]")
 NUM_UNIT_RE = re.compile(
     r"([$￥]?\s*\d[\d,]*(?:\.\d+)?)\s*(%|％|亿|万|美元|元|nm|mm|cm|kg|吨|台|片|层|倍|分钟|秒|小时|天|年|°C|℃|W|kW|MW|GB|TB|MB|Gbps|fps)")
 RAW_NUM_RE = re.compile(r"\d[\d,]*(?:\.\d+)?")
+QUOTE_RE = re.compile(r"[「“\"]([^」”\"]{4,})[」”\"]")
+TS_RE = re.compile(r"\[(\d{1,2}):(\d{2})(?::(\d{2}))?\]")
+CONTENT_TS_RE = re.compile(r"(?m)^\[([\d.]+)-([\d.]+)\]")
+_PUNCT = re.compile(r"[\s，。！？；：、,.!?;:\"'“”‘’()（）【】\[\]…—\-]+")
 
 
 def _digit_key(num: str) -> str:
@@ -38,6 +42,59 @@ def _digit_key(num: str) -> str:
 
 def _numbers_with_units(text: str):
     return {(_digit_key(m.group(1)), m.group(2)) for m in NUM_UNIT_RE.finditer(text or "")}
+
+
+def _clean_transcript(text: str) -> str:
+    """去掉【画面补充】整行、剥离【画面校正】标注，并拼接时间戳行正文（便于金句回溯）"""
+    out, found = [], False
+    for line in (text or "").splitlines():
+        m = re.match(r"^\[([\d.]+)-([\d.]+)\]\s*(.*)$", line)
+        if not m:
+            continue
+        found = True
+        body = m.group(3)
+        if "【画面补充】" in body:
+            continue
+        body = re.sub(r"\s*【画面校正[^】]*】", "", body)
+        out.append(body.strip())
+    return "".join(out) if found else (text or "")
+
+
+def _norm_text(s: str) -> str:
+    return _PUNCT.sub("", s or "").lower()
+
+
+def check_quotes(report_text: str, content_text: str):
+    """「金句」小节中的引号短语逐字回溯（避免把术语/分析引用误判）"""
+    section = _section(report_text, "金句")
+    if not section.strip():
+        return [], 0
+    content_norm = _norm_text(_clean_transcript(content_text))
+    quotes = [q.strip() for q in QUOTE_RE.findall(section) if len(_norm_text(q)) >= 4]
+    missing = []
+    for q in quotes:
+        segs = [x for x in re.split(r"…+|\.{3,}", q) if len(_norm_text(x)) >= 4]
+        if not segs:
+            continue
+        if any(_norm_text(x) not in content_norm for x in segs):
+            missing.append(q)
+    return missing, len(quotes)
+
+
+def check_timestamps(report_text: str, content_text: str):
+    """报告时间戳不得超过 content 末尾（允许 5s 余量）"""
+    ends = [float(m.group(2)) for m in CONTENT_TS_RE.finditer(content_text or "")]
+    if not ends:
+        return [], 0
+    dur = max(ends)
+    total, bad = 0, []
+    for m in TS_RE.finditer(report_text or ""):
+        total += 1
+        a, b, c = m.group(1), m.group(2), m.group(3)
+        sec = (int(a) * 3600 + int(b) * 60 + int(c)) if c is not None else (int(a) * 60 + int(b))
+        if sec > dur + 5:
+            bad.append(m.group(0))
+    return bad, total
 
 
 def check_citations(report_text: str, content_text: str):
@@ -143,6 +200,18 @@ def check_report(text: str, content_text: str = "", glossary: dict = None,
                 f"{len(missing_nums)}/{total_nums} 个带单位数字未在原文找到（如 {sample}）")
         else:
             add("citations", "pass", f"{total_nums} 个带单位数字均可回溯" if total_nums else "")
+        miss_q, total_q = check_quotes(text, content_text)
+        if miss_q:
+            add("quotes", "fail" if strict_citations else "warn",
+                f"{len(miss_q)}/{total_q} 条引号短语未在原文找到（如 {'；'.join(miss_q[:2])[:80]}）")
+        else:
+            add("quotes", "pass", f"{total_q} 条引号短语可回溯" if total_q else "")
+        bad_ts, total_ts = check_timestamps(text, content_text)
+        if bad_ts:
+            add("timestamps", "fail" if strict_citations else "warn",
+                f"{len(bad_ts)} 个时间戳超出原文时长（如 {', '.join(bad_ts[:3])}）")
+        else:
+            add("timestamps", "pass", f"{total_ts} 个时间戳在范围内" if total_ts else "")
         try:
             import glossary as g
             miss = g.check_coverage(text, content_text, glossary)
