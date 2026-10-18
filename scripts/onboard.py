@@ -4,7 +4,7 @@
   <!-- ⛳ ONBOARDING: 0|1 -->（顶部，状态值）
   <!-- ⛔ READ-GATE: ONBOARDING: 0|1 -->（引导章节前，阅读门提醒）
 - 1 = 引导未完成（首次部署/重置后）；0 = 已完成（跳过文末「初次调用逻辑」）。
-- `complete()` 在用户完成五项确认后调用：校验 out_dir → 写 config.onboarded=true + 标记置 0。
+- `complete()` 在用户完成六项确认后调用：校验 out_dir + 知识库已选择 → 写 config.onboarded=true + 标记置 0。
 """
 import os
 import re
@@ -57,12 +57,21 @@ def _flag_from_skill():
 
 
 def read_status() -> dict:
-    """当前引导状态：{onboarded, flag, out_dir, whisper_model}"""
+    """当前引导状态：{onboarded, flag, out_dir, whisper_model, kb_enabled, kb_asked}"""
     cfg = core_config.load_config()
+    kb = cfg.get("kb") or {}
     return {"onboarded": cfg.get("onboarded") is True,
             "flag": _flag_from_skill(),
             "out_dir": cfg.get("out_dir") or "",
-            "whisper_model": cfg.get("whisper_model") or ""}
+            "whisper_model": cfg.get("whisper_model") or "",
+            "kb_enabled": bool(kb.get("enabled")),
+            "kb_asked": bool(kb.get("asked"))}
+
+
+def set_kb_choice(enabled: bool) -> dict:
+    """记录首次引导的知识库选择；asked=true 后不再重复询问。"""
+    core_config.write_user_config({"kb": {"enabled": bool(enabled), "asked": True}})
+    return {"kb_enabled": bool(enabled), "kb_asked": True}
 
 
 def complete() -> dict:
@@ -72,13 +81,17 @@ def complete() -> dict:
         raise OnboardError(
             "未配置产出目录：请先与用户确认报告根目录（建议新建「学习笔记」总文件夹），"
             "写入 config.out_dir 后再完成引导。")
+    if not (cfg.get("kb") or {}).get("asked"):
+        raise OnboardError(
+            "未确认知识库选择：请先询问用户是否启用内置知识库，再执行 "
+            "el.py onboard --kb on 或 --kb off（写入 config.kb.enabled / kb.asked）。")
     core_config.write_user_config({"onboarded": True})
     written = set_flags(0)
     return {"onboarded": True, "flag_written": written}
 
 
 def reset() -> dict:
-    """重开引导：config.onboarded=false + 标签位置 1"""
-    core_config.write_user_config({"onboarded": False})
+    """重开引导：config.onboarded=false + 清 kb.asked + 标签位置 1"""
+    core_config.write_user_config({"onboarded": False, "kb": {"asked": False}})
     written = set_flags(1)
     return {"onboarded": False, "flag_written": written}

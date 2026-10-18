@@ -873,18 +873,20 @@ def _onboard_env(tmp_path, monkeypatch, onboarded=False, out_dir=None):
                      encoding="utf-8")
     monkeypatch.setattr(ob, "SKILL_PATH", str(skill))
     cfg_mod.write_user_config({"out_dir": out_dir if out_dir is not None else str(tmp_path / "out"),
-                               "onboarded": onboarded})
+                               "onboarded": onboarded,
+                               "kb": {"enabled": False, "asked": True}})
     return ob, cfg_mod
 
 
 def test_onboard_command_shows_checklist(tmp_path, monkeypatch, capsys):
-    """el.py onboard：状态 + 四项确认点 + 依赖提示 + 完成指引"""
+    """el.py onboard：状态 + 六项确认点（含知识库）+ 依赖提示 + 完成指引"""
     _onboard_env(tmp_path, monkeypatch)
-    el.cmd_onboard(argparse.Namespace(complete=False, reset=False, json=False))
+    el.cmd_onboard(argparse.Namespace(complete=False, reset=False, json=False, kb=None))
     out = capsys.readouterr().out
     assert "引导" in out
     assert "产出目录" in out and "Whisper" in out and "依赖" in out and "使用" in out
-    assert "术语" in out and "bilibili-to-wiki" in out          # 2026-10-17 第⑤点
+    assert "术语" in out and "bilibili-to-wiki" in out
+    assert "内建知识库" in out and "onboard --kb" in out
     assert "onboard --complete" in out
 
 

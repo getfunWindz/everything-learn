@@ -27,12 +27,14 @@ def test_setup_writes_config_and_flags(isolated):
     assert cfg["out_dir"] == str(out.resolve())
     assert cfg["onboarded"] is True
     assert cfg["kb"]["enabled"] is False
+    assert cfg["kb"]["asked"] is True
     assert "ONBOARDING: 0" in (isolated / "SKILL.md").read_text(encoding="utf-8")
 
 
 def test_setup_kb_opt_in(isolated):
     assert setup_mod.run(out=str(isolated / "n"), yes=True, kb=True) == 0
-    assert config.load_config()["kb"]["enabled"] is True
+    kb = config.load_config()["kb"]
+    assert kb["enabled"] is True and kb["asked"] is True
 
 
 def test_setup_install_requires_consent(isolated, monkeypatch):
@@ -62,6 +64,15 @@ def test_setup_preserves_existing_kb_path(isolated):
     assert setup_mod.run(out=str(isolated / "n"), yes=True, kb=False) == 0
     kb = config.load_config()["kb"]
     assert kb["enabled"] is False
+    assert kb["asked"] is True
+    assert kb["path"] == "D:/custom/kb.sqlite3"
+
+
+def test_setup_yes_without_kb_preserves_enabled(isolated):
+    config.write_user_config({"kb": {"enabled": True, "path": "D:/custom/kb.sqlite3", "asked": True}})
+    assert setup_mod.run(out=str(isolated / "n"), yes=True, kb=None) == 0
+    kb = config.load_config()["kb"]
+    assert kb["enabled"] is True and kb["asked"] is True
     assert kb["path"] == "D:/custom/kb.sqlite3"
 
 

@@ -65,14 +65,15 @@ def run(out: str = None, install: bool = False, login: bool = False,
     out = os.path.abspath(os.path.expanduser(out))
 
     if kb is None:
-        kb = False
-        if not yes:
-            ans = (ask("是否内建本地知识库（把报告索引进可搜索 KB，之后可 el.py kb search）？[y/N]：") or "").strip().lower()
+        if yes:
+            # 非交互模式未显式选择：保留既有 enabled，只记录「已询问」。
+            kb = bool((config.load_config().get("kb") or {}).get("enabled"))
+        else:
+            ans = (ask("是否内建本地知识库（把报告/正文索引进可搜索 KB，之后可 el.py kb search；"
+                       "支持关键词/平台/作者/日期过滤）？[y/N]：") or "").strip().lower()
             kb = ans in ("y", "yes", "是", "1")
 
-    updates = {"out_dir": out}
-    if kb is not None:
-        updates["kb"] = {"enabled": bool(kb)}
+    updates = {"out_dir": out, "kb": {"enabled": bool(kb), "asked": True}}
     config.write_user_config(updates)
     try:
         import onboard
@@ -87,6 +88,9 @@ def run(out: str = None, install: bool = False, login: bool = False,
 
     print("\n初始化完成：")
     print(f"  报告目录：{out}")
-    print(f"  知识库：{'开启（el.py kb search <词>）' if kb else '未开启（可 el.py setup --kb 或配置 config.kb.enabled）'}")
+    if kb:
+        print("  知识库：开启（先 el.py kb build \"<学习笔记根目录>\" 建库；之后 el.py kb search \"<词>\"）")
+    else:
+        print("  知识库：未开启（特征位 config.kb.enabled=false；可 el.py onboard --kb on 重新开启）")
     print("  下一步：python scripts/el.py run \"<链接>\"")
     return 0

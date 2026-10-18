@@ -15,7 +15,7 @@ from providers.bilibili import ApiClient, BiliError, resolve_input
 try:
     from version import VERSION
 except Exception:                     # 被作为包导入时的兜底
-    VERSION = "0.4.22"
+    VERSION = "0.4.23"
 
 try:                                    # GBK 控制台不因 emoji/符号崩溃
     sys.stdout.reconfigure(errors="replace")
@@ -290,8 +290,18 @@ def cmd_setup(args, client: ApiClient = None):
 
 
 def cmd_onboard(args, client: ApiClient = None):
-    """首次引导门：状态/完成/重置（SKILL.md 标签位 + config.onboarded，2026-10-17）"""
+    """首次引导门：状态/完成/重置/知识库选择（SKILL.md 标签位 + config.onboarded）"""
     import onboard as ob
+    kb_choice = getattr(args, "kb", None)
+    if isinstance(kb_choice, str):
+        kb_choice = kb_choice == "on"
+    if kb_choice is not None:
+        r = ob.set_kb_choice(kb_choice)
+        state = "开启" if r["kb_enabled"] else "关闭"
+        print(f"✅ 知识库已{state}（特征位 config.kb.enabled={str(r['kb_enabled']).lower()}；"
+              "kb.asked=true，之后不再询问）。")
+        if not getattr(args, "complete", False):
+            return
     if getattr(args, "complete", False):
         try:
             r = ob.complete()
@@ -313,7 +323,7 @@ def cmd_onboard(args, client: ApiClient = None):
     flag = st["flag"]
     print("=== everything-learn 首次引导（onboarding） ===")
     print(f"状态：ONBOARDING = {flag if flag is not None else '（未解析到标签位）'}"
-          "（1=未完成，必须完成下方五项确认；0=已完成，可跳过文末引导）")
+          "（1=未完成，必须完成下方六项确认；0=已完成，可跳过文末引导）")
     print()
     print("① 产出目录（硬性，必须由用户自选）")
     print(f"   当前：{st['out_dir'] or '未配置'}")
@@ -335,13 +345,25 @@ def cmd_onboard(args, client: ApiClient = None):
             print(f"   ❌ {d['name']}：{d['hint']}")
     print()
     print("④ 使用说明（一图流）")
-    print("   用途：把视频/音频/图文/帖子总结为中文详解学习报告（12 平台）。")
+    print("   用途：多平台内容搜索/抓取/报告/知识库（12 平台）；报告不是必选项。")
     print("   常用：el.py run <链接> [--all/--pages/--model/--budget] ｜ el.py scan <列表链接>")
     print("   产物：content_info.json / content.txt / report_template.md / <标题>学习报告.md"
           "（timeline 另有 recheck_report.json；图片在 assets/）")
     print("   报告规则见 SKILL.md「正常调用工作流」。")
     print()
-    print("⑤ 术语库（可选：填塞初始术语；使用中自动反哺）")
+    print("⑤ 内建知识库（可选：本地 SQLite 报告/正文索引 + 关键词检索）")
+    if st["kb_asked"]:
+        kb_state = "已开启" if st["kb_enabled"] else "已关闭（asked=true）"
+    else:
+        kb_state = "未询问"
+    print(f"   当前：{kb_state}")
+    print("   用途：把学习报告/正文索引进本地 SQLite；支持 kb search（可按平台/作者/形态/日期过滤）、")
+    print("         run 自动索引基线、深度报告 kb index 重索引、kb build 清理失效记录。")
+    print("   询问用户是否需要；确认后执行：python scripts/el.py onboard --kb on|off")
+    print("   开启后：kb build \"<学习笔记根目录>\" 建库；kb search \"<关键词>\" 检索；")
+    print("           完整 llm-wiki（digest/实体/主题/图谱）走配套 skill bilibili-to-wiki。")
+    print()
+    print("⑥ 术语库（可选：填塞初始术语；使用中自动反哺）")
     try:
         import glossary as _gl
         _g = _gl.load_glossary()
@@ -355,7 +377,8 @@ def cmd_onboard(args, client: ApiClient = None):
     print("             知识库吸收：python scripts/glossary.py absorb <wiki目录>")
     print("   推荐：配套 skill bilibili-to-wiki（个人知识库填充接口，已适配本技能）")
     print()
-    print("完成后执行：python scripts/el.py onboard --complete")
+    print("先确认知识库：python scripts/el.py onboard --kb on|off")
+    print("再执行：python scripts/el.py onboard --complete")
 
 
 def cmd_update(args, client: ApiClient = None):
@@ -782,10 +805,14 @@ def main(argv=None):
     pf.set_defaults(func=cmd_platforms)
     doc = sub.add_parser("doctor", help="环境自检（cookie/GPU/whisper/模型缓存/vision）")
     doc.set_defaults(func=_cmd_doctor)
-    obp = sub.add_parser("onboard", help="首次引导门：状态/完成/重置（SKILL.md 标签位 + config.onboarded）")
+    obp = sub.add_parser("onboard", help="首次引导门：状态/完成/重置/知识库选择（SKILL.md 标签位 + config）")
     obp.add_argument("--complete", action="store_true", help="完成引导（校验 out_dir；标签位置 0）")
     obp.add_argument("--reset", action="store_true", help="重开引导（标签位置 1）")
     obp.add_argument("--json", action="store_true", help="输出 JSON 状态")
+    obp.add_argument("--kb", choices=["on", "off"], default=None,
+                     help="确认知识库选择 on/off（写 config.kb.enabled + asked=true）")
+    obp.add_argument("--no-kb", dest="kb", action="store_const", const="off",
+                     help="等价 --kb off")
     obp.set_defaults(func=cmd_onboard)
     upd = sub.add_parser("update", help="更新技能仓库（git pull + 自动恢复引导标签位）")
     upd.add_argument("--dry-run", action="store_true", help="只显示计划，不做修改")

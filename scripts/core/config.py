@@ -7,7 +7,7 @@ CONFIG_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 DEFAULT_CONFIG = {
     "out_dir": "",              # 报告输出根目录（硬性：首次使用必须由用户自选；不作默认值）
     "onboarded": False,        # 首次引导门：True 后不再触发引导流程（el.py onboard --complete 置位）
-    "kb": {"enabled": False, "path": ""},  # 内建知识库（el.py setup --kb / kb build）
+    "kb": {"enabled": False, "path": "", "asked": False},  # 内建知识库（enabled=功能位；asked=是否已询问）
     "whisper_model": "small",  # 出厂默认 fast 档（small）；引导建议升 medium（实机最佳）；可升级 large-v3
     "whisper_vad": "auto",      # auto=长视频默认关、短视频开；true/false 强制
     "vad_long_sec": 1800,       # “长视频”阈值（秒）：≥ 该值时默认禁用 VAD
