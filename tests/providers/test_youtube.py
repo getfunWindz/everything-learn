@@ -208,6 +208,16 @@ def test_pick_audio_best_m4a():
     assert youtube.pick_audio_url(fmts) == "a"   # 优先 m4a（Whisper 兼容性好）
 
 
+def test_pick_audio_url_skips_storyboards():
+    """storyboard（sb0-sb3，mhtml/无音轨）不得被当作音频流（实测 2026-10-18）"""
+    sb = [{"format_id": "sb0", "ext": "mhtml", "vcodec": "none", "acodec": "none",
+           "protocol": "mhtml", "url": "https://i.ytimg.com/sb/x.jpg"}]
+    assert youtube.pick_audio_url(sb) == ""
+    ok = [{"format_id": "140", "ext": "m4a", "vcodec": "none", "acodec": "mp4a",
+           "abr": 128, "url": "https://a.googlevideo.com/1"}]
+    assert youtube.pick_audio_url(sb + ok) == "https://a.googlevideo.com/1"
+
+
 def test_pick_video_lowest_excludes_storyboard():
     fmts = [{"format_id": "sb3", "ext": "mhtml", "vcodec": "none", "acodec": "none",
              "height": 27, "url": "sb"},
@@ -371,6 +381,22 @@ def test_fetch_media_urls_audio_diverse_hosts(monkeypatch):
     assert urls.count("https://a.googlevideo.com/1") == 1  # 去重
     assert len(urls) == 3
     assert len({u.split("/")[2] for u in urls}) == 3       # a/b/c 三主机多样性
+
+
+def test_fetch_media_urls_audio_excludes_storyboards(monkeypatch):
+    """storyboard（ytimg/mhtml）不得进入音频候选（否则下载到 jpg → Whisper 崩溃）"""
+    fmts = [
+        {"format_id": "sb0", "ext": "mhtml", "vcodec": "none", "acodec": "none",
+         "protocol": "mhtml", "url": "https://i.ytimg.com/sb/x/sb0.jpg"},
+        {"format_id": "sb1", "ext": "mhtml", "vcodec": "none", "acodec": "none",
+         "protocol": "mhtml", "url": "https://i.ytimg.com/sb/x/sb1.jpg"},
+        {"format_id": "140", "ext": "m4a", "vcodec": "none", "acodec": "mp4a",
+         "abr": 128, "url": "https://a.googlevideo.com/1"},
+    ]
+    a = YouTubeAdapter()
+    monkeypatch.setattr(YouTubeAdapter, "_info", lambda self, ref: {"formats": fmts})
+    urls = a.fetch_media_urls(a.resolve("kCc8FmEb1nY"), media="audio")
+    assert urls == ["https://a.googlevideo.com/1"]
 
 
 def test_fetch_media_urls_video_lowest_filters_hls(monkeypatch):

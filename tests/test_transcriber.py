@@ -3,6 +3,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 import pytest
 import transcriber
 
+
+@pytest.fixture(autouse=True)
+def _reset_media_cooldown():
+    """媒体域冷却为进程级状态：每个用例前后复位，避免串扰"""
+    transcriber.reset_media_cooldown()
+    yield
+    transcriber.reset_media_cooldown()
+
 def test_load_whisper_not_installed(monkeypatch):
     monkeypatch.setitem(sys.modules, "faster_whisper", None)
     with pytest.raises(transcriber.WhisperNotInstalled):
@@ -492,3 +500,89 @@ def test_transcribe_url_passes_stats(monkeypatch):
     stats = {}
     transcriber.transcribe_url("http://x/a.m4s", stats=stats)
     assert stats["avg_logprob"] == -0.2
+
+
+def test_download_audio_aborts_slow_stream(tmp_path, monkeypatch):
+    """首轮 512KB 平均速率 <64KB/s → 快速失败（不等预算耗尽）"""
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(transcriber.time, "monotonic", lambda: clock["t"])
+
+    class R:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def iter_content(self, chunk_size=1):
+            for _ in range(8):                 # 8×64KB = 512KB，累计 20s → 25.6KB/s
+                clock["t"] += 2.5
+                yield b"x" * 65536
+            for _ in range(1000):              # 未被闸门拦截时会继续慢流
+                clock["t"] += 2.5
+                yield b"x" * 65536
+
+    monkeypatch.setattr(transcriber.requests, "get", lambda *a, **k: R())
+    with pytest.raises(transcriber.MediaUnreachable):
+        transcriber.download_audio("http://slow.example/a.m4s",
+                                   str(tmp_path / "s.m4s"), max_seconds=600)
+
+
+def test_download_audio_probe_passes_fast_stream(tmp_path, monkeypatch):
+    """健康速率（640KB/s）不得被探测误杀"""
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(transcriber.time, "monotonic", lambda: clock["t"])
+
+    class R:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def iter_content(self, chunk_size=1):
+            for _ in range(8):
+                clock["t"] += 0.1                 # 512KB / 0.8s = 640KB/s
+                yield b"y" * 65536
+
+    monkeypatch.setattr(transcriber.requests, "get", lambda *a, **k: R())
+    dest = str(tmp_path / "f.m4s")
+    transcriber.download_audio("http://fast.example/a.m4s", dest)
+    assert os.path.getsize(dest) == 512 * 1024
+    assert "fast.example" not in transcriber.MEDIA_COOLDOWN
+
+
+def test_download_audio_probe_time_cap(tmp_path, monkeypatch):
+    """极慢流：不等收满 512KB；探测窗口 15s 到期即判定（避免 8KB/s 等 64s）"""
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(transcriber.time, "monotonic", lambda: clock["t"])
+
+    class R:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def iter_content(self, chunk_size=1):
+            for _ in range(100):               # 64KB / 5s = 12.8KB/s
+                clock["t"] += 5.0
+                yield b"z" * 65536
+
+    monkeypatch.setattr(transcriber.requests, "get", lambda *a, **k: R())
+    with pytest.raises(transcriber.MediaUnreachable):
+        transcriber.download_audio("http://slow2.example/a.m4s",
+                                   str(tmp_path / "s2.m4s"), max_seconds=600)
+    assert clock["t"] - 1000.0 < 30        # 15s 窗口内中止（非 40s 收满 512KB）
+
+
+def test_media_cooldown_skips_second_attempt(tmp_path, monkeypatch):
+    """同域已标记不可用 → 第二次调用立即报错，不再发起 HTTP"""
+    calls = {"n": 0}
+
+    def fake_get(*a, **k):
+        calls["n"] += 1
+        raise AssertionError("不应发起请求")
+
+    monkeypatch.setattr(transcriber.requests, "get", fake_get)
+    transcriber.MEDIA_COOLDOWN["x.com"] = "测试标记"
+    with pytest.raises(transcriber.MediaUnreachable):
+        transcriber.download_audio("http://x.com/a.m4s", str(tmp_path / "c.m4s"))
+    assert calls["n"] == 0

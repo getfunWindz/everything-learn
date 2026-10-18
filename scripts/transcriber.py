@@ -6,11 +6,42 @@ import sys
 import tempfile
 import time
 import requests
+from urllib.parse import urlparse
 
 HEADERS = {"User-Agent": "Mozilla/5.0", "Referer": "https://www.bilibili.com"}
 
 class WhisperNotInstalled(Exception):
     """faster-whisper 未安装"""
+
+
+class MediaUnreachable(Exception):
+    """媒体链路在本轮内明显不可用（过慢/预算耗尽/DNS 失败）"""
+
+
+# 慢链路快速失败（2026-10-18）：同源校验/Whisper 都要下整段音频，
+# 实测代理下 googlevideo 仅 ~32KB/s → 225s 预算全烧光后才回退字幕。
+MEDIA_PROBE_BYTES = 512 * 1024      # 首个 512KB 用于测速
+MEDIA_PROBE_SECONDS = 15.0          # 探测窗口上限（极慢流早断，不等收满 512KB）
+MEDIA_MIN_RATE = 64 * 1024          # B/s；低于此速率视为不可用
+MEDIA_COOLDOWN = {}                 # 可注册域 -> 原因（进程级；同 run 内跳过重复下载）
+
+
+def _media_domain(url: str) -> str:
+    """可注册域近似：取 host 最后两段（rr1---sn-x.googlevideo.com → googlevideo.com）"""
+    try:
+        host = (urlparse(url or "").hostname or "").lower()
+    except Exception:
+        host = ""
+    parts = host.split(".")
+    if len(parts) >= 3 and not all(p.isdigit() for p in parts):
+        return ".".join(parts[-2:])
+    return host
+
+
+def reset_media_cooldown() -> None:
+    """清空媒体域冷却（测试/长驻调用方）"""
+    MEDIA_COOLDOWN.clear()
+
 
 _FILLER_RULES = [
     (r"([啊哦嗯哎])\1{1,}", r"\1"),      # 语气单字：啊啊啊→啊（2+ 缩到 1）
@@ -129,7 +160,17 @@ def download_audio(url, dest: str, headers: dict = None, attempts: int = 4,
         raise ValueError("download_audio: 无候选媒体 URL")
     deadline = time.monotonic() + max_seconds if max_seconds else None
     last_exc = None
+    skipped_doms = set()
     for ci, cand in enumerate(candidates, 1):
+        dom = _media_domain(cand)
+        if dom in MEDIA_COOLDOWN:                       # 同域本轮已判不可用 → 立即跳过
+            last_exc = MediaUnreachable(
+                f"媒体域名 {dom} 本轮已标记不可用（{MEDIA_COOLDOWN[dom]}）")
+            if dom not in skipped_doms:                 # 同域多个候选只提示一次
+                skipped_doms.add(dom)
+                print(f"  [media] 跳过 {dom}（本轮已标记不可用：{MEDIA_COOLDOWN[dom]}）",
+                      file=sys.stderr)
+            continue
         pos = 0
         fails = 0          # 连续「无进展」失败数（有续传进展则归零；上限 attempts）
         rounds = 0
@@ -143,6 +184,8 @@ def download_audio(url, dest: str, headers: dict = None, attempts: int = 4,
                 if pos > 0:
                     h = dict(h)
                     h["Range"] = f"bytes={pos}-"
+                t_req = time.monotonic()
+                probe_pending = pos == 0
                 r = requests.get(cand, headers=h, stream=True, timeout=60)
                 status = int(getattr(r, "status_code", 200) or 200)
                 if 400 <= status < 500 and status not in (408, 429):
@@ -162,6 +205,16 @@ def download_audio(url, dest: str, headers: dict = None, attempts: int = 4,
                         if chunk:
                             f.write(chunk)
                             pos += len(chunk)
+                            if probe_pending:
+                                elapsed = time.monotonic() - t_req
+                                if pos >= MEDIA_PROBE_BYTES or elapsed >= MEDIA_PROBE_SECONDS:
+                                    # 首轮 512KB / 15s 测速：慢链路立即失败，不等预算
+                                    probe_pending = False
+                                    rate = pos / max(1e-6, elapsed)
+                                    if rate < MEDIA_MIN_RATE:
+                                        raise MediaUnreachable(
+                                            f"媒体链路过慢（{rate/1024:.0f} KB/s < "
+                                            f"{MEDIA_MIN_RATE/1024:.0f} KB/s）")
                             if deadline is not None and time.monotonic() >= deadline:
                                 # trickle 流（缓慢持续有数据）也必须在预算内中止
                                 raise requests.exceptions.Timeout("下载时长预算耗尽（max_seconds）")
@@ -174,11 +227,18 @@ def download_audio(url, dest: str, headers: dict = None, attempts: int = 4,
                 elif len(candidates) > 1:
                     print(f"  [media] 候选 {ci}/{len(candidates)} 重试耗尽"
                           f"（{str(e)[:60]}），换下一候选", file=sys.stderr)
+            except MediaUnreachable as e:
+                last_exc = e
+                MEDIA_COOLDOWN[dom] = str(e)[:80]
+                print(f"  [media] {dom} 链路不可用：{str(e)[:70]}（本轮跳过同域候选）",
+                      file=sys.stderr)
+                break
             except Exception as e:                         # 连接/超时/SSL/读中断等瞬态
                 last_exc = e
                 if str(e).startswith("下载时长预算耗尽"):
                     break                                  # 预算耗尽：不再重试/换候选
                 if _is_fatal_download_error(e):            # DNS 解析失败等 → 不重试
+                    MEDIA_COOLDOWN[dom] = "DNS 解析失败"
                     if len(candidates) > 1:
                         print(f"  [media] 候选 {ci}/{len(candidates)} 解析失败"
                               f"（{str(e)[:60]}），换下一候选", file=sys.stderr)
@@ -195,6 +255,7 @@ def download_audio(url, dest: str, headers: dict = None, attempts: int = 4,
                           f"（已收 {pos} 字节），换下一候选", file=sys.stderr)
         if deadline is not None and time.monotonic() >= deadline:
             print(f"  [media] 下载时长预算（{max_seconds:.0f}s）耗尽，放弃", file=sys.stderr)
+            MEDIA_COOLDOWN[dom] = "下载预算耗尽"
             break
     raise last_exc if last_exc else RuntimeError("download_audio: 下载失败")
 

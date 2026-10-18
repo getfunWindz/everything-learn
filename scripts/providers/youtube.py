@@ -85,9 +85,23 @@ def _pick_caption_entry(entries) -> dict:
     return {}
 
 
+def _is_audio_format(f) -> bool:
+    """音频流判定：必须有音轨，且排除 storyboard（sb*：acodec=none、ext/protocol=mhtml）
+
+    实测（2026-10-18）：YouTube info.formats 含 sb0-sb3（ytimg 的 mhtml），
+    vcodec 同为 none，仅看 vcodec 会把缩略图拼图当音频下载 → Whisper 崩溃。"""
+    if not f or not f.get("url"):
+        return False
+    if f.get("vcodec") != "none" or f.get("acodec") == "none":
+        return False
+    if (f.get("ext") or "").lower() == "mhtml" or (f.get("protocol") or "").lower() == "mhtml":
+        return False
+    return True
+
+
 def pick_audio_url(formats) -> str:
     """音频直链：优先 m4a（Whisper 兼容），再取其他音频流的最高码率"""
-    audios = [f for f in formats or [] if f.get("vcodec") == "none" and f.get("url")]
+    audios = [f for f in formats or [] if _is_audio_format(f)]
     m4a = [f for f in audios if (f.get("ext") or "") == "m4a"]
     pool = m4a or audios
     pool = sorted(pool, key=lambda f: f.get("abr") or 0, reverse=True)
@@ -360,7 +374,7 @@ class YouTubeAdapter:
             vids.sort(key=lambda f: f.get("height") or 0, reverse=not lowest)
             pool = [f.get("url") for f in vids]
         else:
-            audios = [f for f in fmts if f.get("vcodec") == "none"]
+            audios = [f for f in fmts if _is_audio_format(f)]
             m4a = [f for f in audios if (f.get("ext") or "") == "m4a"]
             rest = [f for f in audios if f not in m4a]
             abr = lambda f: f.get("abr") or 0                      # noqa: E731
