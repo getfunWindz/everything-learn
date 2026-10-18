@@ -12,6 +12,7 @@
 """
 import argparse
 import importlib
+import json
 import os
 import pkgutil
 import sys
@@ -79,6 +80,62 @@ def cookie_file_for(platform: str) -> str:
         print(f"不支持的平台：{platform}（已声明导出的平台：{avail}）", file=sys.stderr)
         raise SystemExit(2)
     return os.path.join(_HERE, platforms[platform]["file"])
+
+
+def parse_cookie_text(text: str) -> dict:
+    """解析多种 cookie 文本：`k=v; k2=v2`、Netscape cookies.txt、JSON（dict/list）"""
+    text = (text or "").strip()
+    if not text:
+        return {}
+    try:
+        data = json.loads(text)
+        if isinstance(data, dict):
+            if all(isinstance(v, str) for v in data.values()):
+                return {str(k): v for k, v in data.items()}
+            if isinstance(data.get("cookies"), list):
+                data = data["cookies"]
+        if isinstance(data, list):
+            out = {}
+            for it in data:
+                if isinstance(it, dict) and it.get("name") is not None:
+                    out[str(it["name"])] = str(it.get("value", ""))
+            return out
+    except Exception:
+        pass
+    cookies = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split("	")
+        if len(parts) >= 7:                         # Netscape cookies.txt
+            cookies[parts[5]] = parts[6]
+            continue
+        for kv in line.split(";"):
+            if "=" not in kv:
+                continue
+            k, v = kv.split("=", 1)
+            k, v = k.strip(), v.strip()
+            if k:
+                cookies[k] = v
+    return cookies
+
+
+def import_cookie(platform: str, text: str) -> int:
+    """从文本导入 cookie（无显示环境/CI 用）：缺 required → 2；成功 → 0"""
+    cfg = load_platforms().get(platform)
+    if not cfg:
+        cookie_file_for(platform)                   # 复用统一报错
+        return 2
+    cookies = parse_cookie_text(text)
+    missing = [n for n in cfg["required"] if not cookies.get(n)]
+    if missing:
+        print(f"导入失败：缺少必需 cookie {'/'.join(missing)}（{platform}）", file=sys.stderr)
+        return 2
+    if not required_present(cookies, cfg.get("ready") or []):
+        lack = [n for n in (cfg.get("ready") or []) if not cookies.get(n)]
+        print(f"提示：缺少就绪 cookie {'/'.join(lack)}，可能影响风控通过（仍写入）", file=sys.stderr)
+    return _write_cookie_file(cookie_file_for(platform), cfg, cookies)
 
 
 def _read_cookies(ctx, url):
@@ -278,6 +335,9 @@ def main(argv=None):
     ap.add_argument("--timeout", type=int, default=300, help="等待登录秒数（默认 300）")
     ap.add_argument("--auto", action="store_true",
                     help="先尝试 headless 复用已登录 profile（无窗口）；未登录才打开窗口")
+    ap.add_argument("--import", dest="import_file", metavar="FILE",
+                    help="从文件导入 cookie（k=v;… / Netscape / JSON；- 表示 stdin）")
+    ap.add_argument("--cookie-string", default=None, help="直接传入 cookie 字符串导入")
     args = ap.parse_args(argv)
     if args.list:
         for name, spec in sorted(load_platforms().items()):
@@ -285,6 +345,15 @@ def main(argv=None):
         return 0
     if not args.platform:
         ap.error("需要平台标识（或用 --list 查看可用平台）")
+    if args.cookie_string or args.import_file:
+        if args.cookie_string:
+            text = args.cookie_string
+        elif args.import_file == "-":
+            text = sys.stdin.read()
+        else:
+            with open(args.import_file, encoding="utf-8") as f:
+                text = f.read()
+        return import_cookie(args.platform, text)
     if args.auto:
         return 0 if auto_export(args.platform, args.browser, interactive=True,
                                 timeout=args.timeout) else 1

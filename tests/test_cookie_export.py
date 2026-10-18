@@ -144,3 +144,28 @@ def test_launch_ctx_falls_back_to_chrome(monkeypatch):
     ch, ctx = ce._launch_ctx(P(), "auto", headless=True)
     assert ch == "chrome" and ctx == {"ok": True}
     assert P.chromium.calls[:2] == ["msedge", "chrome"]
+
+
+def test_parse_cookie_text_formats():
+    import cookie_export as ce
+    assert ce.parse_cookie_text("a=1; b=2") == {"a": "1", "b": "2"}
+    ns = ".example.com\tTRUE\t/\tFALSE\t0\tSESSDATA\txyz\n"
+    assert ce.parse_cookie_text(ns) == {"SESSDATA": "xyz"}
+    assert ce.parse_cookie_text('{"SESSDATA":"json"}') == {"SESSDATA": "json"}
+    assert ce.parse_cookie_text('[{"name":"SESSDATA","value":"list"}]') == {"SESSDATA": "list"}
+
+
+def test_import_cookie_requires_required_names(tmp_path, monkeypatch):
+    import cookie_export as ce
+    out = tmp_path / "c.txt"
+    monkeypatch.setattr(ce, "cookie_file_for", lambda p: str(out))
+    assert ce.import_cookie("bilibili", "foo=1") == 2
+    assert not out.exists()
+
+
+def test_import_cookie_writes_file(tmp_path, monkeypatch):
+    import cookie_export as ce
+    out = tmp_path / "c.txt"
+    monkeypatch.setattr(ce, "cookie_file_for", lambda p: str(out))
+    assert ce.import_cookie("bilibili", "SESSDATA=ok; bili_jct=j") == 0
+    assert "SESSDATA=ok" in out.read_text(encoding="utf-8")
