@@ -19,6 +19,12 @@ import json
 import re
 import sys
 
+
+try:                                    # GBK 控制台不因 emoji/符号崩溃
+    sys.stdout.reconfigure(errors="replace")
+    sys.stderr.reconfigure(errors="replace")
+except Exception:
+    pass
 POINT_RE = re.compile(r"(?m)^####\s*知识点\s*(\d+)\s*[：:]")
 
 

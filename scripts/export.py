@@ -4,6 +4,12 @@ import html
 import os
 import re
 
+
+try:                                    # GBK 控制台不因 emoji/符号崩溃
+    sys.stdout.reconfigure(errors="replace")
+    sys.stderr.reconfigure(errors="replace")
+except Exception:
+    pass
 def md_to_html(md: str) -> str:
     """简易 Markdown → HTML：标题/表格/列表/引用/代码块/行内格式。转义防 XSS"""
     lines = md.split("\n")

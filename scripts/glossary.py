@@ -7,6 +7,12 @@ import json
 import os
 import re
 
+
+try:                                    # GBK 控制台不因 emoji/符号崩溃
+    sys.stdout.reconfigure(errors="replace")
+    sys.stderr.reconfigure(errors="replace")
+except Exception:
+    pass
 _REFERENCES_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "references")
 DEFAULT_PATH = os.path.join(_REFERENCES_DIR, "glossary.json")
 
