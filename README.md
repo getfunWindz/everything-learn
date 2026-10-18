@@ -27,7 +27,19 @@
 **一切知识皆力量**：12 个平台，一个命令——把视频、播客、图文与社媒内容整理成结构化的中文学习报告。
 来源分级（AI 字幕 → Whisper 主选 / 人工·官方 → 同源校验）→ 档位评分 → 预算闸门 → 3 帧/秒窗口复检；账号级内容（收藏 / 关注 / 合集 / 主页）可枚举、筛选、批量出合集。
 
-### 平台能力
+### 发布前自检与运维
+
+```bash
+python scripts/report_check.py "<报告.md>" --content "<content.txt>" [--strict]
+python scripts/el.py split "<产物目录>" --chunk-chars 20000   # 超长内容分块写报告
+python scripts/canary.py --only v2ex,zhihu,bilibili           # 真实平台探测（建议本地定时）
+```
+
+- `report_check`：结构/编号/自测/术语 + 数字、金句、时间戳回溯（`--strict` 严格模式）。
+- `canary`：12 平台 meta 探测（`--full` 含内容），JSON 结果；网络/风控原因**不放进 GitHub CI**。
+- 密钥/cookie 文件在 POSIX 下自动 `chmod 600`。
+
+## 平台能力
 
 | 平台 | 形态 | 能力 |
 |---|---|---|
@@ -66,7 +78,18 @@
 - **保真复检全部在 `core/`**：`core/recheck.py` 统一来源分级 → 同源校验 → 档位评分 → 区域选择 → 预算闸门；多模态复检通道是适配器标准必接项（`fetch_media_url(media="video", lowest=True)`），无画面平台返回 `None` 自动跳过；契约测试会校验签名。
 - **产物透明**：档位/评分理由/预算估算/同源校验/交叉比对/不确定项落入 `recheck_report.json`；正文标注【画面补充】【画面校正】，未覆盖区间如实留痕。
 
-### 快速开始
+### 安装（可选）
+
+直接 `python scripts/el.py ...` 即可。想让任意目录/任意 harness 用 `everything-learn` 命令：
+
+```bash
+pipx install --editable .        # 或 uv tool install --editable .
+everything-learn --version
+```
+
+> 本期只支持 editable 安装（源码/数据仍在仓库内）；非 editable 的 PyPI 包与用户级配置目录迁移暂未做。
+
+## 快速开始
 
 > 以下命令在本仓库根目录执行（即技能目录）。
 

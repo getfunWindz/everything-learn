@@ -2,6 +2,24 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本。
 
+## [0.4.20] - 2026-10-18
+
+### Added
+
+- **报告证据回溯**：`report_check` 新增金句引号逐字回溯、知识点时间戳不超出 content 时长；`--strict` 统一 fail（默认 warn）。
+- **平台 canary**：`scripts/canary.py`（12 平台固定样本；默认 meta、`--full` 含内容；子进程隔离/超时/JSON；必需失败退出 1）。实测 12/12 通过。
+- **长内容分块**：`el.py split <目录> --chunk-chars` → `content.partNN.md` + `split_manifest.json`。
+- **安装分发**：`pyproject.toml` + `scripts/__init__` 路径引导 + `everything-learn` console script（editable 安装实测可用）。
+- **秘密存储**：cookie/config/kb 文件 POSIX `chmod 600`。
+
+### Changed
+
+- **版本单一来源**：`scripts/version.py`（0.4.20）；`el.py --version`；report 复用。
+
+### Tests
+
+- **919 项离线测试**（新增 11 项：quotes/timestamps（含省略号分段）、split、canary、版本一致性、POSIX 权限；Windows 下 2 项 chmod 用例跳过）。
+
 ## [0.4.19] - 2026-10-18
 
 ### Added

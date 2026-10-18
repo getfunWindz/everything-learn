@@ -41,6 +41,8 @@ python scripts/el.py scan <列表链接> [--filter "关键,词"] [--priority] [-
 python scripts/glossary.py add "<术语>" "<解释>"   # 术语库填塞/沉淀（可重复；支持 add/alias/clean/absorb）
 python scripts/el.py kb build "<学习笔记根目录>"    # 内建知识库建库（setup --kb 开启后 run 自动索引）
 python scripts/el.py kb search "<关键词>"          # 知识库检索
+python scripts/el.py split "<产物目录>"             # 长内容分块（content.partNN.md + manifest）
+python scripts/canary.py                            # 真实平台可用性探测（本地定时；--full 含内容）
 python scripts/el.py report <目录> [--force]   # 重建骨架 + 基线报告（默认不覆盖已有报告）
 python scripts/el.py export <目录> --format html
 ```
@@ -149,7 +151,7 @@ python scripts/el.py run <链接> --budget 1.5           # 本次运行复检金
 ### 交付
 
 - 单条：`<out_dir>/<作者>/<标题>[ P##]/<标题>学习报告.md`（`run` 自动生成基线；按用户选择的格式同时导出 `.doc/.docx/.txt`；agent 可覆盖深化；目录不带日期前缀，标题只保留文字/数字/空格）；
-- 交付前自检：`python scripts/report_check.py "<报告.md>" --content "<content.txt>"`（非零退出=有 fail，需修正后再交付）；
+- 交付前自检：`python scripts/report_check.py "<报告.md>" --content "<content.txt>"`（结构/编号/自测/术语/数字·引号·时间戳回溯；`--strict` 全部 fail 门禁）；
 - 合集：`<out_dir>/<作者>/<标题> 合集/`（`P01…` 子目录 + 汇总 `content_info.json` + `<标题> 合集学习报告.md` 基线）；
 - 交付前完成 R11 的 glossary 校验；向用户汇报报告摘要（覆盖知识点数/来源/路径），有【画面补充】【画面校正】或未复检区间时一并说明（R13）；
 - timeline 产物含 `recheck_report.json`（档位/评分理由/预算/同源校验/交叉比对/复检明细与不确定项），交付前核对。
@@ -164,7 +166,7 @@ python scripts/el.py run <链接> --budget 1.5           # 本次运行复检金
 - **转写语言**：默认自动检测（B 站/抖音不再硬编码 zh）；英文/多语视频会按实际语言转写，`content_info.language` 回填检测结果；需要强制时用 `--lang`。
 - **视觉复检可观测**：逐窗打印 `复检窗口 i/N`；`recheck_report.checked_windows` 区分「已检查」与「未覆盖」；推理型 vision 模型（如 deepseek-flash）把 max_tokens 吃满时会自动加倍重试（默认 8192，最多 3 次）。
 - **校正置信度分级**：每条校正带「高/中/低」；低置信只留痕（`windows.kind=low_confidence`）不改正文，避免图表多行数字串行误改。
-- **报告引用回溯（可选严格）**：`report_check.py --strict` 会把「带单位数字无法在 content.txt 找到」判为 fail（默认仅 warn，因为报告可能有换算/派生数字）。
+- **报告证据回溯（可选严格）**：`report_check.py` 检查带单位数字、金句引号短语、知识点时间戳是否能在 `content.txt` 找到/落在时长内；`--strict` 判 fail（默认 warn，因为报告可能有换算/派生数字或整理过的引号）。
 - **预算口径**：`budget.estimate` 是闸门上界（3fps 计划帧），`budget.actual` 按去重后实发帧重算（实测为上界的 8%–44%，去重 2.5×–66×）；`spent_total` 按上界保守累计。复检计划行已标注「上界」。
 - **断点续跑**：`--resume` 会复用 `.recheck_ckpt/` 中已完成窗口（区间+转写哈希匹配），中断后只补未完成窗口。
 - **浏览器串行**：知乎/微博/Medium/X/小红书/抖音共用一个 profile，工具用文件锁串行化；另一任务占用时会等待/提示，不要并发跑浏览器型平台。
@@ -190,6 +192,13 @@ python scripts/el.py run <链接> --budget 1.5           # 本次运行复检金
 
 先运行 `python scripts/el.py doctor`（或 `el.py onboard`），向用户汇总：依赖（faster-whisper / yt-dlp / playwright）、GPU、whisper 模型缓存、vision、cookie、out_dir。
 （doctor 的 cookie 为逐平台状态：B 站真实探针；知乎/微博/抖音按文件龄期标「未验证/过期风险」，不要当成已登录。）
+
+### 安装（可选，任意 harness）
+
+```bash
+pipx install --editable .        # 或 uv tool install --editable .
+everything-learn --version       # console script（仍以仓库为源码，修改即时生效）
+```
 
 ### 快速路径（推荐）
 
