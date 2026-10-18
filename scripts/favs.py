@@ -10,8 +10,7 @@
 """
 import time
 
-from core.scan import (AI_KEYWORDS, OTHER_KEYWORDS, filter_items, group_by_theme,
-                       sort_by_priority)
+from core.scan import AI_KEYWORDS, filter_items, sort_by_priority
 from core.scan import make_snapshot as _make_snapshot
 
 

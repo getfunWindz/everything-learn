@@ -145,6 +145,17 @@ def test_write_user_config_merges_and_preserves(tmp_path, monkeypatch):
     assert c["onboarded"] is True and c["whisper_model"] == "medium"
 
 
+def test_write_user_config_deep_merges_nested(tmp_path, monkeypatch):
+    """嵌套配置只改指定子键：setup --no-kb 不得清空 kb.path（2026-10-18 收尾修复）"""
+    p = tmp_path / "config.json"
+    monkeypatch.setattr(cfg, "CONFIG_PATH", str(p))
+    cfg.write_user_config({"kb": {"enabled": True, "path": "D:/custom/kb.sqlite3"}})
+    cfg.write_user_config({"kb": {"enabled": False}})
+    raw = json.load(open(p, encoding="utf-8"))
+    assert raw["kb"]["enabled"] is False
+    assert raw["kb"]["path"] == "D:/custom/kb.sqlite3"
+
+
 def test_write_user_config_recovers_corrupt(tmp_path, monkeypatch):
     """损坏 JSON → 以空基底重建（不抛异常）"""
     p = tmp_path / "config.json"

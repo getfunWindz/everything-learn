@@ -113,7 +113,7 @@ def write_user_config(updates: dict) -> str:
             raw = {}
     if not isinstance(raw, dict):
         raw = {}
-    raw.update(updates or {})
+    raw = _deep_update(raw, updates or {})
     from core import fsutil
     fsutil.atomic_write_text(CONFIG_PATH, json.dumps(raw, ensure_ascii=False, indent=2))
     fsutil.restrict_file(CONFIG_PATH)

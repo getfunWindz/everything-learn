@@ -3,6 +3,7 @@ import glob
 import html
 import os
 import re
+import sys
 
 
 try:                                    # GBK 控制台不因 emoji/符号崩溃
@@ -99,8 +100,8 @@ def export_docx(md: str, out_path: str) -> None:
     try:
         from docx import Document
         from docx.shared import Pt
-    except ImportError:
-        raise SystemExit("未安装 python-docx，请执行: pip install python-docx")
+    except ImportError as e:
+        raise RuntimeError("未安装 python-docx，请执行: pip install python-docx") from e
     doc = Document()
     style = doc.styles["Normal"]
     style.font.name = "Microsoft YaHei"

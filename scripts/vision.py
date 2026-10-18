@@ -294,7 +294,7 @@ def parse_window_result(text):
             cm = re.match(r"原(?:转写)?[「\"](.+?)[」\"]"
                           r"(?:\s*[（(][^）)]*[）)])?\s*(?:→|->)\s*[「\"](.+?)[」\"]", body)
             if cm:
-                original, body = cm.group(1), cm.group(2)
+                body = cm.group(2)
         conf = re.search(r"置信度[:：]?\s*(高|中|低)", m.group(0))
         body = re.sub(r"[（(]?置信度[:：]?\s*[高中低][）)]?", "", body).strip()
         items.append({"ts": ts, "kind": kind, "text": body,

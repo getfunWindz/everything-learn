@@ -453,6 +453,33 @@ def test_vad_flags_mutually_exclusive():
         el.main(["run", "BV1GJ411x7h7", "--vad", "--no-vad"])
 
 
+def test_unknown_url_skips_bilibili_cookie_check(tmp_path, monkeypatch, capsys):
+    """未知平台 URL 不应先弹 B 站 cookie 警告；应直接给自进化提示"""
+    from core import config as cfg
+    monkeypatch.setattr(cfg, "CONFIG_PATH", str(tmp_path / "config.json"))
+    monkeypatch.setattr(el, "setup_logging", lambda *a, **k: "")
+    calls = []
+
+    class Fake:
+        def __init__(self, *a, **k):
+            pass
+        def check_login(self):
+            calls.append(1)
+            return False
+
+    def boom(*a, **k):
+        raise el.UnsupportedUrlError("未知平台")
+
+    monkeypatch.setattr(el, "ApiClient", Fake)
+    monkeypatch.setattr(el.pipeline, "run_input", boom)
+    with pytest.raises(SystemExit) as e:
+        el.main(["run", "https://example.com/x", "--out", str(tmp_path / "out")])
+    assert e.value.code == 2
+    err = capsys.readouterr().err
+    assert calls == []
+    assert "cookie" not in err.lower()
+
+
 def test_run_recheck_args_parsed(monkeypatch):
     """T17：run 解析 --recheck/--budget/--yes-recheck → args 值正确"""
     captured = {}

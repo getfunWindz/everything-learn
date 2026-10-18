@@ -200,6 +200,15 @@ def test_missing_optional_empty_when_ready(monkeypatch, tmp_path):
     assert doctor.missing_optional() == []
 
 
+def test_check_whisper_broken_install_does_not_crash(monkeypatch):
+    """find_spec 成功但 import 失败（缺 DLL 等）→ 返回未安装提示，不抛异常"""
+    monkeypatch.setattr(doctor.importlib.util, "find_spec", lambda name: object())
+    monkeypatch.setitem(sys.modules, "faster_whisper", None)
+    r = doctor.check_whisper()
+    assert r["installed"] is False
+    assert "faster-whisper" in r["hint"]
+
+
 def test_cookie_status_per_platform_and_age(tmp_path, monkeypatch):
     """实测：doctor 只验 B 站却显示「cookie 有效」，知乎实际已过期 → 必须逐平台区分"""
     import os

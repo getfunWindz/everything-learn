@@ -46,16 +46,18 @@ def run(out: str = None, install: bool = False, login: bool = False,
         names = [d["name"] for d in missing]
         print(f"缺少可选依赖：{', '.join(names)}", file=sys.stderr)
         if install:
-            _pip_install(names, runner)
+            if not _pip_install(names, runner):
+                print("依赖安装失败：继续按低配模式运行（可稍后重试 setup --install）。",
+                      file=sys.stderr)
         else:
             print("提示：加 --install 可自动安装（需网络）；不加则按低配模式运行。", file=sys.stderr)
 
     if not out:
-        default = os.path.join(os.path.expanduser("~"), "学习笔记")
         if yes:
-            out = default
-        else:
-            out = (ask(f"报告根目录（回车默认 {default}）：") or default).strip()
+            print("未指定报告目录：非交互模式（--yes）必须显式传 --out（硬性要求，不能默认写入未知路径）。",
+                  file=sys.stderr)
+            return 2
+        out = (ask("报告根目录（必填，建议新建「学习笔记」总文件夹）：") or "").strip()
     out = (out or "").strip()
     if not out:
         print("未选择报告目录：请用 --out 指定（硬性要求，不能默认写未知路径）。", file=sys.stderr)
@@ -86,5 +88,5 @@ def run(out: str = None, install: bool = False, login: bool = False,
     print("\n初始化完成：")
     print(f"  报告目录：{out}")
     print(f"  知识库：{'开启（el.py kb search <词>）' if kb else '未开启（可 el.py setup --kb 或配置 config.kb.enabled）'}")
-    print(f"  下一步：python scripts/el.py run \"<链接>\"")
+    print("  下一步：python scripts/el.py run \"<链接>\"")
     return 0

@@ -51,6 +51,19 @@ def test_md_to_txt_strips_markdown():
     assert "A\t甲" in t or "A | 甲" in t
 
 
+def test_export_module_has_sys_for_console_guard():
+    """模块级编码保护必须真的能执行（此前缺 import sys，NameError 被静默吞掉）"""
+    import export
+    assert export.sys is sys
+
+
+def test_export_docx_missing_dependency_raises_runtime(tmp_path, monkeypatch):
+    """缺 python-docx → RuntimeError（可被 CLI 捕获），而不是 SystemExit 直接终止"""
+    monkeypatch.setitem(sys.modules, "docx", None)
+    with pytest.raises(RuntimeError):
+        export_docx(SAMPLE_MD, str(tmp_path / "r.docx"))
+
+
 def test_export_report_formats(tmp_path):
     from export import export_report
     d = tmp_path / "item"

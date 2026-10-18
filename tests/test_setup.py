@@ -45,6 +45,26 @@ def test_setup_install_requires_consent(isolated, monkeypatch):
     assert calls == [["yt-dlp"]]
 
 
+def test_setup_yes_requires_explicit_out(isolated):
+    """非交互 --yes 也必须显式给 --out；不得替用户默认 ~/学习笔记"""
+    assert setup_mod.run(out=None, yes=True, kb=False) == 2
+    assert (config.load_config().get("out_dir") or "") == ""
+
+
+def test_setup_interactive_requires_nonempty_out(isolated):
+    """交互模式回车也不能默认写 ~/学习笔记：out_dir 必须由用户明确选择"""
+    assert setup_mod.run(out=None, yes=False, kb=False, ask=lambda _: "") == 2
+    assert (config.load_config().get("out_dir") or "") == ""
+
+
+def test_setup_preserves_existing_kb_path(isolated):
+    config.write_user_config({"kb": {"enabled": True, "path": "D:/custom/kb.sqlite3"}})
+    assert setup_mod.run(out=str(isolated / "n"), yes=True, kb=False) == 0
+    kb = config.load_config()["kb"]
+    assert kb["enabled"] is False
+    assert kb["path"] == "D:/custom/kb.sqlite3"
+
+
 def test_cli_setup(isolated):
     import el
     with pytest.raises(SystemExit) as e:

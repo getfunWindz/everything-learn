@@ -6,6 +6,7 @@
 import json
 import os
 import re
+import sys
 
 
 try:                                    # GBK 控制台不因 emoji/符号崩溃
@@ -263,12 +264,11 @@ def main(argv=None):
     glossary.py clean <文件> [--out <dst>] 按勘误映射替换，输出 corrected 稿 + 存疑清单
     glossary.py absorb <wiki目录> [--dry]  反哺：扫描知识库实体/主题页沉淀新术语
     """
-    import sys
     args = sys.argv[1:] if argv is None else argv
-    if not args:
+    if not args or args[0] in ("-h", "--help"):
         print(__doc__)
         print("用法：list | add <术语> <解释> | check <报告.md> <content.txt> | alias <错误> <标准> | aliases | clean <文件> [--out <dst>] | absorb <wiki目录> [--dry]")
-        return 1
+        return 0 if args else 1
     cmd = args[0]
     if cmd == "list":
         g = load_glossary()

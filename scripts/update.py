@@ -126,7 +126,7 @@ def main(argv=None) -> int:
         print("=== 更新计划（--dry-run）===")
         print(f"当前 HEAD：{p['head']}")
         print(f"改动文件：{'、'.join(p['dirty_files']) or '（无）'}")
-        print(f"处理方式：SKILL.md 标签位丢弃后恢复；其他改动 stash → pull → pop")
+        print("处理方式：SKILL.md 标签位丢弃后恢复；其他改动 stash → pull → pop")
         print(f"引导状态：{'已引导（更新后将恢复标签位 0）' if p['onboarded'] else '未引导（标签位保持远端状态）'}")
     else:
         print("=== 更新完成 ===")

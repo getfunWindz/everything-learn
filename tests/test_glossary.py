@@ -103,6 +103,15 @@ def test_absorb_corrections_keeps_existing_alias(monkeypatch):
     assert glossary.absorb_corrections([("KV Catch", "KV Cache")], g) == {}
 
 
+def test_cli_help_and_sys_guard(capsys):
+    """glossary.py --help 应正常返回 0；模块级编码保护需真的能执行"""
+    import glossary
+    assert glossary.sys is sys
+    assert glossary.main(["--help"]) == 0
+    out = capsys.readouterr().out
+    assert "用法" in out
+
+
 def test_term_match_latin_boundaries():
     """英文术语按词边界匹配：pi 不得命中 pipeline，KDA 不得命中 backdata"""
     from glossary import _term_in_subtitle

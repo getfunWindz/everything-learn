@@ -6,7 +6,6 @@ import logging
 import os
 import sys
 import time
-from datetime import datetime
 
 from core import config, pipeline
 from core.adapter import SearchNeeded
@@ -16,7 +15,7 @@ from providers.bilibili import ApiClient, BiliError, resolve_input
 try:
     from version import VERSION
 except Exception:                     # 被作为包导入时的兜底
-    VERSION = "0.4.20"
+    VERSION = "0.4.21"
 
 try:                                    # GBK 控制台不因 emoji/符号崩溃
     sys.stdout.reconfigure(errors="replace")
@@ -192,7 +191,7 @@ def cmd_export(args):
         print(f"目录中没有报告文件（report.md / <标题>学习报告.md / report_template.md）：{args.target}",
               file=sys.stderr)
         sys.exit(1)
-    except ValueError as e:
+    except (ValueError, RuntimeError) as e:
         print(str(e), file=sys.stderr)
         sys.exit(2)
     print(f"已导出：{out}")
@@ -226,7 +225,9 @@ def cmd_split(args):
         sys.exit(2)
     print(f"已切分 {len(m['parts'])} 块 → {args.target}/content.partNN.md（manifest: split_manifest.json）")
     for it in m["parts"]:
-        print(f"  {it['file']}: {it['chars']} 字（{it['start']}–{it['end']}s）")
+        span = ("无时间轴" if it["start"] is None
+                else f"{it['start']}–{it['end']}s")
+        print(f"  {it['file']}: {it['chars']} 字（{span}）")
 
 
 def cmd_kb(args):
@@ -282,7 +283,7 @@ def cmd_onboard(args, client: ApiClient = None):
     flag = st["flag"]
     print("=== everything-learn 首次引导（onboarding） ===")
     print(f"状态：ONBOARDING = {flag if flag is not None else '（未解析到标签位）'}"
-          "（1=未完成，必须完成下方四项确认；0=已完成，可跳过文末引导）")
+          "（1=未完成，必须完成下方五项确认；0=已完成，可跳过文末引导）")
     print()
     print("① 产出目录（硬性，必须由用户自选）")
     print(f"   当前：{st['out_dir'] or '未配置'}")
@@ -304,9 +305,10 @@ def cmd_onboard(args, client: ApiClient = None):
             print(f"   ❌ {d['name']}：{d['hint']}")
     print()
     print("④ 使用说明（一图流）")
-    print("   用途：把视频/音频/图文/帖子总结为中文详解学习报告（11 平台）。")
+    print("   用途：把视频/音频/图文/帖子总结为中文详解学习报告（12 平台）。")
     print("   常用：el.py run <链接> [--all/--pages/--model/--budget] ｜ el.py scan <列表链接>")
-    print("   产物：content_info.json / content.txt / report_template.md / recheck_report.json（+assets/）")
+    print("   产物：content_info.json / content.txt / report_template.md / <标题>学习报告.md"
+          "（timeline 另有 recheck_report.json；图片在 assets/）")
     print("   报告规则见 SKILL.md「正常调用工作流」。")
     print()
     print("⑤ 术语库（可选：填塞初始术语；使用中自动反哺）")
@@ -537,7 +539,8 @@ def cmd_run(args, client: ApiClient = None):
         from core import registry
         registry.load_providers()
         a = registry.match_url(s)
-        return a is not None and a.name != "bilibili"
+        # 未识别 URL 也不属于 B 站：不要先弹 B 站登录警告（后续会走自进化提示）
+        return a is None or a.name != "bilibili"
 
     if not _skip_bili_check():
         try:
@@ -668,6 +671,7 @@ def cmd_run(args, client: ApiClient = None):
         _LOGGER.info("single %s ok %s %d行", input_str, src, n)
         print(f"\n完成！输出目录：{out_dir}")
         print("已生成：content_info.json / content.txt / report_template.md / <标题>学习报告.md")
+        print("提示：学习报告为机械基线；交付前请按 R1–R13 深化（基线通常不会通过 report_check）。")
         _auto_export(out_dir, getattr(args, "report_format", "md"))
     else:
         fmt = getattr(args, "report_format", "md")

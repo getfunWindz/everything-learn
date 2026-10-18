@@ -13,6 +13,24 @@ def test_split_text_boundaries_and_overlap():
     assert parts[0][-100:].strip() in parts[1][:500] or parts[1][:100].strip() in parts[0]
 
 
+def test_cmd_split_document_without_timeline(capsys, tmp_path):
+    """文档类 content.txt 无时间戳：CLI 不应打印 None–Nones"""
+    import el
+    d = tmp_path / "doc"
+    d.mkdir()
+    (d / "content.txt").write_text("正文" * 3000, encoding="utf-8")
+
+    class Args:
+        target = str(d)
+        chunk_chars = 2000
+        overlap = 100
+
+    el.cmd_split(Args())
+    out = capsys.readouterr().out
+    assert "None" not in out
+    assert "无时间轴" in out
+
+
 def test_split_dir_manifest(tmp_path):
     d = tmp_path / "item"
     d.mkdir()

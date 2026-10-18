@@ -4,7 +4,7 @@
   <!-- ⛳ ONBOARDING: 0|1 -->（顶部，状态值）
   <!-- ⛔ READ-GATE: ONBOARDING: 0|1 -->（引导章节前，阅读门提醒）
 - 1 = 引导未完成（首次部署/重置后）；0 = 已完成（跳过文末「初次调用逻辑」）。
-- `complete()` 在用户完成四项确认后调用：校验 out_dir → 写 config.onboarded=true + 标记置 0。
+- `complete()` 在用户完成五项确认后调用：校验 out_dir → 写 config.onboarded=true + 标记置 0。
 """
 import os
 import re

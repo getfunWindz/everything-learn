@@ -40,6 +40,19 @@ def test_set_flags_rewrites_both_markers(env):
     assert "## 正常调用工作流" in text and "## 初次调用逻辑" in text   # 其他文本不动
 
 
+def test_onboard_output_counts_and_platforms(env, capsys):
+    """首启输出必须与现状一致：12 平台 / 五项确认点（①-⑤）"""
+    import types
+    import el
+    el.cmd_onboard(types.SimpleNamespace(complete=False, reset=False, json=False))
+    out = capsys.readouterr().out
+    assert "12 平台" in out
+    assert "五项确认" in out
+    assert "11 平台" not in out
+    for mark in ("①", "②", "③", "④", "⑤"):
+        assert mark in out
+
+
 def test_set_flags_missing_file_tolerated(tmp_path, monkeypatch):
     monkeypatch.setattr(ob, "SKILL_PATH", str(tmp_path / "none.md"))
     assert ob.set_flags(0) is False

@@ -103,7 +103,12 @@ def check_whisper() -> dict:
         out["hint"] = "未安装 faster-whisper：pip install faster-whisper"
         return out
     import inspect
-    from faster_whisper import WhisperModel
+    try:
+        from faster_whisper import WhisperModel
+    except Exception as e:                 # find_spec 成功但 import 失败（缺 DLL 等）
+        out["hint"] = (f"faster-whisper 不可用：{str(e)[:100]}；"
+                       "pip install --force-reinstall faster-whisper")
+        return out
     out["installed"] = True
     try:
         from faster_whisper import __version__ as v
@@ -147,9 +152,9 @@ def check_ytdlp() -> dict:
             raise ImportError("yt_dlp")
         return {"installed": True, "version": getattr(yt_dlp.version, "__version__", "unknown"),
                 "hint": "OK（YouTube 适配器可用；如遇提取失败先升级：pip install -U yt-dlp）"}
-    except ImportError:
+    except Exception as e:
         return {"installed": False, "version": "",
-                "hint": "未安装：pip install yt-dlp（YouTube 适配器需要）"}
+                "hint": f"不可用：{str(e)[:80]}；pip install -U yt-dlp（YouTube 适配器需要）"}
 
 
 def _has_module(name: str) -> bool:
@@ -221,7 +226,6 @@ def main(argv=None) -> int:
     """CLI 入口。bili.py 子命令 doctor 调用本函数。"""
     _ensure_utf8_stdout()
     from providers import bilibili  # noqa: F401  确保适配器可导入（cookie 检查用）
-    args = sys.argv[1:] if argv is None else argv
     print("=== everything-learn 环境自检 ===")
     # cookie
     rows = cookie_status()
@@ -245,7 +249,7 @@ def main(argv=None) -> int:
     if m["models"]:
         print(f"✅ 模型缓存：{', '.join(m['models'])}（{m['cache_dir']}）")
     else:
-        print(f"⚠️ 模型缓存为空：首次转写将自动下载（国内网络可设 HF_ENDPOINT=https://hf-mirror.com）")
+        print("⚠️ 模型缓存为空：首次转写将自动下载（国内网络可设 HF_ENDPOINT=https://hf-mirror.com）")
     # vision 复检档位（配置后告知用户可自选 auto/off/tier1/tier2）
     vi = check_vision()
     if vi["enabled"]:
