@@ -2,7 +2,7 @@
 
 <p align="center">
   <img src="./assets/readme/hero.svg" width="100%"
-       alt="everything-learn：一切知识皆力量 — 11 个平台，一个命令 / Knowledge is Power — 11 platforms, one command">
+       alt="everything-learn：一切知识皆力量 — 12 个平台，一个命令 / Knowledge is Power — 12 platforms, one command">
 </p>
 
 <p align="center">
@@ -24,7 +24,7 @@
 
 ## 中文
 
-**一切知识皆力量**：11 个平台，一个命令——把视频、播客、图文与社媒内容整理成结构化的中文学习报告。
+**一切知识皆力量**：12 个平台，一个命令——把视频、播客、图文与社媒内容整理成结构化的中文学习报告。
 来源分级（AI 字幕 → Whisper 主选 / 人工·官方 → 同源校验）→ 档位评分 → 预算闸门 → 3 帧/秒窗口复检；账号级内容（收藏 / 关注 / 合集 / 主页）可枚举、筛选、批量出合集。
 
 ### 平台能力
@@ -42,6 +42,7 @@
 | X（Twitter） | document | ✅ 单推文（含视频口播转写）；主页时间线扫描（需登录 + 代理） |
 | 小红书 | document | ✅ 单笔记（视频附口播转写）；主页（含分页）/ 收藏枚举（需登录） |
 | Medium | document | ✅ 文章（SSR 抽取）/ feed / **书签列表**扫描（需登录） |
+| V2EX | document | ✅ 主题正文 + 前排回复（公开 API + 页面解析，无需 cookie） |
 | 名单外平台 | — | 自进化流程现场接入：尽调 → 搭建 → 三件套（`el.py platforms` 查名单） |
 
 **一次完整运行的产物**（每个条目三件套 + 图片资产）：

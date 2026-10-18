@@ -2,6 +2,21 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本。
 
+## [0.4.19] - 2026-10-18
+
+### Added
+
+- **V2EX 适配器（自进化实战）**：`document` 形态，主题正文 + 前排 30 条回复；公开 API（`/api/topics/show.json`）+ 页面解析，无需 cookie；缓速 6s。用 `gen_contract_test.py` 生成契约测试后再补 fixture 单测与真实冒烟（7s 完成）。
+
+### Fixed
+
+- **重复 setup 子命令**：Python 3.11 argparse 会抛 `conflicting subparser`（3.10 静默覆盖）；删除重复注册。
+
+### Tests
+
+- **908 项离线测试**（新增 5 项：V2EX 契约/解析/内容）。
+- **跨平台验证**：WSL Ubuntu + Python 3.11 全量 903 passed；GitHub Actions 3.11 回归修复。
+
 ## [0.4.18] - 2026-10-18
 
 ### Added

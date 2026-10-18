@@ -26,6 +26,7 @@ description: 将多平台学习内容（视频/音频/图文/帖子）总结为�
 | X（Twitter） | `document`（推文） | ✅ 可用（单推文：正文/图片/口播转写；主页时间线 scan（需登录 + 浏览器代理）；搜索实验性：`el.py search --platform x_twitter`，依赖已登录浏览器） |
 | 小红书 | `document`（笔记） | ✅ 可用（单笔记：正文/图片；视频笔记附口播转写；链接需含短时效 token；**成功取数后 token 缓存 6h 可复用**；主页/收藏枚举：`scan`，需登录） |
 | 抖音 | `timeline`（视频） | ✅ 可用（单视频：**浏览器上下文取 detail（B1）** + Whisper；主页作品/收藏/喜欢列表：浏览器辅助 scan（收藏/喜欢需登录），不逆向签名） |
+| V2EX | `document`（主题帖） | ✅ 可用（主题正文 + 前排回复；公开 API + 页面解析，无需 cookie，缓速 6s） |
 | 名单外平台 | — | 走「自进化」流程（见「正常调用工作流 · 自进化」） |
 
 ### 核心命令
@@ -35,7 +36,7 @@ python scripts/el.py setup                    # 一键初始化（依赖/目录/
 python scripts/el.py onboard                  # 首次引导门（状态/四项确认点；--complete/--reset/--json）
 python scripts/el.py doctor                   # 环境自检（依赖/GPU/模型/vision/cookie/out_dir）
 python scripts/el.py run <链接/名称> [--page N | --pages "1-10" | --all] [--model tiny|small|medium|large-v3] [--budget 1.5] [--max-seconds 600] [--report-format md|doc|docx|txt]
-python scripts/el.py search <关键词> --platform <平台> [--limit 5] [--json]   # 11 平台搜索（见 platforms 的 search= 列）
+python scripts/el.py search <关键词> --platform <平台> [--limit 5] [--json]   # 12 平台搜索（见 platforms 的 search= 列；V2EX 需链接）
 python scripts/el.py scan <列表链接> [--filter "关键,词"] [--priority] [--limit N] [--snapshot]
 python scripts/glossary.py add "<术语>" "<解释>"   # 术语库填塞/沉淀（可重复；支持 add/alias/clean/absorb）
 python scripts/el.py kb build "<学习笔记根目录>"    # 内建知识库建库（setup --kb 开启后 run 自动索引）
@@ -212,7 +213,7 @@ python scripts/el.py setup --out "D:/学习笔记" --yes --no-kb
      `faster-whisper`（Whisper 转写；时间线平台需要）｜ `yt-dlp`（YouTube/抖音）｜ `playwright`（cookie 一键导出 / browserfetch 平台）｜ `vision`（多模态画面复检，配置后启用）；
    - 推荐全部安装；装不了的按低配模式使用（见「注意事项 · 低配模式」）。
 4. **使用说明总结（用途 + 典型用法 + 产物）**
-   - 用途：多平台学习内容 → 中文详解学习报告（11 平台，见「介绍」表）；
+   - 用途：多平台学习内容 → 中文详解学习报告（12 平台，见「介绍」表）；
    - 典型用法：`el.py run <链接> [--all/--pages/--model/--budget]`、`el.py scan <列表链接>`、`el.py report/export`；
    - 产物：三件套 + `assets/` + `recheck_report.json`；报告规则见「正常调用工作流 · 报告规则」。
 5. **知识库（可选，setup 会询问）**：是否把报告索引进本地 SQLite（`el.py kb search` 可检索）；开启后每次 `run` 自动索引，关闭不影响主流程。
