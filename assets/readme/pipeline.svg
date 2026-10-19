@@ -1,51 +1,51 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="380" viewBox="0 0 1200 380"
      role="img" aria-labelledby="flowTitle flowDesc"
      font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif">
-  <title id="flowTitle">everything-learn 统一流水线：输入 → 路由 → 取内容 → 复检 → 产物</title>
-  <desc id="flowDesc">五个阶段的流程图：输入为链接或列表；路由走 core 注册表（11 个适配器）；取内容为字幕、正文或媒体流；复检为分级校验、3 帧归属复检与 Whisper 兜底；产物为 content_info.json、content.txt 与报告骨架。下方说明复检与转写逻辑全部由 core 统一处理。</desc>
+  <title id="flowTitle">everything-learn 统一流水线：输入 → 12 个适配器 → 取内容 → 复检 → 报告或知识库</title>
+  <desc id="flowDesc">五个阶段的流程图：输入为链接或列表；路由走 core 注册表（12 个适配器）；取内容为字幕、正文或媒体流；复检为来源分级、同源校验与窗口复检；产物为报告（md/docx）或本地知识库（kb）。下方说明适配器只做路由与取数，复检、转写、产物全部由 core 统一处理。</desc>
 
   <rect width="1200" height="380" rx="26" fill="#0B0F14" stroke="#1F2937" stroke-width="1.5"/>
 
-  <text x="64" y="72" font-size="20" letter-spacing="1.5" fill="#8B949E"
-        font-family="ui-monospace, SFMono-Regular, Menlo, monospace">统一流水线 · 逻辑全部复用 core</text>
+  <text x="64" y="72" font-size="18" letter-spacing="1.6" fill="#8B949E"
+        font-family="ui-monospace, SFMono-Regular, Menlo, monospace">统一流水线 · 适配器之外全部复用 core</text>
   <text x="64" y="118" font-size="32" font-weight="700" fill="#E6EDF3">一个命令背后的 5 个阶段</text>
 
   <g>
     <!-- 阶段卡 -->
     <g>
       <rect x="64" y="150" width="195" height="150" rx="14" fill="#0D1117" stroke="#223042" stroke-width="1.5"/>
-      <text x="88" y="186" font-size="18" fill="#3FB950" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">阶段 1</text>
+      <text x="88" y="186" font-size="17" fill="#3FB950" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">阶段 1</text>
       <text x="88" y="222" font-size="22" font-weight="600" fill="#E6EDF3">输入</text>
       <text x="88" y="256" font-size="18" fill="#8B949E" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">链接 / 列表</text>
       <text x="88" y="282" font-size="18" fill="#8B949E" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">run / scan</text>
     </g>
     <g>
       <rect x="283" y="150" width="195" height="150" rx="14" fill="#0D1117" stroke="#223042" stroke-width="1.5"/>
-      <text x="307" y="186" font-size="18" fill="#3FB950" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">阶段 2</text>
+      <text x="307" y="186" font-size="17" fill="#3FB950" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">阶段 2</text>
       <text x="307" y="222" font-size="22" font-weight="600" fill="#E6EDF3">路由</text>
       <text x="307" y="256" font-size="18" fill="#8B949E" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">core 注册表</text>
-      <text x="307" y="282" font-size="18" fill="#8B949E" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">11 适配器</text>
+      <text x="307" y="282" font-size="18" fill="#8B949E" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">12 适配器</text>
     </g>
     <g>
       <rect x="502" y="150" width="195" height="150" rx="14" fill="#0D1117" stroke="#223042" stroke-width="1.5"/>
-      <text x="526" y="186" font-size="18" fill="#3FB950" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">阶段 3</text>
+      <text x="526" y="186" font-size="17" fill="#3FB950" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">阶段 3</text>
       <text x="526" y="222" font-size="22" font-weight="600" fill="#E6EDF3">取内容</text>
       <text x="526" y="256" font-size="18" fill="#8B949E" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">字幕 / 正文</text>
       <text x="526" y="282" font-size="18" fill="#8B949E" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">媒体流</text>
     </g>
     <g>
       <rect x="721" y="150" width="195" height="150" rx="14" fill="#0D1117" stroke="#223042" stroke-width="1.5"/>
-      <text x="745" y="186" font-size="18" fill="#3FB950" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">阶段 4</text>
+      <text x="745" y="186" font-size="17" fill="#3FB950" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">阶段 4</text>
       <text x="745" y="222" font-size="22" font-weight="600" fill="#E6EDF3">复检</text>
-      <text x="745" y="256" font-size="18" fill="#8B949E" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">分级 → 3 帧</text>
-      <text x="745" y="282" font-size="18" fill="#8B949E" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">Whisper 兜底</text>
+      <text x="745" y="256" font-size="18" fill="#8B949E" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">来源分级</text>
+      <text x="745" y="282" font-size="18" fill="#8B949E" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">同源校验 + 窗口</text>
     </g>
     <g>
       <rect x="940" y="150" width="196" height="150" rx="14" fill="#0D1117" stroke="#223042" stroke-width="1.5"/>
-      <text x="964" y="186" font-size="18" fill="#3FB950" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">阶段 5</text>
+      <text x="964" y="186" font-size="17" fill="#3FB950" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">阶段 5</text>
       <text x="964" y="222" font-size="22" font-weight="600" fill="#E6EDF3">产物</text>
-      <text x="964" y="256" font-size="18" fill="#8B949E" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">info/txt/md</text>
-      <text x="964" y="282" font-size="18" fill="#8B949E" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">报告 + assets</text>
+      <text x="964" y="256" font-size="18" fill="#8B949E" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">报告 md · docx</text>
+      <text x="964" y="282" font-size="18" fill="#8B949E" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">知识库 kb search</text>
     </g>
 
     <!-- 箭头 -->
@@ -58,5 +58,5 @@
   </g>
 
   <text x="64" y="344" font-size="18" fill="#8B949E"
-        font-family="ui-monospace, SFMono-Regular, Menlo, monospace">适配器只做 match / resolve / 取数；复检、转写、产物全部由 core 统一处理（多模态复检通道为适配器标准必接项）</text>
+        font-family="ui-monospace, SFMono-Regular, Menlo, monospace">适配器只做 match / resolve / 取数；复检、转写、产物由 core 统一处理；任意一步可停</text>
 </svg>
