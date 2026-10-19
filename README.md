@@ -8,7 +8,7 @@
 <p align="center">
   <a href="https://github.com/getfunWindz/everything-learn/actions/workflows/tests.yml"><img src="https://github.com/getfunWindz/everything-learn/actions/workflows/tests.yml/badge.svg" alt="tests"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="license: MIT"></a>
-  <img src="https://img.shields.io/badge/tests-950%20offline-brightgreen.svg" alt="950 offline tests">
+  <img src="https://img.shields.io/badge/tests-956%20offline-brightgreen.svg" alt="956 offline tests">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python 3.10+">
 </p>
 
@@ -213,7 +213,7 @@ python scripts/el.py export "<报告目录>" --format html    # 或 docx
 ### 测试与工程
 
 ```bash
-python -m pytest tests/ -q     # 948 passed, 2 skipped（950 collected；全部 mock 网络，约 2 分钟）
+python -m pytest tests/ -q     # 954 passed, 2 skipped（956 collected；全部 mock 网络，约 2 分钟）
 ```
 
 - **CI**：GitHub Actions（Windows / macOS / Ubuntu × Python 3.10 / 3.11）。
@@ -380,7 +380,7 @@ python scripts/el.py export "<report dir>" --format html  # or docx
 ### Testing & engineering
 
 ```bash
-python -m pytest tests/ -q     # 948 passed, 2 skipped (950 collected; all network mocked, ~2 min)
+python -m pytest tests/ -q     # 954 passed, 2 skipped (956 collected; all network mocked, ~2 min)
 ```
 
 - **CI**: GitHub Actions (Windows / macOS / Ubuntu × Python 3.10 / 3.11).
