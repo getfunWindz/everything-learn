@@ -78,7 +78,7 @@ python scripts/el.py export <目录> --format html
 
 ## 典型提示词（速查）
 
-完整范例（含期望行为 / 不该发生 / 变体说法）见 `references/prompts.md`；每条都带 `everything-learn` 锚点。
+完整范例见 [`README.md` 的「典型提示词（范例）」](README.md#典型提示词范例)；每条都带 `everything-learn` 锚点。
 
 | 场景 | 示例提示词 | 走哪条链路 |
 |---|---|---|

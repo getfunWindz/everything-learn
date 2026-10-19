@@ -1,14 +1,12 @@
-# everything-learn
-
 <p align="center">
   <img src="./assets/readme/hero.svg" width="100%"
-       alt="everything-learn：一切知识皆力量 — 12 个平台，一个命令 / Knowledge is Power — 12 platforms, one command">
+       alt="everything-learn：一句提示词，一条流水线，产出可复习的中文笔记与本地知识库">
 </p>
 
 <p align="center">
   <a href="https://github.com/getfunWindz/everything-learn/actions/workflows/tests.yml"><img src="https://github.com/getfunWindz/everything-learn/actions/workflows/tests.yml/badge.svg" alt="tests"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="license: MIT"></a>
-  <img src="https://img.shields.io/badge/tests-956%20offline-brightgreen.svg" alt="956 offline tests">
+  <img src="https://img.shields.io/badge/tests-955%20offline-brightgreen.svg" alt="955 offline tests">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python 3.10+">
 </p>
 
@@ -27,35 +25,19 @@
 **一切知识皆力量**：12 个平台，一个命令——搜索/抓取视频、播客、图文与社媒内容，按需生成中文学习报告或索引进本地知识库；报告、复检、入库都可以随时跳过。
 来源分级（AI 字幕 → Whisper 主选 / 人工·官方 → 同源校验）→ 档位评分 → 预算闸门 → 3 帧/秒窗口复检；账号级内容（收藏 / 关注 / 合集 / 主页）可枚举、筛选、批量出合集。
 
-### 发布前自检与运维
+### 典型提示词（范例）
 
-```bash
-python scripts/report_check.py "<报告.md>" --content "<content.txt>" [--strict]
-python scripts/el.py split "<产物目录>" --chunk-chars 20000   # 超长内容分块写报告
-python scripts/canary.py --only v2ex,zhihu,bilibili           # 真实平台探测（建议本地定时）
-```
+提示词里的 `everything-learn` 是调用锚点，别省略；下面每条都能照抄。搜索 / 抓取 / 入库都不强制出报告，停在对应步骤即可。
 
-- `report_check`：结构/编号/自测/术语 + 数字、金句、时间戳回溯（`--strict` 严格模式）。
-  - 注：`run` 自动生成的 `<标题>学习报告.md` 是**机械基线**（不含 `#### 知识点`），`report_check` 通常需按 R1–R13 深化后才会 PASS；不要把基线直接当成交付。
-- `canary`：12 平台 meta 探测（`--full` 含内容），JSON 结果；网络/风控原因**不放进 GitHub CI**。
-- 密钥/cookie 文件在 POSIX 下自动 `chmod 600`。
+| 场景 | 提示词（照抄可用） | 它会做什么 |
+|---|---|---|
+| 找内容 | 用 everything-learn 帮我找几个讲 DeepSeek V4.1 Flash 的 B 站视频，要新一点的 | 只走 `search`，列出候选就停；不抓取、不出报告 |
+| 抓取中转 | 用 everything-learn 把这个抖音视频的字幕存下来，先别总结 | `run --no-recheck` 落三件套；报告不生成 |
+| 学习报告 | 用 everything-learn 把这个 B 站课件整理成能复习的学习报告，要 docx | 格式 → 复检预算 → R1–R13 → `report_check` → docx |
+| 账号批量 | 用 everything-learn 把我微博收藏里跟 AI 相关的都抓下来，整理成一份合集 | `scan` 枚举筛选 → `run --all` → 合集报告 |
+| 知识库 | 用 everything-learn 查一下我以前记过光刻相关的内容吗 | KB 未启用先问；`kb search` 返回片段，不抓取 |
 
-### 内建知识库（可选）
-
-```bash
-python scripts/el.py setup --out "D:/学习笔记" --yes --kb   # 启用并完成引导
-python scripts/el.py onboard --kb on|off                     # 首次引导记录 KB 特征位（asked=true 后不再问）
-python scripts/el.py kb build "<学习笔记根目录>"             # 建库/更新（默认清理失效记录）
-python scripts/el.py kb index "<产物目录>"                   # 深度报告改写后重索引
-python scripts/el.py kb search "光刻" --platform bilibili --since 2026-10-01
-python scripts/el.py kb prune|delete|rebuild ...             # 清理/删除单条/清空重建
-```
-
-- 本地 SQLite；FTS5（优先 trigram，中文子串）+ LIKE 回退，返回命中片段。
-- 去重键 `platform+item_id+sub_id`；合集汇总（`kind=batch`）默认跳过，只索引 P 条目。
-- 支持 `--platform/--author/--kind/--since` 过滤；不做语义向量检索/问答。
-- 首次引导会询问；选择 `off` 写特征位 `enabled=false`（`asked=true` 后不再问），`run` 不自动索引，但仍可手动 `kb build/search`。
-- 完整 llm-wiki（digest/实体/主题/图谱）仍交给 `bilibili-to-wiki`；内置 KB 是其轻量本地版。
+完整工作流、报告规则（R1–R13）与各平台的停止点见 [`SKILL.md`](SKILL.md)。
 
 ## 平台能力
 
@@ -91,23 +73,12 @@ python scripts/el.py kb prune|delete|rebuild ...             # 清理/删除单�
 
 <p align="center">
   <img src="./assets/readme/pipeline.svg" width="100%"
-       alt="统一流水线：输入 → 路由（core 注册表）→ 取内容 → 来源分级/同源校验 → 档位评分 → 预算闸门 → 窗口复检 → 产物">
+       alt="统一流水线：输入 → 12 个适配器路由 → 取内容 → 来源分级/同源校验/窗口复检 → 报告或知识库">
 </p>
 
 - **适配器只做路由与取数**：`match → resolve → list_items → fetch_meta → fetch_content → fetch_media_url`，并声明内容来源（`provenance`/`language_hint`）。
 - **保真复检全部在 `core/`**：`core/recheck.py` 统一来源分级 → 同源校验 → 档位评分 → 区域选择 → 预算闸门；多模态复检通道是适配器标准必接项（`fetch_media_url(media="video", lowest=True)`），无画面平台返回 `None` 自动跳过；契约测试会校验签名。
 - **产物透明**：档位/评分理由/预算估算/同源校验/交叉比对/不确定项落入 `recheck_report.json`；正文标注【画面补充】【画面校正】，未覆盖区间如实留痕。
-
-### 安装（可选）
-
-直接 `python scripts/el.py ...` 即可。想让任意目录/任意 harness 用 `everything-learn` 命令：
-
-```bash
-pipx install --editable .        # 或 uv tool install --editable .
-everything-learn --version
-```
-
-> 本期只支持 editable 安装（源码/数据仍在仓库内）；非 editable 的 PyPI 包与用户级配置目录迁移暂未做。
 
 ## 快速开始
 
@@ -147,17 +118,7 @@ python scripts/el.py cookie zhihu        # 或 bilibili / weibo / douyin
 python scripts/el.py cookie --list       # 查看已声明导出规格的平台
 ```
 
-### 典型提示词（范例）
-
-5 个主场景的完整范例（期望行为 / 不该发生 / 变体说法）见 [`references/prompts.md`](references/prompts.md)；提示词里带 `everything-learn` 可稳定触发本技能：
-
-| 场景 | 示例 |
-|---|---|
-| 找内容 | 用 everything-learn 帮我找几个讲 DeepSeek V4.1 Flash 的 B 站视频，要新一点的 |
-| 抓取中转 | 用 everything-learn 把这个抖音视频的字幕存下来，先别总结 |
-| 学习报告 | 用 everything-learn 把这个 B 站课件整理成能复习的学习报告，要 docx |
-| 账号批量 | 用 everything-learn 把我微博收藏里跟 AI 相关的都抓下来，整理成一份合集 |
-| 知识库 | 用 everything-learn 查一下我以前记过光刻相关的内容吗 |
+安装为命令（可选）：`pipx install --editable .` 或 `uv tool install --editable .`，之后可直接用 `everything-learn --version`。
 
 ### 账号级扫描（scan → 合集）
 
@@ -191,6 +152,23 @@ python scripts/el.py doctor                               # 环境自检（cooki
 python scripts/el.py export "<报告目录>" --format html    # 或 docx
 ```
 
+### 内建知识库（可选）
+
+```bash
+python scripts/el.py setup --out "D:/学习笔记" --yes --kb   # 启用并完成引导
+python scripts/el.py onboard --kb on|off                     # 首次引导记录 KB 特征位（asked=true 后不再问）
+python scripts/el.py kb build "<学习笔记根目录>"             # 建库/更新（默认清理失效记录）
+python scripts/el.py kb index "<产物目录>"                   # 深度报告改写后重索引
+python scripts/el.py kb search "光刻" --platform bilibili --since 2026-10-01
+python scripts/el.py kb prune|delete|rebuild ...             # 清理/删除单条/清空重建
+```
+
+- 本地 SQLite；FTS5（优先 trigram，中文子串）+ LIKE 回退，返回命中片段。
+- 去重键 `platform+item_id+sub_id`；合集汇总（`kind=batch`）默认跳过，只索引 P 条目。
+- 支持 `--platform/--author/--kind/--since` 过滤；不做语义向量检索/问答。
+- 首次引导会询问；选择 `off` 写特征位 `enabled=false`（`asked=true` 后不再问），`run` 不自动索引，但仍可手动 `kb build/search`。
+- 完整 llm-wiki（digest/实体/主题/图谱）仍交给 `bilibili-to-wiki`；内置 KB 是其轻量本地版。
+
 ### 平台细节
 
 - **复检与成本**：AI 字幕不再直接入库（转 Whisper，字幕留作交叉比对）；人工/官方字幕先过同源校验；复检档位 1/2/3（档3 需白名单、默认关闭），档1 定向、档2 全量（3 帧/秒 + 静帧去重）；金额超阈值先出预算卡。
@@ -213,13 +191,27 @@ python scripts/el.py export "<报告目录>" --format html    # 或 docx
 ### 测试与工程
 
 ```bash
-python -m pytest tests/ -q     # 954 passed, 2 skipped（956 collected；全部 mock 网络，约 2 分钟）
+python -m pytest tests/ -q     # 953 passed, 2 skipped（955 collected；全部 mock 网络，约 2 分钟）
 ```
 
 - **CI**：GitHub Actions（Windows / macOS / Ubuntu × Python 3.10 / 3.11）。
 - **架构**：`core/`（契约、注册表、配置、缓存、重试、缓速、流水线、保真复检 `recheck.py`、产物、HTML→块、图片下载）+ `providers/`（每平台一个适配器；B 站为参考实现）。
 - **自进化**：名单外平台按 `docs/ADAPTER_SPEC.md` §6 尽调 → `docs/ADAPTER_TEMPLATE.md` + `scripts/providers/_template.py` 搭建 → fixture / 契约 / 冒烟三件套；未通过不合入。
 - **上游**：[bilibili-learn](https://github.com/getfunWindz/bilibili-learn)（只做 B 站的轻量版，保持原样）。
+- **安装限制**：当前只支持 editable 安装（源码/数据仍在仓库内）；非 editable 的 PyPI 包与用户级配置目录迁移暂未做。
+
+### 发布前自检与运维
+
+```bash
+python scripts/report_check.py "<报告.md>" --content "<content.txt>" [--strict]
+python scripts/el.py split "<产物目录>" --chunk-chars 20000   # 超长内容分块写报告
+python scripts/canary.py --only v2ex,zhihu,bilibili           # 真实平台探测（建议本地定时）
+```
+
+- `report_check`：结构/编号/自测/术语 + 数字、金句、时间戳回溯（`--strict` 严格模式）。
+  - 注：`run` 自动生成的 `<标题>学习报告.md` 是**机械基线**（不含 `#### 知识点`），`report_check` 通常需按 R1–R13 深化后才会 PASS；不要把基线直接当成交付。
+- `canary`：12 平台 meta 探测（`--full` 含内容），JSON 结果；网络/风控原因**不放进 GitHub CI**。
+- 密钥/cookie 文件在 POSIX 下自动 `chmod 600`。
 
 ### License
 
@@ -232,20 +224,19 @@ python -m pytest tests/ -q     # 954 passed, 2 skipped（956 collected；全部 
 **Knowledge is Power**: 12 platforms, one command — search/fetch videos, podcasts, articles and social posts, then optionally generate Chinese study reports or index them into the local knowledge base; report/recheck/KB steps are skippable.
 Provenance grading (AI subtitles → Whisper-first / human·official → same-source verification) → tier scoring → budget gate → 3-fps window recheck. Account-level content (favorites / follows / collections / profiles) can be enumerated, filtered, and digested in batches.
 
-### Built-in knowledge base (optional)
+### Prompt examples
 
-```bash
-python scripts/el.py setup --out "D:/notes" --yes --kb   # enable during onboarding
-python scripts/el.py onboard --kb on|off                 # record KB feature bit (asked=true; never asked again)
-python scripts/el.py kb build "<notes root>"             # build/update (prunes stale rows)
-python scripts/el.py kb index "<item dir>"               # reindex after deepening the report
-python scripts/el.py kb search "光刻" --platform bilibili --since 2026-10-01
-python scripts/el.py kb prune|delete|rebuild ...
-```
+The `everything-learn` token is the invocation anchor — keep it. Every prompt below is copy-ready. Search / capture / KB indexing do not force a report; stop at the step you need.
 
-- Local SQLite; FTS5 (trigram first, substring for Chinese) with LIKE fallback; returns snippets.
-- Dedup by `platform+item_id+sub_id`; collection summaries (`kind=batch`) are skipped by default.
-- Filters: `--platform/--author/--kind/--since`; no vector/semantic Q&A.
+| Scenario | Prompt (copy-ready) | What happens |
+|---|---|---|
+| Find | 用 everything-learn 帮我找几个讲 DeepSeek V4.1 Flash 的 B 站视频，要新一点的 | `search` only; returns candidates and stops — no fetch, no report |
+| Capture | 用 everything-learn 把这个抖音视频的字幕存下来，先别总结 | `run --no-recheck` writes the 3-file bundle; no report |
+| Report | 用 everything-learn 把这个 B 站课件整理成能复习的学习报告，要 docx | format → recheck budget → R1–R13 → `report_check` → docx |
+| Batch | 用 everything-learn 把我微博收藏里跟 AI 相关的都抓下来，整理成一份合集 | `scan` filter → `run --all` → collection report |
+| Knowledge base | 用 everything-learn 查一下我以前记过光刻相关的内容吗 | ask before enabling KB; `kb search` returns snippets, no fetching |
+
+See [`SKILL.md`](SKILL.md) for the full workflow, report rules (R1–R13), and per-platform stopping points.
 
 ### Platform support
 
@@ -281,7 +272,7 @@ notes/<author>/<title>/
 
 <p align="center">
   <img src="./assets/readme/pipeline.svg" width="100%"
-       alt="Unified pipeline: input → routing (core registry) → fetch → provenance/same-source check → tier scoring → budget gate → window recheck → artifacts">
+       alt="Unified pipeline: input → 12 adapters → fetch → provenance/same-source/window recheck → report or knowledge base">
 </p>
 
 - **Adapters only route and fetch**: `match → resolve → list_items → fetch_meta → fetch_content → fetch_media_url`, declaring content provenance (`provenance`/`language_hint`).
@@ -326,6 +317,8 @@ python scripts/el.py cookie zhihu        # or bilibili / weibo / douyin
 python scripts/el.py cookie --list       # list platforms with export specs
 ```
 
+Install as a command (optional): `pipx install --editable .` or `uv tool install --editable .`, then use `everything-learn --version`.
+
 ### Account-level scanning (scan → collections)
 
 `scan` enumerates lists (filter / priority / snapshot); `run --all` produces collection reports:
@@ -358,6 +351,21 @@ python scripts/el.py doctor                               # env self-check (cook
 python scripts/el.py export "<report dir>" --format html  # or docx
 ```
 
+### Built-in knowledge base (optional)
+
+```bash
+python scripts/el.py setup --out "D:/notes" --yes --kb   # enable during onboarding
+python scripts/el.py onboard --kb on|off                 # record KB feature bit (asked=true; never asked again)
+python scripts/el.py kb build "<notes root>"             # build/update (prunes stale rows)
+python scripts/el.py kb index "<item dir>"               # reindex after deepening the report
+python scripts/el.py kb search "光刻" --platform bilibili --since 2026-10-01
+python scripts/el.py kb prune|delete|rebuild ...
+```
+
+- Local SQLite; FTS5 (trigram first, substring for Chinese) with LIKE fallback; returns snippets.
+- Dedup by `platform+item_id+sub_id`; collection summaries (`kind=batch`) are skipped by default.
+- Filters: `--platform/--author/--kind/--since`; no vector/semantic Q&A.
+
 ### Platform notes
 
 - **Recheck & cost**: AI subtitles never enter the report directly (Whisper-first; subtitles kept for cross-checking). Human/official subtitles pass same-source verification first. Recheck tiers 1/2/3 (tier 3 whitelisted, off by default): tier 1 targeted, tier 2 full (3 fps + still-frame dedup). Budget card appears above the threshold.
@@ -380,13 +388,27 @@ python scripts/el.py export "<report dir>" --format html  # or docx
 ### Testing & engineering
 
 ```bash
-python -m pytest tests/ -q     # 954 passed, 2 skipped (956 collected; all network mocked, ~2 min)
+python -m pytest tests/ -q     # 953 passed, 2 skipped (955 collected; all network mocked, ~2 min)
 ```
 
 - **CI**: GitHub Actions (Windows / macOS / Ubuntu × Python 3.10 / 3.11).
 - **Architecture**: `core/` (contracts, registry, config, cache, retry, throttle, pipeline, fidelity recheck `recheck.py`, artifacts, HTML→blocks, image download) + `providers/` (one adapter per platform; Bilibili is the reference implementation).
 - **Self-evolution**: unlisted platforms go through `docs/ADAPTER_SPEC.md` §6 due diligence → `docs/ADAPTER_TEMPLATE.md` + `scripts/providers/_template.py` scaffold → fixture / contract / smoke triad; nothing merges without passing.
 - **Upstream**: [bilibili-learn](https://github.com/getfunWindz/bilibili-learn) (Bilibili-only lightweight edition, kept as-is).
+- **Install limitation**: editable installs only; non-editable PyPI packaging and user-level config paths are not implemented yet.
+
+### Pre-release checks & maintenance
+
+```bash
+python scripts/report_check.py "<report.md>" --content "<content.txt>" [--strict]
+python scripts/el.py split "<item dir>" --chunk-chars 20000   # chunk long content for reports
+python scripts/canary.py --only v2ex,zhihu,bilibili           # live platform probe (run locally on a schedule)
+```
+
+- `report_check`: structure/numbering/quiz/glossary + number, quote, and timestamp trace-back (`--strict` fails on any).
+  - Note: the auto-generated `<title>学习报告.md` is a **mechanical baseline** (no `#### 知识点`); run `report_check` after deepening per R1–R13, and never ship the baseline as the final report.
+- `canary`: 12-platform meta probe (`--full` includes content), JSON output; network/risk-control issues are **kept out of GitHub CI**.
+- Cookie/key files are `chmod 600` on POSIX.
 
 ### License
 

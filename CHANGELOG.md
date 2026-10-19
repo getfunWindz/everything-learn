@@ -6,12 +6,13 @@
 
 ### Added
 
-- **典型提示词范例**：`references/prompts.md` 覆盖搜索 / 抓取中转 / 报告 / 账号批量 / 知识库五个主场景，每条含 `everything-learn` 锚点、期望行为、不该发生与变体说法；SKILL.md 增加速查表，description 增加触发兜底句。
+- **典型提示词**：README 中英双语各增 5 场景范例表（提示词 + 行为 + 停止点），提示词带 `everything-learn` 锚点；SKILL.md 增加速查表并链接 README；description 增加触发兜底句。
+- **README 视觉与结构**：按「价值 → 提示词 → 能力/产物 → 机制 → 快速开始 → 细节 → 运维」重排中英两半；hero.svg / pipeline.svg 更新为 12 平台、956 测试、提示词→流水线→报告/知识库叙事。
 - **用户向演示页**：独立仓库 `everything-learn-demo`（单文件离线 HTML，5 场景数据驱动重放，非本仓库内容）。
 
 ### Tests
 
-- 新增 `tests/test_prompts_demo.py`：范例结构/锚点/命令真实性与文档引用校验。
+- 新增 `tests/test_readme_prompts.py`：README 中英提示词表、SKILL 链接、独立文件移除与版本校验。
 
 ## [0.4.23] - 2026-10-18
 
