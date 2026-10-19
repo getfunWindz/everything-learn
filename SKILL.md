@@ -1,6 +1,6 @@
 ---
 name: everything-learn
-description: 多平台内容搜索/抓取/报告/知识库技能。支持仅搜索候选、批量抓取中转、中文学习报告、内建知识库入库与关键词检索；报告/复检/入库均可按需跳过。触发词：「总结这个视频/文章/播客」「学习笔记」「找几个关于X的视频」「入库/查我的笔记」等，用户提供链接、名称或平台标识。当前支持 12 个平台：B 站、YouTube、播客、知乎、TED、Medium、微博、抖音、微信公众号、X（Twitter）、小红书、V2EX；遇到没有适配器的平台可按规范现场搭建适配器。
+description: 多平台内容搜索/抓取/报告/知识库技能。支持仅搜索候选、批量抓取中转、中文学习报告、内建知识库入库与关键词检索；报告/复检/入库均可按需跳过。触发词：「总结这个视频/文章/播客」「学习笔记」「找几个关于X的视频」「入库/查我的笔记」等，用户提供链接、名称或平台标识。当前支持 12 个平台：B 站、YouTube、播客、知乎、TED、Medium、微博、抖音、微信公众号、X（Twitter）、小红书、V2EX；遇到没有适配器的平台可按规范现场搭建适配器。用户提到 everything-learn 时必用本技能。
 ---
 
 # everything-learn：多平台学习内容总结
@@ -49,7 +49,7 @@ python scripts/el.py report <目录> [--force]   # 重建骨架 + 基线报告�
 python scripts/el.py export <目录> --format html
 ```
 
-<!-- ⛳ ONBOARDING: 1 -->
+<!-- ⛳ ONBOARDING: 0 -->
 
 > **标签位①（引导状态）**：`1` = 首次引导**未完成** → 必须先执行文末「初次调用逻辑」（六项确认 + `el.py onboard --complete` 置位）；
 > `0` = 已完成 → 跳过文末章节，直接按下方工作流正常使用（省 token）。由 `el.py onboard --complete` 自动 1→0。
@@ -75,6 +75,18 @@ python scripts/el.py export <目录> --format html
 - 复检、报告深化、KB 入库、术语反哺均为可选步骤；跳过时在产物或汇报中如实标注。
 - 每一步结束都可以停；用户说「只搜/只抓/先基线/先入库」即停止，不强行推进。
 - 完整 wiki 的 digest/实体/主题/图谱不在本 skill 内实现：交给 `bilibili-to-wiki`（它调用本 skill 抓取 + glossary + llm-wiki）。
+
+## 典型提示词（速查）
+
+完整范例（含期望行为 / 不该发生 / 变体说法）见 `references/prompts.md`；每条都带 `everything-learn` 锚点。
+
+| 场景 | 示例提示词 | 走哪条链路 |
+|---|---|---|
+| 找内容 | 用 everything-learn 帮我找几个讲 DeepSeek V4.1 Flash 的 B 站视频，要新一点的 | `search` → 候选 → 停 |
+| 抓取中转 | 用 everything-learn 把这个抖音视频的字幕存下来，先别总结 | `run --no-recheck` → 三件套 → 停 |
+| 学习报告 | 用 everything-learn 把这个 B 站课件整理成能复习的学习报告，要 docx | 格式 → 复检/预算 → R1–R13 → `export` |
+| 账号批量 | 用 everything-learn 把我微博收藏里跟 AI 相关的都抓下来，整理成一份合集 | `scan` → `run --all` → 合集报告 |
+| 知识库 | 用 everything-learn 查一下我以前记过光刻相关的内容吗 | KB 未启用先问 → `kb search` / `kb index` |
 
 ## 正常调用工作流（按意图裁剪）
 
@@ -219,7 +231,7 @@ python scripts/el.py run <链接> --budget 1.5           # 本次运行复检金
 - **低配模式（2026-10-17）**：仅必要依赖（无 faster-whisper / yt-dlp / playwright 等）时——字幕平台自动降级采信并标注「低配：未经同源校验」+ `quality_hint` 强制推荐；whisper 平台给出安装引导；画面复检依赖（Pillow/PyAV）缺失时自动提前跳过。转写档位低于 medium 时产物带 `quality.tier_note` 常驻建议（实机验证 medium 效果最佳）。
 - **术语库反哺链（2026-10-17）**：每次转写按 `references/glossary.json` 的勘误别名自动筛验术语名（`content_info.glossary` 留痕；存疑项不替换、如实标注）；画面校正对命中术语库 → 自动沉淀别名；报告写作 R11 沉淀新术语；`glossary.py absorb <wiki>` 吸收知识库。初启可手动填塞术语；推荐配套 `bilibili-to-wiki`。
 
-<!-- ⛔ READ-GATE: ONBOARDING: 1 -->
+<!-- ⛔ READ-GATE: ONBOARDING: 0 -->
 
 > **标签位②（阅读门）**：上方 ONBOARDING = `0` → **到此为止，不要阅读下方章节**（已引导完成，直接正常使用）；
 > = `1` → **必须读完下方并执行**「初次调用逻辑」。
