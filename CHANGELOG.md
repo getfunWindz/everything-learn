@@ -2,6 +2,17 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本。
 
+## [Unreleased]
+
+### Added
+
+- **典型提示词范例**：`references/prompts.md` 覆盖搜索 / 抓取中转 / 报告 / 账号批量 / 知识库五个主场景，每条含 `everything-learn` 锚点、期望行为、不该发生与变体说法；SKILL.md 增加速查表，description 增加触发兜底句。
+- **用户向演示页**：独立仓库 `everything-learn-demo`（单文件离线 HTML，5 场景数据驱动重放，非本仓库内容）。
+
+### Tests
+
+- 新增 `tests/test_prompts_demo.py`：范例结构/锚点/命令真实性与文档引用校验。
+
 ## [0.4.23] - 2026-10-18
 
 ### Added

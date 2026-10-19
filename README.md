@@ -147,6 +147,18 @@ python scripts/el.py cookie zhihu        # 或 bilibili / weibo / douyin
 python scripts/el.py cookie --list       # 查看已声明导出规格的平台
 ```
 
+### 典型提示词（范例）
+
+5 个主场景的完整范例（期望行为 / 不该发生 / 变体说法）见 [`references/prompts.md`](references/prompts.md)；提示词里带 `everything-learn` 可稳定触发本技能：
+
+| 场景 | 示例 |
+|---|---|
+| 找内容 | 用 everything-learn 帮我找几个讲 DeepSeek V4.1 Flash 的 B 站视频，要新一点的 |
+| 抓取中转 | 用 everything-learn 把这个抖音视频的字幕存下来，先别总结 |
+| 学习报告 | 用 everything-learn 把这个 B 站课件整理成能复习的学习报告，要 docx |
+| 账号批量 | 用 everything-learn 把我微博收藏里跟 AI 相关的都抓下来，整理成一份合集 |
+| 知识库 | 用 everything-learn 查一下我以前记过光刻相关的内容吗 |
+
 ### 账号级扫描（scan → 合集）
 
 `scan` 枚举列表（过滤 / 优先级 / 快照），`run --all` 批量出合集报告：
